@@ -229,11 +229,38 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
     }
 
     if (ImGui::BeginMenu("帮助")) {
-        if (ImGui::MenuItem("操作说明")) SetStatus("右键拖动转视角 / WASD 移动 / 左键拾取 / F5 运行 / Ctrl+S 保存");
-        if (ImGui::MenuItem("关于 ErMao")) {
-            SetStatus("ErMao Engine v0.2 - D3D11 + Dear ImGui，GAMES104 教学引擎");
-        }
+        if (ImGui::MenuItem("快捷键与操作")) ImGui::OpenPopup("##help");
+        if (ImGui::MenuItem("关于 ErMao")) ImGui::OpenPopup("##about");
         ImGui::EndMenu();
+    }
+
+    if (ImGui::BeginPopup("##help")) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "视口 / 编辑器");
+        ImGui::BulletText("右键拖动：环视    WASD/QE：移动    Shift：加速");
+        ImGui::BulletText("左键：拾取物体    滚轮：无");
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "运行模式");
+        ImGui::BulletText("WASD 移动 / Shift 奔跑 / 空格 跳跃 / 右键拖动转视角 / 滚轮缩放");
+        ImGui::Separator();
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "文件与编辑");
+        ImGui::BulletText("Ctrl+N 新建   Ctrl+O 打开   Ctrl+S 保存");
+        ImGui::BulletText("Ctrl+D 复制   Delete 删除   F5 运行/停止");
+        ImGui::BulletText("F2 线框  F4 阴影  F11 隐藏编辑器  F12 截图");
+        ImGui::Separator();
+        if (ImGui::Button("知道了")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+    }
+
+    if (ImGui::BeginPopup("##about")) {
+        ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "ErMao Engine v0.2");
+        ImGui::Text("Windows / C++17 / D3D11 / Dear ImGui %s", IMGUI_VERSION);
+        ImGui::TextWrapped("GAMES104 教学引擎：分层架构、前向 PBR、阴影、代码优先关卡、"
+                           "反射驱动编辑器。");
+        ImGui::Separator();
+        ImGui::TextDisabled("关卡: game/ThirdPersonLevel.cpp   UI: editor/EditorUI.cpp");
+        ImGui::TextDisabled("文档: docs/00 ~ docs/06");
+        if (ImGui::Button("关闭")) ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
     }
 
     // 右侧状态
@@ -276,7 +303,7 @@ void Editor::DrawToolbar(World& world, Renderer& renderer) {
     ImGui::Checkbox("线框", &renderer.Wireframe());
 
     ImGui::SameLine(0, 18);
-    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1), "%s", m_scenePath.c_str());
+    ImGui::TextColored(ImVec4(0.55f, 0.58f, 0.63f, 1), "%s", FileSystem::FileNameOf(m_scenePath).c_str());
 
     ImGui::SameLine(ImGui::GetWindowWidth() - 230.0f);
     const auto& stats = renderer.GetStats();
