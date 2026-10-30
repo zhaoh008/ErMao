@@ -45,7 +45,7 @@ void ThirdPersonController::OnStart() {
             }
         }
     }
-    m_lastPosition = m_owner->Position();
+
     LogInfo("第三人称控制器就绪（相机: %s）", m_cameraObject ? m_cameraObject->Name().c_str() : "<未找到>");
 }
 
@@ -55,10 +55,12 @@ void ThirdPersonController::OnUpdate(float dt) {
     if (!world) return;
 
     // ------------------------------------------------ 鼠标：轨道相机
+    // 注意符号：yaw 增大时 forward = (-sin, 0, -cos) 会向左偏，
+    // 所以"鼠标右移 → 视角右转"必须是 yaw 减小。v0.2 这里写反了。
     if (g_inputEnabled && Input::IsMouseDown(1)) {
         const Vec2 delta = Input::MouseDelta();
-        yawDegrees += delta.x * mouseSensitivity;
-        pitchDegrees -= delta.y * mouseSensitivity;
+        yawDegrees -= delta.x * mouseSensitivity;
+        pitchDegrees += (invertY ? 1.0f : -1.0f) * delta.y * mouseSensitivity;
     }
     const float wheel = Input::WheelDelta();
     if (g_inputEnabled && std::fabs(wheel) > 0.001f) {
@@ -83,7 +85,14 @@ void ThirdPersonController::OnUpdate(float dt) {
     if (LengthSq(wish) > 0.0f) wish = Normalize(wish);
 
     const bool  running = g_simulated ? g_simulatedRun : Input::IsKeyDown(VK_SHIFT);
-    const bool  jumpPressed = g_simulated ? g_simulatedJump : (g_inputEnabled && Input::IsKeyDown(VK_SPACE));
+    // 跳跃要的是"边沿"：按住空格不能连续起跳（审核 P3-46）
+    bool jumpPressed = false;
+    if (g_simulated) {
+        jumpPressed = g_simulatedJump && !m_simulatedJumpPrev;
+        m_simulatedJumpPrev = g_simulatedJump;
+    } else {
+        jumpPressed = g_inputEnabled && Input::IsKeyPressed(VK_SPACE);
+    }
     const float speed = running ? runSpeed : moveSpeed;
 
     // 水平速度直接给定（教学级角色：不做加速度/摩擦模型，手感更"跟手"）
@@ -142,7 +151,7 @@ void ThirdPersonController::OnUpdate(float dt) {
     }
 
     UpdateCamera();
-    m_lastPosition = m_owner->Position();
+
 }
 
 void ThirdPersonController::ResolveCollisions() {
@@ -170,8 +179,7 @@ void ThirdPersonController::ResolveCollisions() {
             delta.y = 0.0f;
             if (LengthSq(delta) < 1e-6f) continue;
             const Vec3 normal = Normalize(delta);
-            const float penetration = radius - distance;
-            position += normal * penetration;
+            position += normal * (radius - distance);
             // 速度沿法线分量清零，避免持续"挤墙"
             const float vn = Dot(Vec3(velocity.x, 0, velocity.z), normal);
             if (vn < 0.0f) {
@@ -182,7 +190,6 @@ void ThirdPersonController::ResolveCollisions() {
     }
     m_owner->SetPosition(position);
 }
-
 void ThirdPersonController::UpdateCamera() {
     if (!m_cameraObject || !m_owner) return;
     World* world = GetWorld();
@@ -222,6 +229,7 @@ void ThirdPersonController::Describe(TypeInfo& t) {
     t.Field("cameraDistance", FieldType::Float, &ThirdPersonController::cameraDistance, "相机距离", 1.0f, 20.0f);
     t.Field("cameraHeight", FieldType::Float, &ThirdPersonController::cameraHeight, "相机高度", 0.0f, 4.0f);
     t.Field("mouseSensitivity", FieldType::Float, &ThirdPersonController::mouseSensitivity, "鼠标灵敏度", 0.01f, 1.0f);
+    t.Field("invertY", FieldType::Bool, &ThirdPersonController::invertY, "反转 Y 轴");
     t.Field("yawDegrees", FieldType::Float, &ThirdPersonController::yawDegrees, "相机偏航", -360.0f, 360.0f);
     t.Field("pitchDegrees", FieldType::Float, &ThirdPersonController::pitchDegrees, "相机俯仰", -80.0f, 80.0f);
     t.Field("grounded", FieldType::Bool, &ThirdPersonController::grounded, "着地");

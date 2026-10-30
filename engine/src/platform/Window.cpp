@@ -127,9 +127,10 @@ long long __stdcall Window::WndProcStatic(void* hwnd, unsigned int msg, unsigned
 }
 
 long long Window::HandleMessage(void* hwnd, unsigned int msg, unsigned long long wparam, long long lparam) {
-    // UI 层（ImGui）优先消费消息；它返回 false 时继续走窗口逻辑
-    if (m_callbacks.onRawMessage && m_callbacks.onRawMessage(hwnd, msg, wparam, lparam)) {
-        return 1;
+    // UI 层（ImGui）只做“观察”，不消费消息（审核 P2-16）。
+    // 这样 ImGui 返回 1 的消息也不会把窗口逻辑整段跳过。
+    if (m_callbacks.onRawMessage) {
+        m_callbacks.onRawMessage(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
         case WM_CLOSE:

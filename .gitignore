@@ -1,8 +1,10 @@
 build/
+dist/
 .vs/
 *.user
 *.log
 imgui.ini
+roundtrip-*.json
 screenshot_*.png
 .probe/
 .staging/

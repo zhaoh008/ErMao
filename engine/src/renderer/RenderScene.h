@@ -28,10 +28,21 @@ struct PointLightRender {
     float intensity = 1.0f;
 };
 
+// 世界空间血条（3D UI）：由玩法层收集，Renderer 用世界空间四边形绘制
+struct HealthBarRender {
+    Vec3  position{0, 0, 0};
+    float width = 1.2f;
+    float height = 0.14f;
+    float ratio = 1.0f;
+    float flash = 0.0f;
+    Vec4  color{1, 1, 1, 1};
+};
+
 // 一帧的渲染场景
 struct RenderScene {
     std::vector<RenderItem>       items;
     std::vector<PointLightRender> pointLights;
+    std::vector<HealthBarRender>  healthBars;
 
     Vec3  sunDirection{0.45f, 0.75f, 0.35f}; // 指向太阳
     Vec3  sunColor{1.0f, 0.95f, 0.88f};

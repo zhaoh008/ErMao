@@ -2,6 +2,7 @@
 #include "scene/World.h"
 #include "ai/Agents.h"
 #include "game/ThirdPersonController.h"
+#include "game/WaveGame.h"
 #include "animation/Animation.h"
 #include "asset/AssetManager.h"
 #include "core/FileSystem.h"
@@ -100,6 +101,10 @@ void World::Init(AssetManager* assets) {
     RegisterAgentComponents();
     Reflection::Register<AnimatorComponent>("Animator");
     Reflection::Register<ThirdPersonController>("Third Person Controller");
+    Reflection::Register<HealthComponent>("Health");
+    Reflection::Register<CombatComponent>("Combat");
+    Reflection::Register<ProjectileComponent>("Projectile");
+    Reflection::Register<EnemyComponent>("Enemy");
     LogInfo("World 初始化（已注册 %zu 种组件）", Reflection::All().size());
 }
 

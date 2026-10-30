@@ -5,6 +5,7 @@
 #include "core/Timer.h"
 
 #include <algorithm>
+#include <unordered_map>
 
 namespace erm {
 
@@ -306,6 +307,55 @@ void Renderer::DrawBatches(ID3D11DeviceContext* ctx) {
     }
 }
 
+ID3D11ShaderResourceView* Renderer::GetMeshThumbnail(const Mesh* mesh) {
+    if (!mesh || !mesh->IsValid()) return nullptr;
+
+    auto cached = m_thumbnails.find(mesh->Id());
+    if (cached != m_thumbnails.end()) return cached->second->ColorSRV();
+
+    auto target = MakeScope<RenderTarget>();
+    const u32 size = 128;
+    if (!target->Create(m_device->GetDevice(), size, size, DXGI_FORMAT_R8G8B8A8_UNORM, true)) return nullptr;
+
+    // 用网格包围球决定相机距离，保证不同尺寸的资产都填满画面
+    const AABB& bounds = mesh->Bounds();
+    const float radius = (std::max)(Length(bounds.Extents()), 0.05f);
+    const Vec3  center = bounds.Center();
+    const float distance = radius * 3.0f;
+
+    Camera camera;
+    camera.position = center + Vec3(1.0f, 0.62f, 1.35f) * distance;
+    const Vec3 forward = Normalize(center - camera.position);
+    camera.pitch = std::asin(Clamp(forward.y, -1.0f, 1.0f));
+    camera.yaw = std::atan2(-forward.x, -forward.z);
+    camera.fovY = ToRadians(38.0f);
+    camera.aspect = 1.0f;
+    camera.nearZ = 0.01f;
+    camera.farZ = distance * 8.0f;
+
+    RenderScene scene;
+    RenderItem  item;
+    item.mesh = const_cast<Mesh*>(mesh);
+    item.world = Mat4::Translation(-center);
+    item.albedo = Vec4(0.72f, 0.74f, 0.80f, 1.0f);
+    item.roughness = 0.45f;
+    item.metallic = 0.05f;
+    scene.items.push_back(item);
+    scene.sunDirection = Normalize(Vec3(0.45f, 0.85f, 0.30f));
+    scene.sunIntensity = 2.6f;
+    scene.ambientUp = Vec3(0.26f, 0.30f, 0.38f);
+    scene.ambientDown = Vec3(0.08f, 0.08f, 0.09f);
+    scene.ambientIntensity = 0.9f;
+
+    const Stats savedStats = m_stats; // 缩略图渲染不能污染主画面统计
+    RenderInternal(camera, scene, 0.0f, false, target->RTV(), size, size);
+    m_stats = savedStats;
+
+    ID3D11ShaderResourceView* srv = target->ColorSRV();
+    m_thumbnails.emplace(mesh->Id(), std::move(target));
+    return srv;
+}
+
 void Renderer::UpdateGpuTiming(ID3D11DeviceContext* ctx, bool begin) {
     if (!m_queryDisjoint) return;
 
@@ -327,11 +377,13 @@ void Renderer::UpdateGpuTiming(ID3D11DeviceContext* ctx, bool begin) {
         if (!m_queryPending) {
             ctx->Begin(m_queryDisjoint);
             ctx->End(m_queryStart);
-            m_queryPending = true;
+            m_queryActiveThisFrame = true; // 只有本帧 Begin 过，End 才成对出现
         }
-    } else if (m_queryPending) {
+    } else if (m_queryActiveThisFrame) {
         ctx->End(m_queryEnd);
         ctx->End(m_queryDisjoint); // 必须闭合 disjoint，否则 GetData 永远 S_FALSE
+        m_queryActiveThisFrame = false;
+        m_queryPending = true;
     }
 }
 
@@ -390,6 +442,7 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
     SkyPass(ctx);
     OpaquePass(ctx, wireframe);
     DebugPass(ctx);
+    // 3D UI：世界空间血条（不写深度，但被几何遮挡）
 
     const double t2 = Timer::Now();
 

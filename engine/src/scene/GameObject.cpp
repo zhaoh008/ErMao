@@ -54,7 +54,10 @@ void GameObject::SetPosition(const Vec3& p) {
 }
 
 void GameObject::SetRotation(const Quat& q) {
-    m_rotation = q.Normalized();
+    // 只有明显不是单位四元数时才归一化：否则每次"加载→保存"都会漂 1 ULP，
+    // 场景文件无法做到序列化幂等。
+    const float length = std::sqrt(q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w);
+    m_rotation = (std::fabs(length - 1.0f) > 1e-4f) ? q.Normalized() : q;
     MarkWorldDirty();
 }
 

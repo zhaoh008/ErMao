@@ -1,6 +1,7 @@
 // ErMao Engine - ImGui 集成层实现
 #include "editor/ImGuiLayer.h"
 #include "core/Log.h"
+#include "core/FileSystem.h"
 #include "platform/Window.h"
 
 #include <windows.h>
@@ -29,12 +30,16 @@ bool ImGuiLayer::Init(Window& window, void* d3dDevice, void* d3dContext) {
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
     io.ConfigWindowsMoveFromTitleBarOnly = true;
-    io.IniFilename = "imgui.ini";
+
 
     HWND hwnd = static_cast<HWND>(window.NativeHandle());
     m_dpiScale = static_cast<float>(GetDpiForWindow(hwnd)) / 96.0f;
     if (m_dpiScale < 1.0f) m_dpiScale = 1.0f;
     m_fontSize = 16.0f * m_dpiScale;
+
+    // ini 放在 exe 旁边，避免从不同 CWD 启动时到处生成 imgui.ini（审核 P3-36）
+    static std::string iniPath = FileSystem::Join(FileSystem::ExecutableDir(), "imgui.ini");
+    io.IniFilename = iniPath.c_str();
 
     ApplyStyle(m_dpiScale);
     if (!LoadFonts(m_dpiScale)) {
@@ -123,23 +128,26 @@ void ImGuiLayer::ApplyStyle(float scale) {
 
 bool ImGuiLayer::LoadFonts(float scale) {
     ImGuiIO& io = ImGui::GetIO();
-    const char* candidates[] = {
-        "C:/Windows/Fonts/msyh.ttc",   // 微软雅黑
-        "C:/Windows/Fonts/msyh.ttf",
-        "C:/Windows/Fonts/simhei.ttf", // 黑体
-        "C:/Windows/Fonts/segoeui.ttf",
+    wchar_t windowsDir[MAX_PATH]{};
+    GetWindowsDirectoryW(windowsDir, MAX_PATH);
+    const std::string fontDir = FileSystem::WideToUtf8(windowsDir) + "\\Fonts\\";
+    const std::string candidates[] = {
+        fontDir + "msyh.ttc",   // 微软雅黑
+        fontDir + "msyh.ttf",
+        fontDir + "simhei.ttf", // 黑体
+        fontDir + "segoeui.ttf",
     };
 
-    for (const char* path : candidates) {
-        if (!FileExists(path)) continue;
+    for (const std::string& path : candidates) {
+        if (!FileExists(path.c_str())) continue;
         ImFontConfig cfg;
         cfg.OversampleH = 2;
         cfg.OversampleV = 2;
         cfg.PixelSnapH = true;
-        ImFont* font = io.Fonts->AddFontFromFileTTF(path, m_fontSize, &cfg,
+        ImFont* font = io.Fonts->AddFontFromFileTTF(path.c_str(), m_fontSize, &cfg,
                                                     io.Fonts->GetGlyphRangesChineseSimplifiedCommon());
         if (font) {
-            LogInfo("UI 字体: %s (%.1fpx)", path, m_fontSize);
+            LogInfo("UI 字体: %s (%.1fpx)", path.c_str(), m_fontSize);
             return true;
         }
     }

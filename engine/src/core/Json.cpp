@@ -2,6 +2,7 @@
 #include "core/Json.h"
 
 #include <cctype>
+#include <charconv>
 #include <cstdio>
 #include <cstdlib>
 
@@ -138,9 +139,26 @@ void NumberToString(std::string& out, double v) {
     char buf[64];
     if (v == static_cast<double>(static_cast<long long>(v)) && std::fabs(v) < 1e15) {
         std::snprintf(buf, sizeof(buf), "%lld", static_cast<long long>(v));
-    } else {
-        std::snprintf(buf, sizeof(buf), "%.6g", v);
+        out += buf;
+        return;
     }
+
+    // 用最短可往返表示（C++17 to_chars）：
+    // 场景里的数值都是 float，按 float 打印能保证 float -> 文本 -> float 完全一致，
+    // 同时避免 "0.30000000000000004" 这类噪音。
+    const float f = static_cast<float>(v);
+    std::to_chars_result res;
+    if (static_cast<double>(f) == v) {
+        res = std::to_chars(buf, buf + sizeof(buf) - 1, f);
+    } else {
+        res = std::to_chars(buf, buf + sizeof(buf) - 1, v);
+    }
+    if (res.ec == std::errc()) {
+        *res.ptr = '\0';
+        out += buf;
+        return;
+    }
+    std::snprintf(buf, sizeof(buf), "%.9g", v);
     out += buf;
 }
 } // namespace
@@ -295,7 +313,9 @@ private:
             m_error = ErrorAt("invalid number");
             return false;
         }
-        out = JsonValue(std::strtod(m_text.substr(start, m_pos - start).c_str(), nullptr));
+                // 场景数值都是 float：用 strtof 保证正确舍入到 float（strtod + 窄化可能差 1 ULP）
+        const std::string text = m_text.substr(start, m_pos - start);
+        out = JsonValue(static_cast<double>(std::strtof(text.c_str(), nullptr)));
         return true;
     }
 

@@ -1,0 +1,6 @@
+ErMao vendored Dear ImGui (docking branch)
+upstream: https://github.com/ocornut/imgui
+commit:   83ccc61 (2026-10-27)
+version:  1.93.1 WIP
+files kept: core sources + imgui_demo.cpp + backends/imgui_impl_win32 + backends/imgui_impl_dx11
+reason: only the Win32/DX11 backend and the demo window are compiled; examples/misc/docs removed to keep the repo small.

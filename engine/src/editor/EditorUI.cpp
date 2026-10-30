@@ -9,6 +9,7 @@
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
 #include "platform/FileDialog.h"
+#include "runtime/Packager.h"
 #include "platform/Input.h"
 #include "renderer/Camera.h"
 #include "renderer/Renderer.h"
@@ -63,6 +64,13 @@ void Editor::Init(ImGuiLayer* imguiLayer) {
     LogInfo("编辑器初始化（Dear ImGui）");
 }
 
+void Editor::Shutdown() {
+    m_selected = nullptr;
+    m_selectedId = 0;
+    m_snapshot.clear();
+    m_layoutInitialized = false;
+}
+
 void Editor::SetStatus(const std::string& text, bool error) {
     m_statusMessage = text;
     m_statusIsError = error;
@@ -82,7 +90,23 @@ void Editor::Select(GameObject* object) {
 void Editor::Play() {
     m_playing = true;
     m_paused = false;
+}
+
+void Editor::EnterPlayMode(World& world) {
+    m_snapshot = world.ToJson().Dump();
+    Play();
     SetStatus("Play：已保存场景快照，Stop 时回滚");
+}
+
+void Editor::ExitPlayMode(World& world) {
+    Stop();
+    if (!m_snapshot.empty()) {
+        std::string error;
+        JsonValue root = JsonValue::Parse(m_snapshot, &error);
+        if (error.empty()) world.FromJson(root);
+    }
+    Select(nullptr);
+    SetStatus("已停止并回滚场景");
 }
 
 void Editor::Pause() {
@@ -108,7 +132,7 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
     if (m_showViewport) DrawViewport(world, renderer, editorCamera, renderViewport);
     if (m_showOutliner) DrawOutliner(world);
     if (m_showInspector) DrawInspector(world, assets);
-    if (m_showAssets) DrawAssets(world, assets, editorCamera);
+    if (m_showAssets) DrawAssets(world, assets, renderer, editorCamera);
     if (m_showConsole) DrawConsole();
     if (m_showStats) DrawStats(world, renderer);
     if (m_showSettings) DrawSettings(world, renderer);
@@ -180,6 +204,18 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
         ImGui::Separator();
         if (ImGui::MenuItem("导入模型 (OBJ)...")) ImportModel(world, assets, editorCamera);
         if (ImGui::MenuItem("导入贴图...")) ImportTexture(assets);
+        ImGui::Separator();
+        if (ImGui::BeginMenu("打包")) {
+            if (ImGui::MenuItem("打包 Windows")) {
+                const PackageResult result = Packager::PackageWindows();
+                SetStatus(result.message, !result.success);
+            }
+            if (ImGui::MenuItem("打包 Linux（源码包）")) {
+                const PackageResult result = Packager::PackageLinuxSource();
+                SetStatus(result.message, !result.success);
+            }
+            ImGui::EndMenu();
+        }
         ImGui::Separator();
         if (ImGui::MenuItem("退出", "Alt+F4")) m_wantsExit = true;
         ImGui::EndMenu();
@@ -274,17 +310,9 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
 void Editor::DrawToolbar(World& world, Renderer& renderer) {
     if (ImGui::Button(m_playing ? "停止" : "运行", ImVec2(64, 26))) {
         if (m_playing) {
-            Stop();
-            if (!m_snapshot.empty()) {
-                std::string error;
-                JsonValue root = JsonValue::Parse(m_snapshot, &error);
-                if (error.empty()) world.FromJson(root);
-            }
-            Select(nullptr);
-            SetStatus("已停止并回滚场景");
+            ExitPlayMode(world);
         } else {
-            m_snapshot = world.ToJson().Dump();
-            Play();
+            EnterPlayMode(world);
         }
     }
     ImGui::SameLine();
@@ -332,6 +360,8 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
             ImGui::Image(texture, avail, ImVec2(0, 0), ImVec2(1, 1));
 
             const ImVec2 imageMin = ImGui::GetItemRectMin();
+            m_viewportMinX = imageMin.x;
+            m_viewportMinY = imageMin.y;
             m_viewportHovered = ImGui::IsItemHovered();
 
             // ---- 编辑器相机：右键旋转 + WASD 平移
@@ -355,8 +385,14 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
                 if (LengthSq(move) > 0.0f) editorCamera.position += Normalize(move) * speed;
             }
 
+            // ---- 位移 gizmo（先于拾取，避免拖拽轴时改选中）
+            if (!m_playing && m_gizmoEnabled && m_selected && m_viewportHovered) {
+                DrawGizmo(world, editorCamera, imageMin,
+                          ImVec2(static_cast<float>(m_viewportWidth), static_cast<float>(m_viewportHeight)));
+            }
+
             // ---- 点击拾取
-            if (!m_playing && m_viewportHovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            if (!m_playing && m_viewportHovered && m_gizmoAxis < 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
                 !ImGui::IsMouseDragging(ImGuiMouseButton_Left, 2.0f)) {
                 const ImVec2 mouse = ImGui::GetIO().MousePos;
                 PickObject(world, editorCamera, ImVec2(mouse.x - imageMin.x, mouse.y - imageMin.y),
@@ -657,7 +693,7 @@ bool Editor::DrawField(const FieldDesc& field, void* object, AssetManager& asset
     return changed;
 }
 
-void Editor::DrawAssets(World& world, AssetManager& assets, Camera& editorCamera) {
+void Editor::DrawAssets(World& world, AssetManager& assets, Renderer& renderer, Camera& editorCamera) {
     if (!ImGui::Begin("资源浏览器", &m_showAssets)) {
         ImGui::End();
         return;
@@ -671,93 +707,141 @@ void Editor::DrawAssets(World& world, AssetManager& assets, Camera& editorCamera
         assets.Refresh();
         SetStatus("资源列表已刷新");
     }
-
+    ImGui::SameLine();
     ImGui::SetNextItemWidth(-1);
     ImGui::InputTextWithHint("##assetfilter", "搜索资源…", m_assetFilterBuffer, sizeof(m_assetFilterBuffer));
     m_assetFilter = m_assetFilterBuffer;
 
     ImGui::Separator();
-    if (ImGui::BeginChild("##assetlist", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.55f), true)) {
-        if (ImGui::BeginTable("##assets", 3, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV)) {
-            ImGui::TableSetupColumn("名称", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableSetupColumn("类型", ImGuiTableColumnFlags_WidthFixed, 70);
-            ImGui::TableSetupColumn("信息", ImGuiTableColumnFlags_WidthFixed, 110);
-            ImGui::TableHeadersRow();
 
-            const auto& list = assets.Assets();
+    // 左：分类；右：缩略图网格（Unity 风格）
+    const float categoryWidth = 86.0f;
+    ImGui::BeginChild("##assetCategories", ImVec2(categoryWidth, 0), true);
+    const char* categories[] = {"全部", "模型", "贴图", "场景"};
+    for (int i = 0; i < 4; ++i) {
+        if (ImGui::Selectable(categories[i], m_assetCategory == i)) m_assetCategory = i;
+    }
+    ImGui::Separator();
+    ImGui::TextDisabled("%zu 项", assets.Assets().size());
+    ImGui::EndChild();
+
+    ImGui::SameLine();
+    ImGui::BeginChild("##assetGrid", ImVec2(0, ImGui::GetContentRegionAvail().y * 0.66f), true);
+    {
+        const auto& list = assets.Assets();
+        const float tile = 104.0f;
+        const float avail = ImGui::GetContentRegionAvail().x;
+        int columns = static_cast<int>(avail / (tile + 16.0f));
+        if (columns < 1) columns = 1;
+
+        if (ImGui::BeginTable("##assetTiles", columns, ImGuiTableFlags_SizingStretchSame)) {
             for (int i = 0; i < static_cast<int>(list.size()); ++i) {
                 const auto& asset = list[i];
+                if (m_assetCategory == 1 && asset.type != AssetManager::AssetType::Mesh) continue;
+                if (m_assetCategory == 2 && asset.type != AssetManager::AssetType::Texture) continue;
+                if (m_assetCategory == 3 && asset.type != AssetManager::AssetType::Scene) continue;
                 if (!m_assetFilter.empty() && asset.name.find(m_assetFilter) == std::string::npos) continue;
 
-                ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::PushID(i);
-                const bool selected = (m_selectedAsset == i);
-                if (ImGui::Selectable(asset.name.c_str(), selected, ImGuiSelectableFlags_SpanAllColumns)) {
-                    m_selectedAsset = i;
+                ImGui::BeginGroup();
+
+                ID3D11ShaderResourceView* srv = nullptr;
+                if (asset.type == AssetManager::AssetType::Mesh) {
+                    srv = renderer.GetMeshThumbnail(assets.GetMesh(asset.name));
+                } else if (asset.type == AssetManager::AssetType::Texture) {
+                    srv = renderer.GetTextureThumbnail(assets.GetTexture(asset.name));
                 }
+
+                const bool selected = (m_selectedAsset == i);
+                if (srv) {
+                    ImVec2 cursor = ImGui::GetCursorScreenPos();
+                    ImGui::Image(static_cast<ImTextureID>(reinterpret_cast<intptr_t>(srv)), ImVec2(tile, tile));
+                    // 选中/悬停描边
+                    if (selected) {
+                        ImGui::GetWindowDrawList()->AddRect(cursor, ImVec2(cursor.x + tile, cursor.y + tile),
+                                                            IM_COL32(240, 190, 80, 255), 4.0f, 0, 2.5f);
+                    }
+                    if (ImGui::IsItemHovered()) {
+                        ImGui::GetWindowDrawList()->AddRect(cursor, ImVec2(cursor.x + tile, cursor.y + tile),
+                                                            IM_COL32(255, 255, 255, 120), 4.0f, 0, 1.5f);
+                    }
+                } else {
+                    // 场景等无预览资产：用按钮占位
+                    ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.18f, 0.22f, 1.0f));
+                    ImGui::Button(asset.type == AssetManager::AssetType::Scene ? "场景" : "?", ImVec2(tile, tile));
+                    ImGui::PopStyleColor();
+                }
+
+                if (ImGui::IsItemClicked()) m_selectedAsset = i;
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (asset.type == AssetManager::AssetType::Mesh) {
                         SpawnMeshObject(world, asset.name);
                         SetStatus("已实例化资源: " + asset.name);
                     } else if (asset.type == AssetManager::AssetType::Scene) {
-                        if (world.LoadFromFile(asset.sourcePath)) SetStatus("场景已加载: " + asset.name, false);
+                        if (world.LoadFromFile(asset.sourcePath)) SetStatus("场景已加载: " + asset.name);
                     } else if (asset.type == AssetManager::AssetType::Texture) {
-                        if (m_selected) {
-                            if (auto* renderer = m_selected->GetComponent<MeshRenderer>()) {
-                                renderer->texture = asset.name;
-                                SetStatus("已把贴图赋给选中对象: " + asset.name);
-                            }
+                        if (m_selected && m_selected->GetComponent<MeshRenderer>()) {
+                            m_selected->GetComponent<MeshRenderer>()->texture = asset.name;
+                            SetStatus("已把贴图赋给选中对象: " + asset.name);
                         }
                     }
                 }
-                ImGui::PopID();
-
-                ImGui::TableNextColumn();
-                const char* typeName = asset.type == AssetManager::AssetType::Mesh      ? "网格"
-                                       : asset.type == AssetManager::AssetType::Texture ? "贴图"
-                                                                                        : "场景";
-                ImGui::TextDisabled("%s", typeName);
-
-                ImGui::TableNextColumn();
-                if (asset.type == AssetManager::AssetType::Mesh) {
-                    ImGui::Text("%u 面", asset.indexCount / 3);
-                } else if (asset.builtin) {
-                    ImGui::TextDisabled("内置");
-                } else {
-                    ImGui::TextDisabled("导入");
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s\n%s", asset.name.c_str(),
+                                      asset.type == AssetManager::AssetType::Mesh      ? "模型"
+                                      : asset.type == AssetManager::AssetType::Texture ? "贴图"
+                                                                                       : "场景");
                 }
+
+                // 文件名（过长截断）
+                std::string label = FileSystem::FileNameOf(asset.name);
+                if (label.size() > 14) label = label.substr(0, 13) + "…";
+                ImGui::TextWrapped("%s", label.c_str());
+
+                ImGui::EndGroup();
+                ImGui::PopID();
             }
             ImGui::EndTable();
         }
+        if (list.empty()) ImGui::TextDisabled("还没有资源，点上方“导入模型”。");
     }
     ImGui::EndChild();
 
+    // 详情
     ImGui::Separator();
-    if (m_selectedAsset >= 0 && m_selectedAsset < static_cast<int>(assets.Assets().size())) {
-        const auto& asset = assets.Assets()[m_selectedAsset];
-        ImGui::Text("名称: %s", asset.name.c_str());
-        ImGui::Text("类型: %s", asset.type == AssetManager::AssetType::Mesh      ? "网格"
-                                : asset.type == AssetManager::AssetType::Texture ? "贴图"
-                                                                                 : "场景");
-        if (!asset.sourcePath.empty()) ImGui::TextWrapped("路径: %s", asset.sourcePath.c_str());
+    const auto& list = assets.Assets();
+    if (m_selectedAsset >= 0 && m_selectedAsset < static_cast<int>(list.size())) {
+        const auto& asset = list[m_selectedAsset];
+        ImGui::Text("%s", asset.name.c_str());
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.6f, 0.63f, 0.68f, 1), "[%s]",
+                           asset.type == AssetManager::AssetType::Mesh      ? "模型"
+                           : asset.type == AssetManager::AssetType::Texture ? "贴图"
+                                                                            : "场景");
         if (asset.type == AssetManager::AssetType::Mesh) {
             ImGui::Text("顶点 %u / 索引 %u", asset.vertexCount, asset.indexCount);
-            if (ImGui::Button("放入场景")) SpawnMeshObject(world, asset.name);
+        }
+        if (!asset.sourcePath.empty()) ImGui::TextDisabled("%s", asset.sourcePath.c_str());
+        if (asset.type == AssetManager::AssetType::Mesh && ImGui::Button("放入场景")) {
+            SpawnMeshObject(world, asset.name);
+        }
+        if (asset.type == AssetManager::AssetType::Texture && m_selected) {
             ImGui::SameLine();
-            if (m_selected) {
-                if (ImGui::Button("赋给选中对象")) {
-                    if (auto* renderer = m_selected->GetComponent<MeshRenderer>()) renderer->mesh = asset.name;
-                }
+            if (ImGui::Button("赋给选中对象")) {
+                if (auto* renderer2 = m_selected->GetComponent<MeshRenderer>()) renderer2->texture = asset.name;
             }
         }
+        if (asset.type == AssetManager::AssetType::Scene && ImGui::Button("加载场景")) {
+            if (world.LoadFromFile(asset.sourcePath)) SetStatus("场景已加载: " + asset.name);
+        }
     } else {
-        ImGui::TextDisabled("选择一个资源查看详情；双击网格可放入场景。");
+        ImGui::TextDisabled("选择资源查看详情；双击模型放入场景。");
     }
 
     ImGui::End();
+    (void)renderer;
 }
-
 void Editor::DrawConsole() {
     if (!ImGui::Begin("控制台", &m_showConsole)) {
         ImGui::End();
@@ -953,6 +1037,105 @@ void Editor::DuplicateSelected(World& world) {
     SetStatus("已复制对象");
 }
 
+void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewportMin, const ImVec2& viewportSize) {
+    (void)world;
+    if (!m_selected) return;
+
+    const Vec3  origin = m_selected->WorldPosition();
+    const float distance = Length(editorCamera.position - origin);
+    const float axisLength = Clamp(distance * 0.16f, 0.35f, 6.0f);
+
+    const Vec3 axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const ImU32 colors[3] = {IM_COL32(232, 78, 78, 255), IM_COL32(96, 208, 96, 255), IM_COL32(88, 140, 240, 255)};
+
+    auto project = [&](const Vec3& worldPos, ImVec2& out) -> bool {
+        Vec2 screen;
+        if (!editorCamera.WorldToScreen(worldPos, Vec2(viewportSize.x, viewportSize.y), screen)) return false;
+        out = ImVec2(viewportMin.x + screen.x, viewportMin.y + screen.y);
+        return true;
+    };
+
+    ImVec2 screenOrigin;
+    if (!project(origin, screenOrigin)) return;
+
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    // 命中测试：鼠标到线段的屏幕距离
+    int hoveredAxis = -1;
+    float bestDistance = 10.0f;
+    ImVec2 axisEnds[3];
+    bool   axisValid[3] = {false, false, false};
+    for (int i = 0; i < 3; ++i) {
+        axisValid[i] = project(origin + axes[i] * axisLength, axisEnds[i]);
+        if (!axisValid[i]) continue;
+        const ImVec2 a = screenOrigin;
+        const ImVec2 b = axisEnds[i];
+        const ImVec2 ab(b.x - a.x, b.y - a.y);
+        const float  lengthSq = ab.x * ab.x + ab.y * ab.y;
+        if (lengthSq < 1.0f) continue;
+        float t = ((mouse.x - a.x) * ab.x + (mouse.y - a.y) * ab.y) / lengthSq;
+        t = Clamp(t, 0.0f, 1.0f);
+        const ImVec2 closest(a.x + ab.x * t, a.y + ab.y * t);
+        const float  dist = std::sqrt((mouse.x - closest.x) * (mouse.x - closest.x) +
+                                      (mouse.y - closest.y) * (mouse.y - closest.y));
+        if (dist < bestDistance) {
+            bestDistance = dist;
+            hoveredAxis = i;
+        }
+    }
+
+    // 开始拖拽
+    if (m_gizmoAxis < 0 && hoveredAxis >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+        m_gizmoAxis = hoveredAxis;
+        m_gizmoStartMouseX = mouse.x;
+        m_gizmoStartMouseY = mouse.y;
+        m_gizmoStartPosition = m_selected->Position();
+        const ImVec2 ab(axisEnds[hoveredAxis].x - screenOrigin.x, axisEnds[hoveredAxis].y - screenOrigin.y);
+        const float  length = std::sqrt(ab.x * ab.x + ab.y * ab.y);
+        if (length > 2.0f) {
+            m_gizmoAxisScreenX = ab.x / length;
+            m_gizmoAxisScreenY = ab.y / length;
+            m_gizmoWorldPerPixel = axisLength / length;
+        } else {
+            m_gizmoAxis = -1;
+        }
+    }
+
+    // 拖拽中
+    if (m_gizmoAxis >= 0) {
+        if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+            const float along = (mouse.x - m_gizmoStartMouseX) * m_gizmoAxisScreenX +
+                                (mouse.y - m_gizmoStartMouseY) * m_gizmoAxisScreenY;
+            Vec3 position = m_gizmoStartPosition + axes[m_gizmoAxis] * (along * m_gizmoWorldPerPixel);
+            m_selected->SetPosition(position);
+        } else {
+            m_gizmoAxis = -1;
+        }
+    }
+
+    // 绘制
+    if (m_gizmoAxis >= 0) hoveredAxis = m_gizmoAxis;
+    for (int i = 0; i < 3; ++i) {
+        if (!axisValid[i]) continue;
+        const bool active = (i == hoveredAxis);
+        draw->AddLine(screenOrigin, axisEnds[i], colors[i], active ? 4.0f : 2.5f);
+        draw->AddCircleFilled(axisEnds[i], active ? 6.0f : 4.5f, colors[i]);
+    }
+    draw->AddCircleFilled(screenOrigin, 3.5f, IM_COL32(240, 240, 240, 220));
+}
+
+void Editor::FocusSelected(World& world, Camera& editorCamera) {
+    if (!m_selected) return;
+    AABB bounds;
+    if (!world.GetObjectBounds(m_selected, bounds)) {
+        bounds = AABB::FromCenterExtents(m_selected->WorldPosition(), Vec3(1.0f));
+    }
+    const Vec3  center = bounds.Center();
+    const float radius = (std::max)(Length(bounds.Extents()), 0.5f);
+    const float distance = radius / std::tan(editorCamera.fovY * 0.5f) * 1.7f;
+    editorCamera.position = center - editorCamera.Forward() * distance;
+}
 void Editor::PickObject(World& world, Camera& camera, const ImVec2& viewportPos, const ImVec2& viewportSize) {
     if (viewportSize.x <= 0 || viewportSize.y <= 0) return;
     const Ray ray = camera.ScreenToRay(Vec2(viewportPos.x, viewportPos.y), Vec2(viewportSize.x, viewportSize.y));
@@ -1066,20 +1249,16 @@ void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N)) NewScene(world);
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_D)) DuplicateSelected(world);
     if (ImGui::IsKeyPressed(ImGuiKey_Delete)) DeleteSelected(world);
+    if (!io.WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F) && m_selected) {
+        FocusSelected(world, editorCamera);
+        SetStatus("聚焦: " + m_selected->Name());
+    }
 
     if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
         if (m_playing) {
-            Stop();
-            if (!m_snapshot.empty()) {
-                std::string error;
-                JsonValue root = JsonValue::Parse(m_snapshot, &error);
-                if (error.empty()) world.FromJson(root);
-            }
-            Select(nullptr);
-            SetStatus("已停止并回滚场景");
+            ExitPlayMode(world);
         } else {
-            m_snapshot = world.ToJson().Dump();
-            Play();
+            EnterPlayMode(world);
         }
     }
 }

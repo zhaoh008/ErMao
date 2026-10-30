@@ -23,6 +23,7 @@ public:
     float turnSpeed = 14.0f;
     float radius = 0.4f;
     float height = 1.8f;
+    float stepHeight = 0.45f; // 可直接迈上的台阶高度
 
     std::string cameraName = "主相机";
     float cameraDistance = 5.8f;
@@ -30,6 +31,7 @@ public:
     float cameraMaxDistance = 9.0f;
     float cameraHeight = 1.35f;
     float mouseSensitivity = 0.16f;
+    bool  invertY = false; // 反转俯仰（默认：鼠标下移 = 视角下压）
     float minPitch = -55.0f;
     float maxPitch = 35.0f;
 
@@ -56,7 +58,7 @@ private:
 
     GameObject* m_cameraObject = nullptr;
     float       m_verticalVelocity = 0.0f;
-    Vec3        m_lastPosition{0, 0, 0};
+    bool        m_simulatedJumpPrev = false;
 };
 
 } // namespace erm

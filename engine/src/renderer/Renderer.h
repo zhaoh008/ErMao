@@ -49,6 +49,11 @@ public:
                           bool wireframe = false);
 
     ID3D11ShaderResourceView* ViewportTexture() const { return m_viewportTarget.ColorSRV(); }
+    // 资源浏览器缩略图：首次调用时把网格渲染到 128² RT 并缓存
+    ID3D11ShaderResourceView* GetMeshThumbnail(const Mesh* mesh);
+    ID3D11ShaderResourceView* GetTextureThumbnail(const Texture* texture) {
+        return texture ? texture->SRV() : nullptr;
+    }
     u32 ViewportWidth() const { return m_viewportWidth; }
     u32 ViewportHeight() const { return m_viewportHeight; }
     void SetWindowSize(u32 width, u32 height) {
@@ -144,6 +149,7 @@ private:
     ConstantBuffer<PostCB>        m_postParams;
 
     RenderTarget m_sceneTarget;   // HDR RGBA16F + 深度（与当前输出同尺寸）
+    std::unordered_map<u32, Scope<RenderTarget>> m_thumbnails; // meshId -> 128² 缩略图
     RenderTarget m_viewportTarget; // LDR RGBA8，供编辑器 ImGui::Image 使用
     DepthTarget  m_shadowMap;
 
@@ -164,7 +170,8 @@ private:
     ID3D11Query* m_queryDisjoint = nullptr;
     ID3D11Query* m_queryStart = nullptr;
     ID3D11Query* m_queryEnd = nullptr;
-    bool         m_queryPending = false;
+    bool         m_queryPending = false;     // 数据已写入、等下一帧读取
+    bool         m_queryActiveThisFrame = false; // 本帧 Begin 过，End 必须成对
 
     u32   m_shadowSize = 2048;
     bool  m_shadowsEnabled = true;

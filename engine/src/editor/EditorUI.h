@@ -8,6 +8,7 @@
 #pragma once
 
 #include "core/Json.h"
+#include "core/Math.h"
 #include "core/Types.h"
 #include "editor/ImGuiLayer.h"
 
@@ -29,12 +30,17 @@ public:
     using ViewportRenderer = std::function<void(const Camera& camera, u32 width, u32 height)>;
 
     void Init(ImGuiLayer* imguiLayer);
+    void Shutdown();
     void Draw(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera,
               const ViewportRenderer& renderViewport, float dt);
 
     bool IsPlaying() const { return m_playing; }
     bool IsPaused() const { return m_paused; }
     bool ViewportHovered() const { return m_viewportHovered; }
+    float ViewportMinX() const { return m_viewportMinX; }
+    float ViewportMinY() const { return m_viewportMinY; }
+    u32   ViewportWidthPx() const { return m_viewportWidth; }
+    u32   ViewportHeightPx() const { return m_viewportHeight; }
     bool WantsExit() const { return m_wantsExit; }
     void ClearExitRequest() { m_wantsExit = false; }
 
@@ -42,6 +48,8 @@ public:
     void        Select(GameObject* object);
 
     void Play();
+    void EnterPlayMode(World& world);
+    void ExitPlayMode(World& world);
     void Pause();
     void Stop();
 
@@ -54,7 +62,7 @@ private:
     void DrawViewport(World& world, Renderer& renderer, Camera& editorCamera, const ViewportRenderer& renderViewport);
     void DrawOutliner(World& world);
     void DrawInspector(World& world, AssetManager& assets);
-    void DrawAssets(World& world, AssetManager& assets, Camera& editorCamera);
+    void DrawAssets(World& world, AssetManager& assets, Renderer& renderer, Camera& editorCamera);
     void DrawConsole();
     void DrawStats(World& world, Renderer& renderer);
     void DrawSettings(World& world, Renderer& renderer);
@@ -66,6 +74,8 @@ private:
     bool DrawField(const FieldDesc& field, void* object, AssetManager& assets);
 
     void HandleShortcuts(World& world, Camera& editorCamera);
+    void DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewportMin, const ImVec2& viewportSize);
+    void FocusSelected(World& world, Camera& editorCamera);
     void PickObject(World& world, Camera& editorCamera, const ImVec2& viewportPos, const ImVec2& viewportSize);
     void ImportModel(World& world, AssetManager& assets, Camera& editorCamera);
     void ImportTexture(AssetManager& assets);
@@ -107,6 +117,7 @@ private:
     std::string m_assetFilter;
     char        m_assetFilterBuffer[128] = {};
     int         m_selectedAsset = -1;
+    int         m_assetCategory = 0; // 0=全部 1=模型 2=贴图 3=场景
 
     // 控制台状态
     bool m_consoleInfo = true;
@@ -121,9 +132,21 @@ private:
     float m_benchSerial = 0.0f;
     float m_benchParallel = 0.0f;
 
+    // 位移 gizmo
+    bool   m_gizmoEnabled = true;
+    int    m_gizmoAxis = -1;      // 0/1/2 = X/Y/Z，-1 未拖拽
+    float  m_gizmoStartMouseX = 0.0f;
+    float  m_gizmoStartMouseY = 0.0f;
+    Vec3   m_gizmoStartPosition{0, 0, 0};
+    float  m_gizmoAxisScreenX = 0.0f;
+    float  m_gizmoAxisScreenY = 0.0f;
+    float  m_gizmoWorldPerPixel = 0.01f;
+
     // 视口信息
-    u32 m_viewportWidth = 0;
-    u32 m_viewportHeight = 0;
+    u32   m_viewportWidth = 0;
+    u32   m_viewportHeight = 0;
+    float m_viewportMinX = 0.0f;
+    float m_viewportMinY = 0.0f;
 };
 
 } // namespace erm

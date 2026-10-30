@@ -9,9 +9,12 @@
 #include "physics/PhysicsWorld.h"
 #include "platform/Input.h"
 #include "rhi/Screenshot.h"
+#include "runtime/Packager.h"
 #include "scene/Components.h"
 
 #include <windows.h>
+
+#include <imgui.h>
 
 namespace erm {
 
@@ -36,8 +39,16 @@ int Engine::Run(int argc, char** argv) {
             m_levelName = argv[++i];
         } else if (arg == "--test-serialize") {
             m_testSerialize = true;
+        } else if (arg == "--package" && i + 1 < argc) {
+            m_packageTarget = argv[++i];
         } else if (arg == "--import" && i + 1 < argc) {
             m_importPath = argv[++i];
+        } else if (arg == "--demo") {
+            // 一键演示：竞技场 + 自动开火 + 无编辑器
+            m_levelName = "arena";
+            m_showEditor = false;
+            m_startPlay = true;
+            m_demoMode = true;
         } else if (arg == "--smoke") {
             m_smoke = true;
             m_startPlay = true;
@@ -87,8 +98,11 @@ bool Engine::Init() {
     }
     if (m_levelName == "demo") {
         game::BuildDemoScene(m_world);
-    } else {
+    } else if (m_levelName == "thirdperson") {
         game::BuildThirdPersonLevel(m_world);
+    } else {
+        m_waveLevel = true;
+        game::BuildWaveArena(m_world);
     }
 
     // 场景文件统一放在 exe 旁的 assets/scenes（与编辑器、资源浏览器一致）
@@ -96,19 +110,40 @@ bool Engine::Init() {
                                    m_levelName + ".ermao.json");
 
     if (m_testSerialize) {
-        const std::string text = m_world.ToJson().Dump();
-        const std::string original = text;
+        // 场景往返自检：第一次加载可能因四元数归一化产生 1 ULP 漂移，
+        // 因此断言"再次往返完全一致"（序列化幂等），并记录首次差异。
+        const std::string original = m_world.ToJson().Dump();
         const size_t before = m_world.ObjectCount();
-        m_world.Clear();
-        std::string error;
-        JsonValue root = JsonValue::Parse(text, &error);
-        if (!error.empty()) {
-            LogError("[自检] JSON 解析失败: %s", error.c_str());
-        } else {
+
+        auto reload = [this](const std::string& text) -> std::string {
+            m_world.Clear();
+            std::string error;
+            JsonValue root = JsonValue::Parse(text, &error);
+            if (!error.empty()) return std::string();
             m_world.FromJson(root);
-            const std::string roundTrip = m_world.ToJson().Dump();
-            LogInfo("[自检] 序列化往返: %zu -> %zu 个对象，字节相等=%s", before, m_world.ObjectCount(),
-                    original == roundTrip ? "是" : "否");
+            return m_world.ToJson().Dump();
+        };
+
+        const std::string first = reload(original);
+        const std::string second = first.empty() ? std::string() : reload(first);
+
+        if (first.empty() || second.empty()) {
+            LogError("[自检] 序列化往返失败：JSON 解析错误");
+        } else {
+            const bool stable = (first == second);
+            const bool identical = (original == first);
+            LogInfo("[自检] 序列化往返: %zu -> %zu 个对象，再次往返稳定=%s，首次字节一致=%s", before,
+                    m_world.ObjectCount(), stable ? "是" : "否", identical ? "是" : "否");
+            if (!identical) {
+                size_t diff = 0;
+                while (diff < original.size() && diff < first.size() && original[diff] == first[diff]) ++diff;
+                const size_t from = diff > 70 ? diff - 70 : 0;
+                std::string a = original.substr(from, 120);
+                std::string b = first.substr(from, 120);
+                for (char& c : a) if (c == '\n' || c == '\r') c = ' ';
+                for (char& c : b) if (c == '\n' || c == '\r') c = ' ';
+                LogInfo("[自检] 首次漂移 @%zu | 原: %s | 新: %s", diff, a.c_str(), b.c_str());
+            }
             m_world.SaveToFile(m_scenePath);
         }
     }
@@ -123,21 +158,31 @@ bool Engine::Init() {
     if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext())) return false;
     m_editor.Init(&m_imgui);
     if (m_startPlay) m_editor.Play();
-    m_player = m_world.FindByName("玩家");
+    if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
+    if (m_demoMode) CombatComponent::SetAutoFire(true);
     if (m_smoke) {
-        LogInfo("[冒烟] 玩家对象: %s", m_player ? m_player->Name().c_str() : "<未找到>");
+        GameObject* player = m_world.FindByName("玩家");
+        LogInfo("[冒烟] 玩家对象: %s", player ? player->Name().c_str() : "<未找到>");
     }
 
     events.onRawMessage = [this](void* hwnd, unsigned int msg, unsigned long long wparam, long long lparam) {
         return m_imgui.WndProc(hwnd, msg, wparam, lparam);
     };
 
+
+    if (!m_packageTarget.empty()) {
+        // --package windows|linux：无界面打包自检
+        const PackageResult result = (m_packageTarget == "linux") ? Packager::PackageLinuxSource()
+                                                                  : Packager::PackageWindows();
+        LogInfo("[打包自检] success=%d %s", result.success ? 1 : 0, result.message.c_str());
+        m_running = false;
+    }
     LogInfo("初始化完成：%zu 个对象，JobSystem %u 线程", m_world.ObjectCount(), JobSystem::ThreadCount());
     return true;
 }
 
 void Engine::Shutdown() {
-    m_editor = Editor{};
+    m_editor.Shutdown();
     m_imgui.Shutdown();
     m_world.Shutdown();
     m_assets.Shutdown();
@@ -174,8 +219,8 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     Camera viewCamera = camera;
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
 
-    m_world.BuildRenderScene(m_scene, viewCamera);
-    m_scene.shadowFocus = viewCamera.position + viewCamera.Forward() * 12.0f;
+    m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
+
 
     m_renderer.Debug().Begin();
     m_renderer.RenderToViewport(viewCamera, m_scene, m_time, width, height, m_renderer.Wireframe());
@@ -208,7 +253,8 @@ void Engine::MainLoop() {
         m_time += dt;
 
         // 2) 玩法更新（编辑器模式下不 tick AI/物理）
-        if (m_smoke && m_player) {
+        GameObject* smokePlayer = m_smoke ? m_world.FindByName("玩家") : nullptr; // 每次重查，避免 PIE 重建后悬垂
+        if (smokePlayer) {
             // 脚本化输入：第 30~120 帧向前走，第 60 帧起跳
             if (m_frameIndex >= 30 && m_frameIndex < 120) {
                 ThirdPersonController::SetSimulatedInput(Vec2(0.0f, 1.0f), m_frameIndex >= 60 && m_frameIndex < 66,
@@ -217,18 +263,21 @@ void Engine::MainLoop() {
                 ThirdPersonController::ClearSimulatedInput();
             }
             if (m_frameIndex == 30 || m_frameIndex == 60 || m_frameIndex == 120 || m_frameIndex == 180) {
-                const Vec3 p = m_player->Position();
+                const Vec3 p = smokePlayer->Position();
                 LogInfo("[冒烟] 帧 %d 玩家位置 (%.2f, %.2f, %.2f)", m_frameIndex, p.x, p.y, p.z);
             }
         }
         UpdateGameplay(dt);
 
-        // 3) 热键（现在边沿判定是可靠的）
-        if (Input::IsKeyPressed(VK_F11)) m_showEditor = !m_showEditor;
-        if (Input::IsKeyPressed(VK_F12)) {
-            CaptureScreenshot("screenshot_" + std::to_string(m_frameIndex) + ".png");
+        // 3) 热键：文本输入时不要抢键盘（审核 P2-17/P2-19）
+        const bool wantKeyboard = m_showEditor && ImGui::GetIO().WantCaptureKeyboard;
+        if (!wantKeyboard) {
+            if (Input::IsKeyPressed(VK_F11)) m_showEditor = !m_showEditor;
+            if (Input::IsKeyPressed(VK_F12)) {
+                CaptureScreenshot("screenshot_" + std::to_string(m_frameIndex) + ".png");
+            }
+            if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) break;
         }
-        if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) break;
 
         // 4) 决定本帧相机
         const bool playing = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
@@ -238,9 +287,17 @@ void Engine::MainLoop() {
                 viewCamera = *gameCamera;
             }
         }
-        ThirdPersonController::SetInputEnabled(playing && (!m_showEditor || m_editor.ViewportHovered()));
+        bool gameplayInput = playing && (!m_showEditor || m_editor.ViewportHovered());
+        if (m_waveLevel) {
+            if (playing) m_waveGame.Update(m_world, dt, gameplayInput);
+            if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
+            if (!playing) m_waveGame.ReturnToMenu();
+        }
+        ThirdPersonController::SetInputEnabled(gameplayInput);
 
         // 5) UI + 视口渲染
+        // 5) UI + 视口渲染
+        Camera* barCamera = &viewCamera;
         if (m_showEditor) {
             m_imgui.BeginFrame();
             m_editor.Draw(m_world, m_renderer, m_assets, m_editorCamera,
@@ -252,6 +309,16 @@ void Engine::MainLoop() {
                 m_running = false;
                 m_editor.ClearExitRequest();
             }
+            if (m_waveLevel && playing) {
+                m_waveGame.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
+                                  static_cast<float>(m_editor.ViewportWidthPx()),
+                                  static_cast<float>(m_editor.ViewportHeightPx()), m_editor.ViewportHovered());
+                // 3D UI：头顶血条（世界 → 屏幕投影）
+                m_waveGame.DrawHealthBars(m_world, viewCamera, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
+                                          static_cast<float>(m_editor.ViewportWidthPx()),
+                                          static_cast<float>(m_editor.ViewportHeightPx()));
+                if (m_waveGame.WantsQuit()) m_running = false;
+            }
 
             float clear[4] = {0.055f, 0.06f, 0.07f, 1.0f};
             m_device.BeginFrame(clear);
@@ -260,6 +327,17 @@ void Engine::MainLoop() {
             m_renderer.Debug().Begin();
             m_world.BuildRenderScene(m_scene, viewCamera);
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
+
+            // 无编辑器时也要有 HUD/血条：UI 直接叠加在已渲染的后备缓冲上
+            if (m_waveLevel && playing) {
+                m_imgui.BeginFrame();
+                m_waveGame.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
+                                  static_cast<float>(m_window.Height()), true);
+                m_waveGame.DrawHealthBars(m_world, *barCamera, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
+                                          static_cast<float>(m_window.Height()));
+                if (m_waveGame.WantsQuit()) m_running = false;
+                m_imgui.EndFrame();
+            }
         }
 
         // 6) 自动截图 + 退出

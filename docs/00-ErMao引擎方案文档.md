@@ -8,7 +8,7 @@
 
 ## 0. 一句话定位
 
-**ErMao 是一个 Windows 平台、零第三方依赖、约一万行 C++ 的"可运行教学引擎"**：它用 Piccolo 的模块划分方式组织架构，用 Hazel 的轻量工程化方式落地，把 GAMES104 的 22 讲知识点变成**能在屏幕上看到、能在编辑器里点、能在代码里指认**的具体实现。
+**ErMao 是一个 Windows 平台、约一万行 C++、"系统库 + 单个 UI 库"依赖的"可运行教学引擎"**：它用 Piccolo 的模块划分方式组织架构，用 Hazel 的轻量工程化方式落地，把 GAMES104 的 22 讲知识点变成**能在屏幕上看到、能在编辑器里点、能在代码里指认**的具体实现。
 
 它不追求 3A 级画质，追求三件事：
 
@@ -27,7 +27,7 @@
 | 语言 | C++17 | 与 Piccolo/Hazel 一致；结构化绑定、`std::optional`、`if constexpr` 足够；不追 C++20 modules（MSVC 生态不稳，教学价值低） |
 | 构建 | CMake 3.20+（VS 2022 生成器） | 用户已装 VS2022 + CMake；生成 `.sln` 可直接用 VS/CLion 调试 |
 | 平台 | Windows 10/11 x64 | 目标机已确认（RTX 3090，D3D11 FL11_0） |
-| 依赖 | **零第三方库** | 教学引擎最大的坑是"配环境配三天"。窗口用 Win32，图形用 D3D11，图片用 WIC，字体用 GDI，JSON 自己写 200 行 |
+| 依赖 | **仅 Dear ImGui（vendored，UI 用）** | 教学引擎最大的坑是"配环境配三天"。窗口 Win32、图形 D3D11、图片 WIC、文件系统 Win32、JSON 自写；只有编辑器 UI 使用随仓库分发的 Dear ImGui（1.93.1 docking，上游 commit 见 `third_party/imgui/ERMAO_UPSTREAM.txt`），无外部包管理器依赖 |
 
 ### 1.2 图形 API 为什么选 D3D11 而不是 Vulkan/OpenGL
 
@@ -297,7 +297,7 @@ class MeshRenderer : public Component {
 
 ### 5.11 Editor（第 13/14 讲）
 
-即时模式 UI（自研，约 600 行），无 ImGui 依赖：
+即时模式 UI（**v0.2 起改用 Dear ImGui**；v0.1 曾自研约 1000 行，已删除。取舍见 `docs/04`）：
 
 - **控件**：窗口（拖动/折叠/滚动）、Label、Button、Checkbox、SliderFloat、DragFloat3、ColorEdit、Combo、Tree、TextInput、ProgressBar。
 - **字体**：GDI 把 ASCII 32–126 光栅化到 1024×1024 R8 图集（两种字号），UI 用 alpha 纹理采样——不引入 stb_truetype，也不用手写点阵。
@@ -398,7 +398,7 @@ build\bin\ErMao.exe
 
 | 风险 | 对策 |
 |---|---|
-| 自研 UI 工作量大 | 控件只做 Inspector/Hierarchy 必需的 12 个；字体用 GDI 图集，不碰排版引擎 |
+| UI 工作量 | v0.1 自研控件（事实证明估算偏低）；v0.2 接入 Dear ImGui，把预算转投资源导入与玩法 |
 | 无外部美术资源 | 程序化网格 + 程序化纹理；OBJ/PNG 加载作为"有则用"的增强路径 |
 | D3D11 状态管理易错 | 所有状态集中在 `Pipeline` 对象，禁止裸调 `OMSet*`；日志记录每次状态切换 |
 | 物理精度不足 | 定位为"教学级"：球/盒 + 静态平面，明确不追求堆叠稳定性；文档给出 GJK/CCD 的演进路径 |
@@ -497,3 +497,17 @@ build\bin\ErMao.exe --test-serialize --frames 3       :: 场景 JSON 字节级�
 build\bin\ErMao.exe --import engine\assets\models\crystal.obj --frames 3   :: 资源导入
 build\bin\ErMao.exe --noeditor --play --frames 120 --screenshot game.png   :: 第三人称截图
 ```
+
+---
+
+## 14. v0.3 交付（2026-10-31）
+
+| 方向 | 内容 |
+|---|---|
+| Demo | 刷怪生存：波次刷怪、射击、近战、生命值、3D 头顶血条、主菜单/暂停/失败菜单 |
+| 编辑 | 资源浏览器（缩略图网格 + 分类 + 真实模型预览）、位移 Gizmo、F 聚焦 |
+| 打包 | 文件 → 打包 → Windows（可运行包）/ Linux（源码包 + 后端说明） |
+| 修复 | 第三人称鼠标 X 反向、空格连跳、审核 R4–R8 收尾项（P2-16~20、P3-35~49） |
+| 验证 | `--demo`、`--package`、PIE 点击流程截图、打包产物独立运行 |
+
+详细说明见 `docs/07-v0.3-新功能.md`。

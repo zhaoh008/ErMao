@@ -5,6 +5,7 @@
 #include "core/Types.h"
 #include "editor/EditorUI.h"
 #include "editor/ImGuiLayer.h"
+#include "game/WaveGame.h"
 #include "platform/Window.h"
 #include "renderer/Camera.h"
 #include "renderer/RenderScene.h"
@@ -36,6 +37,9 @@ private:
 
     Camera      m_editorCamera;
     RenderScene m_scene; // 复用，避免每帧堆分配（P2-10）
+    WaveGame    m_waveGame; // 刷怪 Demo（arena 关卡时才启用）
+    bool        m_waveLevel = false;
+    bool        m_demoMode = false;
 
     bool  m_running = true;
     bool  m_vsync = true;
@@ -53,7 +57,8 @@ private:
     bool        m_testSerialize = false;
     bool        m_smoke = false;
     std::string m_importPath;
-    std::string m_levelName = "thirdperson";
+    std::string m_packageTarget; // windows/linux
+    std::string m_levelName = "arena";
     std::string m_scenePath = "assets/scenes/thirdperson.ermao.json";
     class GameObject* m_player = nullptr;
 };

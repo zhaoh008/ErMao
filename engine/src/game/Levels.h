@@ -13,6 +13,8 @@ namespace erm::game {
 
 // 第三人称演示关卡：平台、台阶、跳台、障碍、AI、终点光环
 void BuildThirdPersonLevel(World& world);
+// 刷怪 Demo 的竞技场：围墙、掩体、玩家（带生命/射击），敌人由 WaveGame 动态生成
+void BuildWaveArena(World& world);
 
 // 早期的基础演示场景（保留，方便对比）
 void BuildDemoScene(World& world);
