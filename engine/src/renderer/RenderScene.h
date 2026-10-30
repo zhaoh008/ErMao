@@ -1,0 +1,48 @@
+// ErMao Engine - 渲染输入（Scene 层把世界翻译成这份扁平数据，Renderer 不认识 GameObject）
+#pragma once
+
+#include "core/Math.h"
+#include "core/Types.h"
+#include "renderer/Mesh.h"
+#include "rhi/Texture.h"
+
+namespace erm {
+
+// 一个可绘制对象：网格 + 世界矩阵 + 材质参数
+struct RenderItem {
+    const Mesh*    mesh = nullptr;
+    Mat4           world;
+    Vec4           albedo{1.0f, 1.0f, 1.0f, 1.0f};
+    float          roughness = 0.5f;
+    float          metallic = 0.0f;
+    float          emissive = 0.0f;
+    float          uvScale = 0.0f; // 0 表示不采样贴图
+    const Texture* baseColor = nullptr;
+    bool           castShadow = true;
+};
+
+struct PointLightRender {
+    Vec3  position{0, 0, 0};
+    float range = 10.0f;
+    Vec3  color{1, 1, 1};
+    float intensity = 1.0f;
+};
+
+// 一帧的渲染场景
+struct RenderScene {
+    std::vector<RenderItem>       items;
+    std::vector<PointLightRender> pointLights;
+
+    Vec3  sunDirection{0.45f, 0.75f, 0.35f}; // 指向太阳
+    Vec3  sunColor{1.0f, 0.95f, 0.88f};
+    float sunIntensity = 3.2f;
+
+    Vec3  ambientUp{0.32f, 0.40f, 0.55f};
+    Vec3  ambientDown{0.10f, 0.09f, 0.07f};
+    float ambientIntensity = 0.85f;
+
+    Vec3  shadowFocus{0, 0, 0};
+    float shadowRadius = 28.0f;
+};
+
+} // namespace erm

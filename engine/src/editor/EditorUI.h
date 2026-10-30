@@ -1,0 +1,129 @@
+// ErMao Engine - 编辑器（Dear ImGui 版）
+//
+// 面板：视口 / 世界大纲 / 检视器 / 资源浏览器 / 控制台 / 统计 / 设置
+// 交互：Dock 布局、拾取、Play-In-Editor（快照回滚）、资源导入、面板开关
+//
+// 设计原则（与用户要求一致）：UI 只提供"看得见、改得动"的基本能力，
+// 真正的关卡/玩法仍然是代码优先（见 game/Levels.cpp）。
+#pragma once
+
+#include "core/Json.h"
+#include "core/Types.h"
+#include "editor/ImGuiLayer.h"
+
+#include <functional>
+
+struct ImVec2;
+
+namespace erm {
+
+class World;
+class Renderer;
+class AssetManager;
+class GameObject;
+class Camera;
+struct FieldDesc;
+
+class Editor {
+public:
+    using ViewportRenderer = std::function<void(const Camera& camera, u32 width, u32 height)>;
+
+    void Init(ImGuiLayer* imguiLayer);
+    void Draw(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera,
+              const ViewportRenderer& renderViewport, float dt);
+
+    bool IsPlaying() const { return m_playing; }
+    bool IsPaused() const { return m_paused; }
+    bool ViewportHovered() const { return m_viewportHovered; }
+    bool WantsExit() const { return m_wantsExit; }
+    void ClearExitRequest() { m_wantsExit = false; }
+
+    GameObject* Selected() const { return m_selected; }
+    void        Select(GameObject* object);
+
+    void Play();
+    void Pause();
+    void Stop();
+
+    void SetStatus(const std::string& text, bool error = false);
+
+private:
+    void DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera);
+    void DrawToolbar(World& world, Renderer& renderer);
+    void DrawDockspace(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera);
+    void DrawViewport(World& world, Renderer& renderer, Camera& editorCamera, const ViewportRenderer& renderViewport);
+    void DrawOutliner(World& world);
+    void DrawInspector(World& world, AssetManager& assets);
+    void DrawAssets(World& world, AssetManager& assets, Camera& editorCamera);
+    void DrawConsole();
+    void DrawStats(World& world, Renderer& renderer);
+    void DrawSettings(World& world, Renderer& renderer);
+    void DrawStatusBar();
+
+    void DrawOutlinerNode(World& world, GameObject* object);
+    void DrawTransform(GameObject* object);
+    void DrawComponents(World& world, GameObject* object, AssetManager& assets);
+    bool DrawField(const FieldDesc& field, void* object, AssetManager& assets);
+
+    void HandleShortcuts(World& world, Camera& editorCamera);
+    void PickObject(World& world, Camera& editorCamera, const ImVec2& viewportPos, const ImVec2& viewportSize);
+    void ImportModel(World& world, AssetManager& assets, Camera& editorCamera);
+    void ImportTexture(AssetManager& assets);
+    void SaveScene(World& world, bool saveAs);
+    void LoadScene(World& world);
+    void NewScene(World& world);
+    void SpawnMeshObject(World& world, const std::string& meshName);
+    void DeleteSelected(World& world);
+    void DuplicateSelected(World& world);
+
+    ImGuiLayer* m_imgui = nullptr;
+
+    GameObject* m_selected = nullptr;
+    u64         m_selectedId = 0;
+
+    bool m_playing = false;
+    bool m_paused = false;
+    bool m_wantsExit = false;
+    bool m_viewportHovered = false;
+    bool m_layoutInitialized = false;
+    bool m_showDemo = false;
+
+    // 面板开关
+    bool m_showViewport = true;
+    bool m_showOutliner = true;
+    bool m_showInspector = true;
+    bool m_showAssets = true;
+    bool m_showConsole = true;
+    bool m_showStats = true;
+    bool m_showSettings = false;
+
+    std::string m_scenePath = "assets/scenes/thirdperson.ermao.json";
+    std::string m_snapshot;
+    std::string m_statusMessage = "就绪";
+    bool        m_statusIsError = false;
+    double      m_statusTime = 0.0;
+
+    // 资源浏览器状态
+    std::string m_assetFilter;
+    char        m_assetFilterBuffer[128] = {};
+    int         m_selectedAsset = -1;
+
+    // 控制台状态
+    bool m_consoleInfo = true;
+    bool m_consoleWarn = true;
+    bool m_consoleError = true;
+    bool m_consoleAutoScroll = true;
+    char m_consoleFilter[128] = {};
+
+    // 统计
+    float m_frameTimes[120] = {};
+    int   m_frameTimeOffset = 0;
+    float m_benchSerial = 0.0f;
+    float m_benchParallel = 0.0f;
+
+    // 视口信息
+    u32 m_viewportWidth = 0;
+    u32 m_viewportHeight = 0;
+};
+
+} // namespace erm

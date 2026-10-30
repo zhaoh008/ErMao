@@ -1,0 +1,8 @@
+build/
+.vs/
+*.user
+*.log
+imgui.ini
+screenshot_*.png
+.probe/
+.staging/
