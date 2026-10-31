@@ -194,3 +194,13 @@ build\bin\ErMao.exe --smoke --frames 200 --level thirdperson
 1. 把 `yaw -=` 改回 `yaw +=`：**预期**鼠标左右反（v0.2 的真实 bug）。
 2. 把跳跃的 `IsKeyPressed` 改成 `IsKeyDown`：**预期**按住空格连续起跳。
 3. 把地面射线的长度从 `height*0.5+0.35` 改成 `height*0.5`：**预期**下台阶时悬空/抖动。
+
+## 数学依据与参考资料
+
+> 目的：不要求背下推导，但要知道这一讲**用的是什么数学工具**、去哪里查。
+
+| 用到的原理 | 数学形式 / 名称 | 参考 |
+|---|---|---|
+| 资源缓存与引用 | key → asset；引用计数归零释放 | [GAMES104] |
+| OBJ 顶点去重 | 哈希 (v, vt, vn) 三元组 | [OBJ] |
+| sRGB 与线性空间 | 采样时 sRGB→linear，输出时 linear→sRGB | [RTR4] |

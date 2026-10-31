@@ -5,6 +5,7 @@
 #include "core/Types.h"
 #include "editor/EditorUI.h"
 #include "editor/ImGuiLayer.h"
+#include "platform/Audio.h"
 #include "game/Survivors.h"
 #include "game/Survivors3D.h"
 #include "game/WaveGame.h"
@@ -66,6 +67,8 @@ private:
     std::string m_importPath;
     std::string m_packageTarget; // windows/linux
     std::string m_packageGame;   // windows/linux（游戏包）
+    bool        m_audioTest = false;
+    bool        m_vulkanTest = false;
     bool        m_noShadows = false;
     bool        m_noGpuCull = false;
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图

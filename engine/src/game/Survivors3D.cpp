@@ -4,6 +4,7 @@
 #include "asset/AssetManager.h"
 #include "core/Log.h"
 #include "game/ParticleEmitter.h"
+#include "platform/Audio.h"
 #include "platform/Input.h"
 #include "renderer/RenderScene.h"
 #include "scene/Components.h"
@@ -183,6 +184,7 @@ void Survivors3DPlayerComponent::FireAtNearestEnemy() {
     auto* projectile = bolt->AddComponent<Survivors3DProjectileComponent>();
     projectile->velocity = direction * projectileSpeed;
     projectile->damage = attackDamage;
+    PlaySfx("shoot", 0.35f, 0.9f + Random01() * 0.2f);
 }
 
 void Survivors3DPlayerComponent::AddXp(float amount) {
@@ -195,6 +197,7 @@ void Survivors3DPlayerComponent::AddXp(float amount) {
         attackInterval = (std::max)(0.2f, attackInterval * 0.92f);
         maxHp += 10.0f;
         hp = (std::min)(maxHp, hp + 10.0f);
+        PlaySfx("levelup", 0.6f);
     }
 }
 
@@ -316,6 +319,7 @@ void Survivors3DGemComponent::OnUpdate(float dt) {
             playerComponent->AddXp(value);
         }
         SpawnBurst(*world, p, "particles/star_01.png", Vec4(0.4f, 0.9f, 1.0f, 1.0f), 0.3f);
+        PlaySfx("pickup", 0.45f, 0.95f + Random01() * 0.2f);
         world->DestroyObject(m_owner);
     }
 }
@@ -403,6 +407,7 @@ void Survivors3DDirector::Update(World& world, float dt) {
         component->hp = 0.0f;
         component->alive = false;
         m_state = State::GameOver;
+        PlaySfx("death", 0.6f);
         LogInfo("[3D] 游戏结束：存活 %.1f 秒，击杀 %d", m_time, m_kills);
     }
 }
@@ -432,7 +437,7 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
             ImGui::TextWrapped("模型来自 Kenney（CC0）：Blocky Characters + Graveyard Kit；");
             ImGui::TextWrapped("特效来自 Kenney Particle Pack（火焰/火花/星光）。");
             ImGui::Dummy(ImVec2(0, 12));
-            if (ImGui::Button("开始游戏", ImVec2(240, 40))) Reset(world);
+            if (ImGui::Button("开始游戏", ImVec2(240, 40))) { PlaySfx("click"); Reset(world); }
             ImGui::SameLine();
             if (ImGui::Button("退出", ImVec2(120, 40))) m_wantsQuit = true;
             ImGui::Dummy(ImVec2(0, 8));
@@ -446,7 +451,12 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
         if (centeredWindow("##Survivors3DPause", ImVec2(360, 240))) {
             ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "已暂停");
             ImGui::Separator();
-            if (ImGui::Button("继续游戏", ImVec2(-1, 32))) m_state = State::Playing;
+            {
+                float volume = AudioSystem::Get().MasterVolume();
+                if (ImGui::SliderFloat("音量", &volume, 0.0f, 1.0f)) AudioSystem::Get().SetMasterVolume(volume);
+                bool muted = AudioSystem::Get().Muted();
+                if (ImGui::Checkbox("静音", &muted)) AudioSystem::Get().SetMuted(muted);
+            }            if (ImGui::Button("继续游戏", ImVec2(-1, 32))) m_state = State::Playing;
             if (ImGui::Button("重新开始", ImVec2(-1, 32))) Reset(world);
             if (ImGui::Button("返回主菜单", ImVec2(-1, 32))) m_state = State::Menu;
             if (ImGui::Button("退出程序", ImVec2(-1, 32))) m_wantsQuit = true;

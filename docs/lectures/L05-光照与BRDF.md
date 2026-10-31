@@ -222,3 +222,14 @@ build\bin\ErMao.exe --frames 60
 1. 把 `baseColor / PI` 的 `/PI` 删掉：**预期**整体亮约 3 倍、过曝。
 2. 把 `kd = (1-F)*(1-metallic)` 改成 `kd = 1`：**预期**金属也有漫反射，能量不守恒（变亮）。
 3. 把 `DistributionGGX` 的 `a = roughness*roughness` 改成 `a = roughness`：**预期**高光形状变化（更"尖"或更"散"），对照上面的 4 宫格图。
+
+## 数学依据与参考资料
+
+> 目的：不要求背下推导，但要知道这一讲**用的是什么数学工具**、去哪里查。
+
+| 用到的原理 | 数学形式 / 名称 | 参考 |
+|---|---|---|
+| Cook-Torrance BRDF | f = kd·c/π + D·G·F / (4·(N·L)(N·V)) | [COOK]；[PBRT] |
+| GGX 法线分布 | D = α² / (π·((N·H)²(α²−1)+1)²) | [KARIS]；[PBRT] |
+| Smith 几何项 + Schlick 菲涅尔 | G_smith；F = F0 + (1−F0)(1−V·H)^5 | [SMITH]；[SCHLICK] |
+| 色调映射与 gamma | ACES 拟合曲线；c^(1/2.2) | [ACES]；[TONE] |

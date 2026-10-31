@@ -1,4 +1,4 @@
-# ErMao Engine（二毛引擎）v0.6
+# ErMao Engine（二毛引擎）v0.7
 
 ## 📖 学习文档（双击即开）
 
@@ -43,6 +43,15 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 | 视口 | 右键拖动 + WASD/QE 移动相机 · 左键拾取 · **W/E/R 位移/旋转/缩放 Gizmo** · F 聚焦 |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · **左键射击** · Esc 暂停 |
 | 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
+
+## v0.7 做了什么（2026-11-01 凌晨）
+
+- **音频**：XAudio2 + WAV/PCM 子系统（`platform/Audio`），2D/3D 幸存者接入开枪/命中/拾取/升级/死亡音效，暂停菜单可调音量与静音；
+  素材来自 OpenGameArt CC0（`assets/audio`，见 `docs/assets-credits.md`），`--audio-test` 可单独验证
+- **数学参考资料**：每讲讲义末尾新增「数学依据与参考资料」，列出用到的原理、数学形式与出处；
+  总表 `docs/lectures/参考资料.md`（RTR4 / PBRT / GAMES101 / GAMES104 / 论文）
+- **Vulkan 后端（阶段一）**：`--vulkan-test` 跑通 instance → device → Win32 surface → swapchain → render pass → pipeline → SPIR-V 三角形 → present → 截图；
+  D3D11 仍是主路径，后续按 RHI 抽象逐步迁 pass（见 `L26`）
 
 ## v0.6 做了什么（2026-10-31 深夜）
 

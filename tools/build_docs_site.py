@@ -43,6 +43,7 @@ GUIDE = [
     ("08-学习指南.md", "学习指南"),
     ("09-打包与发布.md", "打包与发布"),
     ("assets-credits.md", "素材来源"),
+    ("lectures/参考资料.md", "参考资料总表"),
 ]
 LECTURES = sorted([p.name for p in (DOCS / "lectures").glob("L*.md")])
 
@@ -352,6 +353,8 @@ LECTURE_STEPS = {
     "L22": ["实例缓冲", "Compute 剔除", "压缩列表", "间接参数", "DrawIndexedIndirect"],
     "L23": ["正交相机", "quad", "UV 序列帧", "按纹理合批", "HUD"],
     "L24": ["OBJ 解析", "顶点去重", "GPU 上传", "材质", "场景"],
+    "L25": ["WAV / PCM", "XAudio2 voice", "混音", "主音量", "输出"],
+    "L26": ["Instance", "Device", "Swapchain", "Pipeline", "Present / 截图"],
 }
 LECTURE_SHOTS = {
     "L05": ["figures/fig-material-grid.png"],

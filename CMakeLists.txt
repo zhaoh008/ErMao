@@ -49,7 +49,7 @@ add_library(ErMaoEngine STATIC ${ERMAO_ENGINE_SOURCES})
 target_include_directories(ErMaoEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine/src)
 target_compile_definitions(ErMaoEngine PRIVATE ERMAO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(ErMaoEngine
-    PUBLIC d3d11 dxgi d3dcompiler dxguid user32 gdi32 ole32 windowscodecs shcore
+    PUBLIC d3d11 dxgi d3dcompiler dxguid user32 gdi32 ole32 windowscodecs shcore xaudio2
     PRIVATE imgui
 )
 
@@ -64,6 +64,19 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/engine/src FILES ${ERMAO_SOURCE_GR
 
 # ---------------------------------------------------------------- executable
 add_executable(ErMao ${CMAKE_CURRENT_SOURCE_DIR}/engine/src/runtime/main.cpp)
+
+# Vulkan SDK（可选）：存在时启用 rhi/VulkanBackend
+if(DEFINED ENV{VULKAN_SDK})
+    message(STATUS "Vulkan SDK: $ENV{VULKAN_SDK}")
+    target_include_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Include")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        target_link_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Lib")
+    else()
+        target_link_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Lib32")
+    endif()
+    target_link_libraries(ErMaoEngine PUBLIC vulkan-1)
+    target_link_directories(ErMao PRIVATE "$ENV{VULKAN_SDK}/Lib")
+endif()
 target_link_libraries(ErMao PRIVATE ErMaoEngine)
 set_target_properties(ErMao PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
 

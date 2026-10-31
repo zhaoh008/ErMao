@@ -214,3 +214,13 @@ Nanite 是在这条链路上继续加"几何压缩 + LOD + 软件光栅"，方�
 2. `InterlockedAdd` 在 args 的偏移 4 上自增，对应哪个字段？
 3. 如果忘记把 `InstanceCount` 清零，下一帧会发生什么？
 4. 为什么压缩缓冲要按批次复用？多个批次同时 dispatch 会怎样？
+
+## 数学依据与参考资料
+
+> 目的：不要求背下推导，但要知道这一讲**用的是什么数学工具**、去哪里查。
+
+| 用到的原理 | 数学形式 / 名称 | 参考 |
+|---|---|---|
+| 视锥剔除 | 6 平面 p-vertex 测试 | [RTR4]；[CULL] |
+| GPU 间接绘制 | DrawIndexedInstancedIndirect + 参数缓冲 | [CULL] |
+| 并行压缩 | InterlockedAdd 追加到压缩列表 | [CULL] |

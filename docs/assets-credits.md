@@ -22,6 +22,13 @@
 | `models/kenney/{cross,cross-wood,column-large,crypt-a,coffin,candle,altar-stone}.obj` | 同上 | Kenney | **CC0** | 未改动 |
 | `textures/kenney/colormap.png` | 同上 | Kenney | **CC0** | 未改动 |
 | `particles/{flame_01,flame_02,fire_01,spark_01,spark_02,smoke_01,smoke_02,star_01,light_01}.png` | https://kenney.nl/assets/particle-pack | Kenney | **CC0** | 未改动 |
+## 音频素材
+
+| 文件 | 来源 | 作者 | 许可 | 改动 |
+|---|---|---|---|---|
+| `audio/{hit,pickup,levelup,death,click}.wav` | https://opengameart.org/content/512-sound-effects-8-bit-style | SubspaceAudio | **CC0** | 重命名 |
+| `audio/{swing,magic,shoot}.wav` | https://opengameart.org/content/rpg-sound-pack | artisticdude | **CC0** | 重命名/截取 |
+
 ## 程序化资源（无第三方版权）
 
 | 资源 | 生成位置 | 说明 |

@@ -9,6 +9,8 @@
 #include "game/SkinningDemo.h"
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
+#include "rhi/VulkanBackend.h"
+#include "platform/Audio.h"
 #include "platform/Input.h"
 #include "rhi/Screenshot.h"
 #include "core/FileSystem.h"
@@ -17,6 +19,7 @@
 
 #include <windows.h>
 
+#include <cstdlib>
 #include <imgui.h>
 #include <sstream>
 
@@ -71,6 +74,10 @@ int Engine::Run(int argc, char** argv) {
             m_packageTarget = argv[++i];
         } else if (arg == "--import" && i + 1 < argc) {
             m_importPath = argv[++i];
+        } else if (arg == "--vulkan-test") {
+            m_vulkanTest = true;
+        } else if (arg == "--audio-test") {
+            m_audioTest = true;
         } else if (arg == "--demo3d") {
             m_levelName = "survivors3d";
             m_showEditor = false;
@@ -122,6 +129,17 @@ bool Engine::Init() {
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
     if (!m_window.Create("ErMao Engine 0.2 — GAMES104 教学引擎", 1600, 900)) return false;
+    if (m_vulkanTest) {
+        VulkanDemo demo;
+        if (demo.Init(m_window)) {
+            demo.Run(120, "docs/screenshots/vulkan.png");
+        } else {
+            LogError("[Vulkan] 初始化失败");
+        }
+        demo.Shutdown();
+        m_window.Destroy();
+        std::exit(0);
+    }
 
     // 输入：窗口回调负责产生边沿，Application 只做一次鼠标状态快照
     auto& events = m_window.Events();
@@ -129,6 +147,7 @@ bool Engine::Init() {
     events.onMouseButton = [](int button, bool down) { Input::OnMouseButton(button, down); };
 
     if (!m_device.Init(&m_window)) return false;
+    AudioSystem::Get().Init();
     if (!m_renderer.Init(&m_device)) return false;
     if (!m_assets.Init(m_device.GetDevice())) return false;
 
@@ -270,6 +289,7 @@ bool Engine::Init() {
 }
 
 void Engine::Shutdown() {
+    AudioSystem::Get().Shutdown();
     m_editor.Shutdown();
     m_imgui.Shutdown();
     m_world.Shutdown();
@@ -360,6 +380,16 @@ void Engine::MainLoop() {
         if (!m_window.Poll()) break;
         Input::SetMouseState(m_window.MousePosition(), m_window.ConsumeMouseDelta(), m_window.ConsumeWheel());
         Timer::Tick();
+        AudioSystem::Get().Update(Timer::Delta());
+        if (m_audioTest && m_frameIndex % 18 == 0) {
+            static const char* kTestSounds[] = {"click", "shoot", "hit", "pickup", "levelup", "death", "magic", "swing"};
+            static int testIndex = 0;
+            if (testIndex < 8) {
+                PlaySfx(kTestSounds[testIndex], 0.7f);
+                LogInfo("[音频] 播放 %s（活跃 voice %u）", kTestSounds[testIndex], AudioSystem::Get().ActiveVoices());
+                ++testIndex;
+            }
+        }
 
         if (m_window.WasResized()) {
             m_device.Resize(m_window.Width(), m_window.Height());
