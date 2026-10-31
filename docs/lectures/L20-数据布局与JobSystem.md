@@ -37,6 +37,13 @@ struct Objects { std::vector<Vec3> pos; std::vector<Vec3> vel; std::vector<float
 `JobSystem::ParallelFor(begin, end, fn, chunkSize)`：
 
 ```
+  [0 ───────── 128) [128 ───────── 256) ... [n-128 ───── n)
+       线程 0              线程 1                 线程 k-1
+       └──────────────────┴───────────────────────┘
+                        主线程等待全部完成（barrier）
+```
+
+```
 把 [begin, end) 按 chunkSize 切成 N 块
 起 N-1 个线程 + 主线程各领一块
 全部完成后返回

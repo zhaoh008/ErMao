@@ -6,6 +6,17 @@
 
 ---
 
+## 0. 概念卡
+
+| 项 | 内容 |
+|---|---|
+| 问题 | 一个像素该有多亮？材质参数（粗糙度/金属度）怎么进公式？ |
+| 一句话直觉 | 光从方向 L 来，按表面微结构决定有多少反射到眼睛。 |
+| 数学 | `L_o = f_r · L_i · (N·L)`；`f_r = kd/π + D·G·F/(4 N·L N·V)`。 |
+| 代码 | `shaders/PBR.hlsl`：`DistributionGGX / GeometrySchlick / FresnelSchlick`。 |
+| 实验 | 检视器拖 roughness/metallic；`--roughness/--metallic` 出 4 宫格图。 |
+| 差距 | 无 IBL、无法线贴图、无多散射 GGX。 |
+
 ## 1. 辐射度量学（只保留需要的三个量）
 
 | 量 | 符号 | 单位 | 直觉 |
