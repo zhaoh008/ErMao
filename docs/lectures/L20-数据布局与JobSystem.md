@@ -1,4 +1,4 @@
-# 第 20 讲：数据布局与 Job System
+# 第 20 讲：数据布局与 Job System【选读】
 
 > 对应 GAMES104 第 20 讲（DOP 与 Job System）。
 > 代码：`core/JobSystem.h/.cpp`、`renderer/Renderer.cpp` 的 `BuildBatches`（并行视锥剔除）、
@@ -113,3 +113,11 @@ build\bin\ErMao.exe --frames 60
 2. `p = 0.9`，`N = 8`，加速比上限是多少？
 3. 伪共享是什么？怎么用 padding 解决？
 4. 为什么本工程的 `BuildBatches` 在物体很少时可能比串行慢？
+
+---
+
+## 7. 练习（故意改坏）
+
+1. 把 `chunkSize` 改成 1：**预期**线程创建/同步开销压过收益，帧时间反而变长。
+2. 让两个线程写同一个数组的相邻元素：**预期**出现伪共享（性能下降）甚至数据竞争（结果错）。
+3. 去掉 `ParallelFor` 内部的等待（barrier）：**预期**下一次读取时数据还没算完（随机错误）。

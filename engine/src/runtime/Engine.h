@@ -59,6 +59,7 @@ private:
     std::string m_importPath;
     std::string m_packageTarget; // windows/linux
     bool        m_noShadows = false;
+    bool        m_noGpuCull = false;
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图
     float       m_overrideRoughness = -1.0f;
     float       m_overrideMetallic = -1.0f;

@@ -1,4 +1,4 @@
-# 第 5 讲：光照、BRDF 与能量守恒
+# 第 5 讲：光照、BRDF 与能量守恒【进阶】
 
 > 对应 GAMES104 第 5 讲（光照、材质与着色器）。
 > 代码：`engine/shaders/PBR.hlsl`、`scene/Components.h`（材质字段）、`renderer/Renderer.cpp`（常量缓冲）。

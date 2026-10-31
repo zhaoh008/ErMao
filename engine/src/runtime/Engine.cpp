@@ -51,6 +51,8 @@ int Engine::Run(int argc, char** argv) {
             m_showEditor = false;
             m_startPlay = true;
             m_demoMode = true;
+        } else if (arg == "--no-gpu-cull") {
+            m_noGpuCull = true;
         } else if (arg == "--noshadows") {
             m_noShadows = true;
         } else if (arg == "--debugview" && i + 1 < argc) {
@@ -110,6 +112,8 @@ bool Engine::Init() {
         game::BuildDemoScene(m_world);
     } else if (m_levelName == "thirdperson") {
         game::BuildThirdPersonLevel(m_world);
+    } else if (m_levelName == "cull") {
+        game::BuildCullTestLevel(m_world);
     } else if (m_levelName == "skinning") {
         game::BuildSkinningLevel(m_world, m_renderer);
     } else {
@@ -193,6 +197,7 @@ bool Engine::Init() {
     }
     // 教学截图开关：阴影/调试视图/材质覆盖
     if (m_noShadows) m_renderer.ShadowsEnabled() = false;
+    if (m_noGpuCull) m_renderer.SetGpuCullEnabled(false);
     if (m_debugView >= 0) m_renderer.DebugView() = m_debugView;
     if (m_overrideRoughness >= 0.0f || m_overrideMetallic >= 0.0f) {
         for (GameObject* root : m_world.RootObjects()) {
@@ -376,8 +381,9 @@ void Engine::MainLoop() {
         if (m_autoFrames > 0 && m_frameIndex >= m_autoFrames) {
             if (!m_screenshotPath.empty()) CaptureScreenshot(m_screenshotPath);
             const auto& stats = m_renderer.GetStats();
-            LogInfo("自动截图完成：第 %d 帧 | 绘制 %u | 实例 %u | 三角 %u | GPU %.2fms", m_frameIndex,
-                    stats.drawCalls, stats.instances, stats.triangles, stats.gpuFrameMs);
+            LogInfo("自动截图完成：第 %d 帧 | 绘制 %u | 实例 %u | 三角 %u | GPU %.2fms | GPU可见 %u", m_frameIndex,
+                    stats.drawCalls, stats.instances, stats.triangles, stats.gpuFrameMs,
+                    stats.gpuVisibleInstances);
             break;
         }
 

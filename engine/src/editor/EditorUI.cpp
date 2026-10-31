@@ -924,6 +924,11 @@ void Editor::DrawStats(World& world, Renderer& renderer) {
     }
     ImGui::Separator();
     ImGui::Text("绘制调用: %u", stats.drawCalls);
+        if (stats.gpuCullEnabled) {
+            ImGui::Text("GPU 剔除: 可见实例 %u", stats.gpuVisibleInstances);
+        } else {
+            ImGui::TextDisabled("GPU 剔除: 关闭（CPU 批处理）");
+        }
     ImGui::Text("实例: %u   三角形: %u", stats.instances, stats.triangles);
     ImGui::Text("剔除: %u", stats.culled);
     ImGui::Text("对象: %zu", world.ObjectCount());

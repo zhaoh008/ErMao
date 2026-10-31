@@ -43,6 +43,9 @@ public:
         float gpuFrameMs = 0.0f;
         bool  gpuRenderValid = false;
         bool  gpuTimingValid = false;
+        // GPU Driven（第 22 讲）：compute 剔除后的可见实例数（每 30 帧回读一次）
+        u32   gpuVisibleInstances = 0;
+        bool  gpuCullEnabled = false;
     };
 
     bool Init(Device* device);
@@ -74,6 +77,9 @@ public:
 
     float& Exposure() { return m_exposure; }
     bool&  ShadowsEnabled() { return m_shadowsEnabled; }
+    // GPU Driven 开关（第 22 讲）；关闭后走 CPU 批处理
+    void SetGpuCullEnabled(bool enabled) { m_gpuCullWanted = enabled; }
+    bool GpuCullEnabled() const { return m_gpuCullReady && m_gpuCullWanted; }
     bool&  Wireframe() { return m_wireframe; }
     int&   DebugView() { return m_debugView; }
 
@@ -138,6 +144,12 @@ private:
     void OpaquePass(ID3D11DeviceContext* ctx, bool wireframe);
     void SkinnedPass(ID3D11DeviceContext* ctx);
     void ParticlePass(ID3D11DeviceContext* ctx);
+    // 离屏视口 -> 后备缓冲（统一两条渲染路径的口径）
+    void CopyPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height);
+    // GPU Driven：创建资源 / compute 剔除 + 间接绘制
+    bool CreateGpuCullResources();
+    void GpuCulledDraw(ID3D11DeviceContext* ctx);
+    void ReadbackGpuCullStats(ID3D11DeviceContext* ctx);
     void DebugPass(ID3D11DeviceContext* ctx);
     void PostPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height);
 
@@ -157,6 +169,7 @@ private:
     Shader m_postShader;
     Shader m_skinnedShader;
     Shader m_particleShader;
+    Shader m_copyShader;
 
     ConstantBuffer<PerFrameCB>    m_perFrame;
     ConstantBuffer<PointLightsCB> m_pointLights;
@@ -223,6 +236,33 @@ private:
 
     Stats m_stats;
     const RenderScene* m_currentScene = nullptr; // OpaquePass 里画蒙皮网格用
+
+    // ---------------- GPU Driven（第 22 讲）
+    static constexpr u32 kMaxCullBatches = 32;
+    struct GpuCullCB {
+        Vec4 planes[6];
+        Vec4 localMin;   // 网格局部 AABB（让 GPU 用和 CPU 一样的包围盒）
+        Vec4 localMax;
+        u32  sourceOffset;
+        u32  instanceCount;
+        u32  pad0;
+        u32  pad1;
+    };
+    Shader                          m_cullShader;
+    ConstantBuffer<GpuCullCB>       m_cullParams;
+    ComPtr<ID3D11Buffer>            m_gpuInstanceSource;
+    ComPtr<ID3D11ShaderResourceView> m_gpuInstanceSRV;
+    ComPtr<ID3D11Buffer>            m_gpuCompact;
+    ComPtr<ID3D11UnorderedAccessView> m_gpuCompactUAV;
+    ComPtr<ID3D11Buffer>            m_gpuArgs[kMaxCullBatches];
+    ComPtr<ID3D11UnorderedAccessView> m_gpuArgsUAV[kMaxCullBatches];
+    ComPtr<ID3D11Buffer>            m_gpuCompactVB; // UAV-only 时的中转顶点缓冲
+    ComPtr<ID3D11Buffer>            m_gpuArgsStaging;
+    u32                             m_gpuBatchCount = 0;
+    u32                             m_gpuReadbackTimer = 0;
+    bool                            m_gpuCullReady = false;
+    bool                            m_gpuCompactIsUavOnly = false;
+    bool                            m_gpuCullWanted = true;
     const Camera*      m_currentCamera = nullptr;
 };
 

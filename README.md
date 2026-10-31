@@ -31,7 +31,8 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 - **粒子系统**（第 12 讲）：SoA + 累加器发射 + swap-remove + billboard；竞技场两处火把 + 传送门
 - **行为树**（第 17 讲）：Sequence/Selector/Cooldown/Running；敌人巡逻/追击/攻击/低血逃跑
 - **讲义**：`docs/lectures/` 第 0 课 + 22 讲 + 术语表 + 学习指南；每条原理都给数学依据与代码位置
-- **工程**：文档引用检查（`build.bat` 自动跑）、GPU 计时拆成"渲染成本/帧跨度"两个口径
+- **GPU Driven**（第 22 讲）：compute 视锥剔除 + 间接绘制；`--level cull` 6400 实例压测，可见数与 CPU 一致
+- **工程**：文档引用检查（`build.bat` 自动跑）、GPU 计时拆成"渲染成本/帧跨度"两个口径、`--noeditor` 也走离屏 RT 统一口径
 
 ## v0.3 做了什么
 

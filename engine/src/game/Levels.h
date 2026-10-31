@@ -18,6 +18,8 @@ void BuildThirdPersonLevel(World& world);
 void BuildWaveArena(World& world);
 // 蒙皮演示关卡：需要 Renderer 来创建 GPU 蒙皮网格
 void BuildSkinningLevel(World& world, Renderer& renderer);
+// GPU 剔除压测：2000 个同批次立方体
+void BuildCullTestLevel(World& world);
 
 // 早期的基础演示场景（保留，方便对比）
 void BuildDemoScene(World& world);

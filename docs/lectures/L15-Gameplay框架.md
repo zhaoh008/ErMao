@@ -1,4 +1,4 @@
-# 第 15 讲：Gameplay 框架——组件、固定步长与第三人称控制
+# 第 15 讲：Gameplay 框架——组件、固定步长与第三人称控制【必读】
 
 > 对应 GAMES104 第 15 讲（Gameplay 的积木）。
 > 代码：`game/ThirdPersonController.*`、`game/WaveGame.*`、`scene/Component.h`。
@@ -151,6 +151,8 @@ camera.rotation = R_y(yaw)·R_x(pitch)
 - 鼠标输入在 `OnUpdate` 里处理：鼠标增量是"每帧"的量，放进固定步长会一帧转多次。
 
 ---
+
+![第三人称/刷怪](../screenshots/demo-play.png)
 
 ## 7. 实验
 

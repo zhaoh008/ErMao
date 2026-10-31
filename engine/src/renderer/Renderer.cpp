@@ -50,6 +50,9 @@ bool Renderer::Init(Device* device) {
     if (!EnsureViewportTarget(16, 16)) return false;
     if (!m_shadowMap.Create(device->GetDevice(), m_shadowSize, m_shadowSize)) return false;
     if (!CreateInstanceBuffer(16384)) return false;
+    if (!CreateGpuCullResources()) {
+        LogWarn("GPU 剔除不可用，回退 CPU 批处理");
+    }
     if (!m_particleBuffer.Create(m_device->GetDevice(), nullptr, 4096 * sizeof(ParticleVertex),
                                  D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC)) {
         LogError("粒子顶点缓冲创建失败");
@@ -111,6 +114,8 @@ bool Renderer::CreateShaders() {
         {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
     if (!m_particleShader.CreateInputLayout(dev, kParticleLayout, _countof(kParticleLayout))) return false;
+
+    if (!m_copyShader.Compile(dev, "Copy.hlsl", "VSMain", "PSMain")) return false;
     return true;
 }
 
@@ -185,7 +190,220 @@ void Renderer::Shutdown() {
 }
 
 void Renderer::Render(const Camera& camera, const RenderScene& scene, float time, bool wireframe) {
-    RenderInternal(camera, scene, time, wireframe, nullptr, m_windowWidth, m_windowHeight);
+    // 统一口径：先渲染到离屏视口，再拷贝到后备缓冲。
+    // 直接画后缓冲会让 GPU 在 Present 的翻转队列上等待，GPU 计时会虚高（审核 P2-21）。
+    if (!EnsureViewportTarget(m_windowWidth, m_windowHeight)) return;
+    RenderInternal(camera, scene, time, wireframe, m_viewportTarget.RTV(), m_windowWidth, m_windowHeight);
+
+    ID3D11RenderTargetView* backbuffer = m_device->GetBackbufferRTV();
+    if (backbuffer) CopyPass(m_device->GetContext(), backbuffer, m_windowWidth, m_windowHeight);
+}
+
+bool Renderer::CreateGpuCullResources() {
+    ID3D11Device* dev = m_device->GetDevice();
+    const u32 capacity = m_maxInstances;
+
+    D3D11_BUFFER_DESC srcDesc{};
+    srcDesc.Usage = D3D11_USAGE_DEFAULT;
+    srcDesc.ByteWidth = capacity * sizeof(InstanceVertex);
+    srcDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    srcDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    srcDesc.StructureByteStride = sizeof(InstanceVertex);
+    if (FAILED(dev->CreateBuffer(&srcDesc, nullptr, &m_gpuInstanceSource))) {
+        LogWarn("GPU 剔除：源实例缓冲创建失败，回退 CPU 绘制");
+        return false;
+    }
+    D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
+    srvDesc.Format = DXGI_FORMAT_UNKNOWN;
+    srvDesc.ViewDimension = D3D11_SRV_DIMENSION_BUFFER;
+    srvDesc.Buffer.FirstElement = 0;
+    srvDesc.Buffer.NumElements = capacity;
+    if (FAILED(dev->CreateShaderResourceView(m_gpuInstanceSource.Get(), &srvDesc, &m_gpuInstanceSRV))) return false;
+
+    D3D11_BUFFER_DESC compactDesc{};
+    compactDesc.Usage = D3D11_USAGE_DEFAULT;
+    compactDesc.ByteWidth = capacity * sizeof(InstanceVertex);
+    compactDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS | D3D11_BIND_VERTEX_BUFFER;
+    compactDesc.MiscFlags = D3D11_RESOURCE_MISC_BUFFER_STRUCTURED;
+    compactDesc.StructureByteStride = sizeof(InstanceVertex);
+    HRESULT compactHr = dev->CreateBuffer(&compactDesc, nullptr, &m_gpuCompact);
+    if (FAILED(compactHr)) {
+        LogWarn("GPU 剔除：UAV|VB 组合失败 hr=0x%08X，尝试 UAV-only", static_cast<unsigned>(compactHr));
+        compactDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+        compactHr = dev->CreateBuffer(&compactDesc, nullptr, &m_gpuCompact);
+        if (FAILED(compactHr)) {
+            LogWarn("GPU 剔除：UAV-only 也失败 hr=0x%08X", static_cast<unsigned>(compactHr));
+            return false;
+        }
+        m_gpuCompactIsUavOnly = true;
+        // UAV 不能同时是顶点缓冲（D3D11 限制），复制到一个普通 VB 再画
+        D3D11_BUFFER_DESC vbDesc{};
+        vbDesc.Usage = D3D11_USAGE_DEFAULT;
+        vbDesc.ByteWidth = capacity * sizeof(InstanceVertex);
+        vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+        if (FAILED(dev->CreateBuffer(&vbDesc, nullptr, &m_gpuCompactVB))) return false;
+    }
+    D3D11_UNORDERED_ACCESS_VIEW_DESC uavDesc{};
+    uavDesc.Format = DXGI_FORMAT_UNKNOWN;
+    uavDesc.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+    uavDesc.Buffer.FirstElement = 0;
+    uavDesc.Buffer.NumElements = capacity;
+    if (FAILED(dev->CreateUnorderedAccessView(m_gpuCompact.Get(), &uavDesc, &m_gpuCompactUAV))) return false;
+
+    D3D11_BUFFER_DESC argsDesc{};
+    argsDesc.Usage = D3D11_USAGE_DEFAULT;
+    argsDesc.ByteWidth = sizeof(UINT) * 5;
+    argsDesc.BindFlags = D3D11_BIND_UNORDERED_ACCESS;
+    argsDesc.MiscFlags = D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
+    D3D11_UNORDERED_ACCESS_VIEW_DESC argsUav{};
+    argsUav.Format = DXGI_FORMAT_R32_UINT;
+    argsUav.ViewDimension = D3D11_UAV_DIMENSION_BUFFER;
+    argsUav.Buffer.NumElements = 5;
+    for (u32 i = 0; i < kMaxCullBatches; ++i) {
+        if (FAILED(dev->CreateBuffer(&argsDesc, nullptr, &m_gpuArgs[i]))) return false;
+        if (FAILED(dev->CreateUnorderedAccessView(m_gpuArgs[i].Get(), &argsUav, &m_gpuArgsUAV[i]))) return false;
+    }
+
+    D3D11_BUFFER_DESC stagingDesc{};
+    stagingDesc.Usage = D3D11_USAGE_STAGING;
+    stagingDesc.ByteWidth = sizeof(UINT) * 5 * kMaxCullBatches;
+    stagingDesc.CPUAccessFlags = D3D11_CPU_ACCESS_READ;
+    if (FAILED(dev->CreateBuffer(&stagingDesc, nullptr, &m_gpuArgsStaging))) return false;
+
+    if (!m_cullShader.Compile(dev, "Cull.hlsl", nullptr, nullptr, "CSMain")) return false;
+    if (!m_cullParams.Create(dev)) return false;
+
+    m_gpuCullReady = true;
+    LogInfo("GPU 剔除就绪：compute 视锥剔除 + 间接绘制（容量 %u 实例）", capacity);
+    return true;
+}
+
+void Renderer::GpuCulledDraw(ID3D11DeviceContext* ctx) {
+    if (!m_gpuCullReady || !m_gpuCullWanted || !m_currentCamera || m_batches.empty()) {
+        DrawBatches(ctx);
+        return;
+    }
+
+    // 1) 实例数据整块上传（教学规模：几千个实例 × 144B）
+    ctx->UpdateSubresource(m_gpuInstanceSource.Get(), 0, nullptr, m_instances.data(), 0, 0);
+
+    // 2) 视锥平面
+    const Frustum frustum = m_currentCamera->GetFrustum();
+    GpuCullCB params{};
+    for (int i = 0; i < 6; ++i) params.planes[i] = Vec4(frustum.planes[i].normal, frustum.planes[i].d);
+
+    ID3D11Buffer* cbuf = m_cullParams.Get();
+    m_gpuBatchCount = 0;
+
+    for (const Batch& batch : m_batches) {
+        if (batch.count == 0) continue;
+        if (m_gpuBatchCount >= kMaxCullBatches) break;
+        const u32 slot = m_gpuBatchCount++;
+
+        params.sourceOffset = batch.firstInstance;
+        params.instanceCount = batch.count;
+        const AABB& meshBounds = batch.mesh->Bounds();
+        params.localMin = Vec4(meshBounds.min, 0.0f);
+        params.localMax = Vec4(meshBounds.max, 0.0f);
+        m_cullParams.Update(ctx, params);
+
+        // 3) 重置间接参数（InstanceCount 由 compute 递增）
+        const UINT args[5] = {batch.mesh->IndexCount(), 0, 0, 0, 0};
+        ctx->UpdateSubresource(m_gpuArgs[slot].Get(), 0, nullptr, args, 0, 0);
+
+        // 4) dispatch
+        ctx->CSSetShader(m_cullShader.CS(), nullptr, 0);
+        ctx->CSSetConstantBuffers(0, 1, &cbuf);
+        ID3D11ShaderResourceView* srv = m_gpuInstanceSRV.Get();
+        ctx->CSSetShaderResources(0, 1, &srv);
+        ID3D11UnorderedAccessView* uavs[2] = {m_gpuCompactUAV.Get(), m_gpuArgsUAV[slot].Get()};
+        ctx->CSSetUnorderedAccessViews(0, 2, uavs, nullptr);
+        ctx->Dispatch((batch.count + 63) / 64, 1, 1);
+
+        ID3D11UnorderedAccessView* nullUav[2] = {nullptr, nullptr};
+        ctx->CSSetUnorderedAccessViews(0, 2, nullUav, nullptr);
+        ID3D11ShaderResourceView* nullSrv[1] = {nullptr};
+        ctx->CSSetShaderResources(0, 1, nullSrv);
+        ctx->CSSetShader(nullptr, nullptr, 0);
+
+        // 5) 间接绘制：压缩缓冲直接当 instance data（144B 布局不变）
+        ID3D11Buffer* instanceSource = m_gpuCompact.Get();
+        if (m_gpuCompactIsUavOnly) {
+            D3D11_BOX box{};
+            box.left = 0;
+            box.right = batch.count * sizeof(InstanceVertex);
+            box.top = 0;
+            box.bottom = 1;
+            box.front = 0;
+            box.back = 1;
+            ctx->CopySubresourceRegion(m_gpuCompactVB.Get(), 0, 0, 0, 0, m_gpuCompact.Get(), 0, &box);
+            instanceSource = m_gpuCompactVB.Get();
+        }
+        ID3D11Buffer* buffers[2] = {batch.mesh->VertexBuffer(), instanceSource};
+        const UINT   strides[2] = {sizeof(Vertex), sizeof(InstanceVertex)};
+        const UINT   offsets[2] = {0, 0};
+        ctx->IASetVertexBuffers(0, 2, buffers, strides, offsets);
+        ctx->IASetIndexBuffer(batch.mesh->IndexBuffer(), DXGI_FORMAT_R32_UINT, 0);
+        ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        if (batch.texture) {
+            batch.texture->BindPS(ctx, 1);
+        } else {
+            ID3D11ShaderResourceView* nullAlbedo[1] = {nullptr};
+            ctx->PSSetShaderResources(1, 1, nullAlbedo);
+        }
+        ctx->DrawIndexedInstancedIndirect(m_gpuArgs[slot].Get(), 0);
+        ++m_stats.drawCalls;
+    }
+
+    m_stats.gpuCullEnabled = true;
+    ReadbackGpuCullStats(ctx);
+}
+
+void Renderer::ReadbackGpuCullStats(ID3D11DeviceContext* ctx) {
+    // 每 30 帧回读一次可见实例数：避免每帧 Map 造成 CPU/GPU 同步
+    if ((++m_gpuReadbackTimer % 30) != 0) return;
+    for (u32 i = 0; i < m_gpuBatchCount; ++i) {
+        D3D11_BOX box{};
+        box.left = 0;
+        box.right = sizeof(UINT) * 5;
+        box.top = 0;
+        box.bottom = 1;
+        box.front = 0;
+        box.back = 1;
+        ctx->CopySubresourceRegion(m_gpuArgsStaging.Get(), 0, i * sizeof(UINT) * 5, 0, 0, m_gpuArgs[i].Get(), 0,
+                                   &box);
+    }
+
+    D3D11_MAPPED_SUBRESOURCE mapped{};
+    if (SUCCEEDED(ctx->Map(m_gpuArgsStaging.Get(), 0, D3D11_MAP_READ, 0, &mapped))) {
+        u32 visible = 0;
+        for (u32 i = 0; i < m_gpuBatchCount; ++i) {
+            const UINT* args = reinterpret_cast<const UINT*>(static_cast<const u8*>(mapped.pData) + i * sizeof(UINT) * 5);
+            visible += args[1];
+        }
+        m_stats.gpuVisibleInstances = visible;
+        ctx->Unmap(m_gpuArgsStaging.Get(), 0);
+    }
+}
+
+void Renderer::CopyPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height) {
+    SetViewport(width, height);
+    ctx->OMSetRenderTargets(1, &target, nullptr);
+    RenderStates::SetDepthNone(ctx);
+    RenderStates::SetBlendOpaque(ctx);
+    RenderStates::SetCullNone(ctx);
+
+    m_copyShader.Bind(ctx);
+    ID3D11ShaderResourceView* srv = m_viewportTarget.ColorSRV();
+    ctx->PSSetShaderResources(0, 1, &srv);
+    Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP);
+    ctx->IASetInputLayout(nullptr);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    ctx->Draw(3, 0);
+    ++m_stats.drawCalls;
+
+    ID3D11ShaderResourceView* nullSrv[1] = {nullptr};
+    ctx->PSSetShaderResources(0, 1, nullSrv);
 }
 
 void Renderer::RenderToViewport(const Camera& camera, const RenderScene& scene, float time, u32 width, u32 height,
@@ -502,7 +720,8 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
     m_pointLights.BindPS(ctx, 1);
 
     UpdateGpuTiming(ctx, true);
-    BuildBatches(camera, scene, true);
+    // GPU 剔除开启时把剔除交给 compute（第 22 讲）；否则走 CPU 视锥剔除
+    BuildBatches(camera, scene, !GpuCullEnabled());
     UploadInstances(ctx);
     UpdateRenderTiming(ctx, true); // 渲染成本从这里开始计（Shadow 之前）
 
@@ -649,7 +868,7 @@ void Renderer::OpaquePass(ID3D11DeviceContext* ctx, bool wireframe) {
     Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP);
     Texture::BindSampler(ctx, 1, D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP);
 
-    DrawBatches(ctx);
+    GpuCulledDraw(ctx);
     SkinnedPass(ctx);
 
     if (wireframe) RenderStates::SetWireframe(ctx, false);

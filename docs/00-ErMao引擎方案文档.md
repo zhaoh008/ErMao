@@ -540,3 +540,10 @@ GPU 计时拆分（渲染成本 vs 帧跨度）、自动截图禁用 imgui.ini�
 ### 15.4 当前仍未实现
 
 网络（18-19）、GI 探针（21）、GPU Driven（22）——只有设计文档，`docs/lectures` 里明确标注。
+
+### 15.5 GPU Driven（第 22 讲，2026-10-31 晚）
+
+- `shaders/Cull.hlsl`：compute 视锥剔除，`InterlockedAdd` 写间接参数；
+- `Renderer::GpuCulledDraw`：上传实例 → dispatch → `DrawIndexedInstancedIndirect`；
+- `--level cull` 压测：6400 个同批次立方体，GPU 可见 5683，与 CPU 剔除结果一致；
+- 踩坑记录：D3D11 不允许 UAV|VERTEX_BUFFER 同 buffer（需 copy 到 VB）、实例矩阵必须行向量左乘。

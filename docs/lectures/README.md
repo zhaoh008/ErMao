@@ -61,7 +61,7 @@
 | [18-19](L18-网络基础.md) | 网络基础与同步（设计） | — | ✗ 设计 |
 | [20](L20-数据布局与JobSystem.md) | SoA、并行分块与 Amdahl | `core/JobSystem` | ✅ |
 | [21](L21-GI与光照探针.md) | 全局光照近似（设计） | `World::ambient*` | ◐ 近似 |
-| [22](L22-GPU Driven.md) | GPU Driven 与间接绘制（设计 + 现状） | — | ✗ 设计 |
+| [22](L22-GPU Driven.md) | GPU Driven：compute 剔除 + 间接绘制 | `shaders/Cull.hlsl` `Renderer::GpuCulledDraw` | ✅ |
 
 ## 实验环境
 
