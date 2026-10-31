@@ -48,9 +48,17 @@ struct SkinnedDraw {
     float                    metallic = 0.0f;
 };
 
+// 粒子（第 12 讲）：位置 + 大小 + 颜色，渲染器负责画成面向相机的 billboard
+struct ParticleRender {
+    Vec3  position{0, 0, 0};
+    float size = 0.1f;
+    Vec4  color{1, 1, 1, 1};
+};
+
 // 一帧的渲染场景
 struct RenderScene {
     std::vector<RenderItem>       items;
+    std::vector<ParticleRender>   particles;
     std::vector<SkinnedDraw>      skinned;
     std::vector<PointLightRender> pointLights;
     std::vector<HealthBarRender>  healthBars;

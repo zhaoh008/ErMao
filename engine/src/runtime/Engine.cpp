@@ -5,6 +5,7 @@
 #include "core/Log.h"
 #include "core/Timer.h"
 #include "game/Levels.h"
+#include "game/ParticleEmitter.h"
 #include "game/SkinningDemo.h"
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
@@ -247,6 +248,7 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
 
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
     game::CollectSkinnedDraws(m_world, m_scene);
+    CollectParticles(m_world, m_scene);
 
 
     m_renderer.Debug().Begin();
@@ -354,6 +356,7 @@ void Engine::MainLoop() {
             m_renderer.Debug().Begin();
             m_world.BuildRenderScene(m_scene, viewCamera);
     game::CollectSkinnedDraws(m_world, m_scene);
+    CollectParticles(m_world, m_scene);
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
 
             // 无编辑器时也要有 HUD/血条：UI 直接叠加在已渲染的后备缓冲上

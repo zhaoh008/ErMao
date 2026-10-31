@@ -35,7 +35,7 @@
 - `[必读]` 引擎骨架：01 02 03 04 14 15
 - `[选读]` 想做玩法/工具再读：10 11 13 16 20
 - `[进阶]` 可以先跳过：05 06 07 08 09 17 21 22（用到再回来）
-- `[设计]` 只有设计没有实现：12 17 18-19 21 22
+- `[设计]` 只有设计没有实现：17 18-19 21 22
 
 ## 目录
 
@@ -52,7 +52,7 @@
 | [09](L09-动画混合.md) | 关键帧插值、Cross-fade 与状态 | `animation/Skeleton.cpp` | ✅ |
 | [10](L10-物理基础.md) | 半隐式欧拉、冲量与摩擦 | `physics/PhysicsWorldSim.cpp` | ✅ |
 | [11](L11-碰撞与查询.md) | AABB、射线求交与空间查询 | `scene/WorldQuery.cpp` | ✅ |
-| [12](L12-粒子与特效.md) | 粒子系统（设计 + 现状） | — | ◐ 设计 |
+| [12](L12-粒子与特效.md) | 粒子系统：发射、模拟与 Billboard | `game/ParticleEmitter` `Particle.hlsl` | ✅ |
 | [13](L13-编辑器与工具链.md) | 即时模式 UI、拾取与 Gizmo | `editor/` | ✅ |
 | [14](L14-序列化与反射.md) | 反射、JSON 与场景往返 | `scene/Reflection` `core/Json` | ✅ |
 | [15](L15-Gameplay框架.md) | 组件、固定步长与角色控制 | `game/ThirdPersonController` | ✅ |

@@ -2,6 +2,7 @@
 #include "scene/World.h"
 #include "ai/Agents.h"
 #include "game/ThirdPersonController.h"
+#include "game/ParticleEmitter.h"
 #include "game/SkinnedCharacter.h"
 #include "game/WaveGame.h"
 #include "animation/Animation.h"
@@ -107,6 +108,7 @@ void World::Init(AssetManager* assets) {
     Reflection::Register<ProjectileComponent>("Projectile");
     Reflection::Register<EnemyComponent>("Enemy");
     Reflection::Register<SkinnedCharacterComponent>("Skinned Character");
+    Reflection::Register<ParticleEmitterComponent>("Particle Emitter");
     LogInfo("World 初始化（已注册 %zu 种组件）", Reflection::All().size());
 }
 

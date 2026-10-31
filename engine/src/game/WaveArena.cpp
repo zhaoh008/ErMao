@@ -2,6 +2,7 @@
 #include "game/Levels.h"
 #include "core/Log.h"
 #include "game/ThirdPersonController.h"
+#include "game/ParticleEmitter.h"
 #include "game/WaveGame.h"
 #include "scene/Components.h"
 #include "scene/World.h"
@@ -116,6 +117,25 @@ void BuildWaveArena(World& world) {
     point->color = Vec4(0.55f, 0.70f, 1.0f, 1.0f);
     point->intensity = 4.0f;
     point->range = 22.0f;
+
+    // ------------------------------------------------ 火把（粒子）
+    auto addTorch = [&world](const std::string& name, const Vec3& position, const Vec4& color) {
+        GameObject* torch = world.CreateGameObject(name);
+        torch->SetPosition(position);
+        auto* emitter = torch->AddComponent<ParticleEmitterComponent>();
+        emitter->rate = 55.0f;
+        emitter->lifetime = 1.1f;
+        emitter->initialVelocity = Vec3(0.0f, 1.4f, 0.0f);
+        emitter->spread = 0.3f;
+        emitter->gravity = Vec3(0.0f, 1.2f, 0.0f);
+        emitter->colorStart = color;
+        emitter->colorEnd = Vec4(color.x * 0.4f, color.y * 0.2f, color.z * 0.1f, 0.0f);
+        emitter->sizeStart = 0.30f;
+        emitter->sizeEnd = 0.03f;
+    };
+    addTorch("火把_A", Vec3(-3.5f, 0.15f, -10.0f), Vec4(1.0f, 0.62f, 0.22f, 1.0f));
+    addTorch("火把_B", Vec3(3.5f, 0.15f, -10.0f), Vec4(1.0f, 0.62f, 0.22f, 1.0f));
+    addTorch("传送门粒子", Vec3(0.0f, 0.2f, -22.0f), Vec4(0.45f, 0.65f, 1.0f, 1.0f));
 
     world.RebuildNavigation();
     LogInfo("刷怪竞技场构建完成：%zu 个对象", world.ObjectCount());

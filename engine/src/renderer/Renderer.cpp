@@ -50,6 +50,11 @@ bool Renderer::Init(Device* device) {
     if (!EnsureViewportTarget(16, 16)) return false;
     if (!m_shadowMap.Create(device->GetDevice(), m_shadowSize, m_shadowSize)) return false;
     if (!CreateInstanceBuffer(16384)) return false;
+    if (!m_particleBuffer.Create(m_device->GetDevice(), nullptr, 4096 * sizeof(ParticleVertex),
+                                 D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC)) {
+        LogError("粒子顶点缓冲创建失败");
+        return false;
+    }
     if (!m_debug.Init(device->GetDevice())) return false;
     if (!CreateTimingQueries()) return false;
 
@@ -97,6 +102,15 @@ bool Renderer::CreateShaders() {
         {"BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
     };
     if (!m_skinnedShader.CreateInputLayout(dev, kSkinnedLayout, _countof(kSkinnedLayout))) return false;
+
+    // 粒子：POSITION/COLOR/TEXCOORD，stride = 36
+    if (!m_particleShader.Compile(dev, "Particle.hlsl", "VSMain", "PSMain")) return false;
+    const D3D11_INPUT_ELEMENT_DESC kParticleLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 28, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    if (!m_particleShader.CreateInputLayout(dev, kParticleLayout, _countof(kParticleLayout))) return false;
     return true;
 }
 
@@ -454,6 +468,7 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
     if (outputWidth == 0 || outputHeight == 0) return;
     ID3D11DeviceContext* ctx = m_device->GetContext();
     m_currentScene = &scene; // OpaquePass 里的蒙皮绘制需要
+    m_currentCamera = &camera;
 
     m_stats.drawCalls = 0;
 
@@ -505,6 +520,7 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
 
     SkyPass(ctx);
     OpaquePass(ctx, wireframe);
+    ParticlePass(ctx);
     DebugPass(ctx);
     // 3D UI：世界空间血条（不写深度，但被几何遮挡）
 
@@ -577,6 +593,46 @@ void Renderer::SkinnedPass(ID3D11DeviceContext* ctx) {
         ++m_stats.instances;
         m_stats.triangles += draw.mesh->IndexCount() / 3;
     }
+}
+
+void Renderer::ParticlePass(ID3D11DeviceContext* ctx) {
+    if (!m_currentScene || !m_currentCamera || m_currentScene->particles.empty()) return;
+
+    const Vec3 right = m_currentCamera->Right();
+    const Vec3 up = m_currentCamera->Up();
+
+    m_particleVertices.clear();
+    m_particleVertices.reserve(m_currentScene->particles.size() * 6);
+    for (const ParticleRender& p : m_currentScene->particles) {
+        const Vec3 r = right * p.size;
+        const Vec3 u = up * p.size;
+        const Vec3 c = p.position;
+        const Vec3 p0 = c - r - u, p1 = c + r - u, p2 = c + r + u, p3 = c - r + u;
+        m_particleVertices.push_back({p0, p.color, Vec2(0, 0)});
+        m_particleVertices.push_back({p1, p.color, Vec2(1, 0)});
+        m_particleVertices.push_back({p2, p.color, Vec2(1, 1)});
+        m_particleVertices.push_back({p0, p.color, Vec2(0, 0)});
+        m_particleVertices.push_back({p2, p.color, Vec2(1, 1)});
+        m_particleVertices.push_back({p3, p.color, Vec2(0, 1)});
+    }
+
+    m_particleBuffer.Update(ctx, m_particleVertices.data(), m_particleVertices.size() * sizeof(ParticleVertex));
+
+    m_particleShader.Bind(ctx);
+    m_perFrame.BindVSPS(ctx, 0);
+    RenderStates::SetDepthTestNoWrite(ctx);
+    RenderStates::SetAlphaBlend(ctx);
+    RenderStates::SetCullNone(ctx);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    UINT stride = sizeof(ParticleVertex);
+    UINT offset = 0;
+    ID3D11Buffer* buffer = m_particleBuffer.Get();
+    ctx->IASetVertexBuffers(0, 1, &buffer, &stride, &offset);
+    ctx->Draw(static_cast<UINT>(m_particleVertices.size()), 0);
+
+    ++m_stats.drawCalls;
+    m_stats.triangles += static_cast<u32>(m_particleVertices.size() / 3);
 }
 
 void Renderer::OpaquePass(ID3D11DeviceContext* ctx, bool wireframe) {

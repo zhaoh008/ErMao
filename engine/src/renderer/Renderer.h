@@ -137,6 +137,7 @@ private:
     void SkyPass(ID3D11DeviceContext* ctx);
     void OpaquePass(ID3D11DeviceContext* ctx, bool wireframe);
     void SkinnedPass(ID3D11DeviceContext* ctx);
+    void ParticlePass(ID3D11DeviceContext* ctx);
     void DebugPass(ID3D11DeviceContext* ctx);
     void PostPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height);
 
@@ -155,6 +156,7 @@ private:
     Shader m_debugShader;
     Shader m_postShader;
     Shader m_skinnedShader;
+    Shader m_particleShader;
 
     ConstantBuffer<PerFrameCB>    m_perFrame;
     ConstantBuffer<PointLightsCB> m_pointLights;
@@ -186,6 +188,14 @@ private:
 
     std::vector<Batch>          m_batches;
     std::vector<InstanceVertex> m_instances;
+    // 粒子：动态顶点缓冲（每粒子 6 顶点）
+    struct ParticleVertex {
+        Vec3 position;
+        Vec4 color;
+        Vec2 uv;
+    };
+    std::vector<ParticleVertex> m_particleVertices;
+    GpuBuffer                   m_particleBuffer;
     std::vector<RenderItem>     m_visibleItems;
     std::vector<u8>             m_visibility;
 
@@ -213,6 +223,7 @@ private:
 
     Stats m_stats;
     const RenderScene* m_currentScene = nullptr; // OpaquePass 里画蒙皮网格用
+    const Camera*      m_currentCamera = nullptr;
 };
 
 } // namespace erm
