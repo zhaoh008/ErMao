@@ -8,6 +8,7 @@
 //   * 菜单：开始 / 暂停 / 失败重开
 #pragma once
 
+#include "ai/BehaviorTree.h"
 #include "core/Math.h"
 #include "core/Types.h"
 #include "scene/Component.h"
@@ -85,7 +86,16 @@ public:
     void OnUpdate(float dt) override;
 
 private:
-    float m_attackTimer = 0.0f;
+    void BuildTree();
+    bool CanSeePlayer() const;
+    BTStatus MoveToward(const Vec3& target, float dt, float speed);
+
+    float        m_attackTimer = 0.0f;
+    BehaviorTree m_tree;
+    bool         m_treeBuilt = false;
+    float        m_fleeTimer = 0.0f;
+    Vec3         m_patrolTarget{0, 0, 0};
+    float        m_patrolTimer = 0.0f;
 };
 
 // ---------------------------------------------------------------- 波次导演

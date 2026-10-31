@@ -136,6 +136,119 @@ void ProjectileComponent::OnUpdate(float dt) {
     if (hit) world->DestroyObject(m_owner);
 }
 
+bool EnemyComponent::CanSeePlayer() const {
+    if (!m_owner) return false;
+    World* world = GetWorld();
+    if (!world) return false;
+
+    GameObject* player = world->FindByName("玩家");
+    if (!player) return false;
+
+    const Vec3 eye = m_owner->WorldPosition() + Vec3(0, 1.2f, 0);
+    const Vec3 target = player->WorldPosition() + Vec3(0, 0.9f, 0);
+    const float distance = Length(target - eye);
+    if (distance > 22.0f) return false;
+
+    // 视线遮挡：导航栅格的行进线检测（第 16 讲）
+    return world->Nav().HasLineOfSight(eye, target);
+}
+
+BTStatus EnemyComponent::MoveToward(const Vec3& target, float dt, float speed) {
+    if (!m_owner) return BTStatus::Failure;
+    World* world = GetWorld();
+    if (!world) return BTStatus::Failure;
+
+    Vec3 toTarget = target - m_owner->Position();
+    toTarget.y = 0.0f;
+    if (LengthSq(toTarget) < 0.05f) return BTStatus::Success;
+
+    const Vec3 direction = SafeNormalize(toTarget);
+    MoveWithSlide(*world, m_owner, direction * (speed * dt), 0.42f, 1.7f);
+    m_owner->SetRotation(Quat::FromEuler(std::atan2(-direction.x, -direction.z), 0.0f, 0.0f));
+    return BTStatus::Running;
+}
+
+void EnemyComponent::BuildTree() {
+    using namespace bt;
+
+    // 低血量 → 逃跑（带冷却，避免一直逃）
+    auto fleeAction = Action([this](BTContext& ctx) -> BTStatus {
+        World* world = GetWorld();
+        if (!world) return BTStatus::Failure;
+        GameObject* player = world->FindByName("玩家");
+        if (!player) return BTStatus::Failure;
+
+        if (m_fleeTimer <= 0.0f) m_fleeTimer = 2.0f;
+        m_fleeTimer -= ctx.dt;
+
+        Vec3 away = m_owner->Position() - player->Position();
+        away.y = 0.0f;
+        if (LengthSq(away) > 0.01f) {
+            MoveWithSlide(*world, m_owner, SafeNormalize(away) * (moveSpeed * 1.2f * ctx.dt), 0.42f, 1.7f);
+        }
+        return m_fleeTimer > 0.0f ? BTStatus::Running : BTStatus::Success;
+    }, "Flee");
+
+    auto fleeWhenLow = Sequence(NodeList(
+            Condition([this](BTContext&) {
+                auto* health = m_owner ? m_owner->GetComponent<HealthComponent>() : nullptr;
+                return health && health->maxHealth > 0.0f && health->health / health->maxHealth < 0.3f;
+            }, "LowHealth"),
+            Cooldown(std::move(fleeAction), 6.0f, "FleeCooldown")),
+        "FleeWhenLow");
+
+    // 看见玩家 → 贴近打（攻击 / 追击）
+    auto attack = Sequence(NodeList(
+            Condition([this](BTContext&) {
+                World* world = GetWorld();
+                if (!world || !m_owner) return false;
+                GameObject* player = world->FindByName("玩家");
+                return player && Length(m_owner->Position() - player->Position()) <= attackRange;
+            }, "InAttackRange"),
+            Action([this](BTContext&) -> BTStatus {
+                if (m_attackTimer > 0.0f) return BTStatus::Success;
+                if (GameObject* player = GetWorld()->FindByName("玩家")) {
+                    if (auto* health = player->GetComponent<HealthComponent>()) health->ApplyDamage(attackDamage);
+                }
+                m_attackTimer = attackInterval;
+                return BTStatus::Success;
+            }, "Attack")),
+        "AttackSequence");
+
+    auto chase = Action([this](BTContext& ctx) -> BTStatus {
+        World* world = GetWorld();
+        if (!world) return BTStatus::Failure;
+        GameObject* player = world->FindByName("玩家");
+        if (!player) return BTStatus::Failure;
+        return MoveToward(player->Position(), ctx.dt, moveSpeed);
+    }, "Chase");
+
+    auto seeAndFight = Sequence(NodeList(
+            Condition([this](BTContext&) { return CanSeePlayer(); }, "CanSeePlayer"),
+            Selector(NodeList(std::move(attack), std::move(chase)), "AttackOrChase")),
+        "CombatSequence");
+
+    // 默认：原地附近巡逻
+    auto patrol = Action([this](BTContext& ctx) -> BTStatus {
+        World* world = GetWorld();
+        if (!world) return BTStatus::Failure;
+
+        m_patrolTimer -= ctx.dt;
+        if (m_patrolTimer <= 0.0f || LengthSq(m_patrolTarget - m_owner->Position()) < 0.3f) {
+            const float angle = static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * kTwoPi;
+            const float radius = 2.0f + static_cast<float>(rand()) / static_cast<float>(RAND_MAX) * 5.0f;
+            m_patrolTarget = m_owner->Position() + Vec3(std::cos(angle) * radius, 0.0f, std::sin(angle) * radius);
+            m_patrolTimer = 3.0f;
+        }
+        const BTStatus status = MoveToward(m_patrolTarget, ctx.dt, moveSpeed * 0.45f);
+        return status == BTStatus::Success ? BTStatus::Running : status;
+    }, "Patrol");
+
+    m_tree.SetRoot(Selector(NodeList(std::move(fleeWhenLow), std::move(seeAndFight), std::move(patrol)), "Root"));
+    m_treeBuilt = true;
+    m_patrolTimer = 0.0f;
+}
+
 void EnemyComponent::OnUpdate(float dt) {
     if (!m_owner) return;
     World* world = GetWorld();
@@ -144,32 +257,15 @@ void EnemyComponent::OnUpdate(float dt) {
     auto* health = m_owner->GetComponent<HealthComponent>();
     if (health && health->health <= 0.0f) return;
 
-    GameObject* player = world->FindByName("玩家");
-    if (!player) return;
+    if (!m_tree.IsValid()) BuildTree();
 
     m_attackTimer = (std::max)(0.0f, m_attackTimer - dt);
 
-    Vec3 toPlayer = player->Position() - m_owner->Position();
-    toPlayer.y = 0.0f;
-    const float distance = Length(toPlayer);
-    const Vec3  direction = SafeNormalize(toPlayer);
-
-    // 面向玩家
-    if (LengthSq(direction) > 0.0f) {
-        const float targetYaw = std::atan2(-direction.x, -direction.z);
-        m_owner->SetRotation(Quat::FromEuler(targetYaw, 0.0f, 0.0f));
-    }
-
-    if (distance > attackRange) {
-        MoveWithSlide(*world, m_owner, direction * (moveSpeed * dt), 0.42f, 1.7f);
-    } else if (m_attackTimer <= 0.0f) {
-        if (auto* playerHealth = player->GetComponent<HealthComponent>()) {
-            playerHealth->ApplyDamage(attackDamage);
-        }
-        m_attackTimer = attackInterval;
-    }
+    BTContext ctx;
+    ctx.user = this;
+    ctx.dt = dt;
+    m_tree.Tick(ctx);
 }
-
 // ================================================================ 波次导演
 GameObject* WaveGame::FindPlayer(World& world) const { return world.FindByName("玩家"); }
 
