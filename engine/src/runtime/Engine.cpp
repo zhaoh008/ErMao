@@ -456,6 +456,7 @@ void Engine::MainLoop() {
                                    static_cast<float>(m_editor.ViewportWidthPx()),
                                    static_cast<float>(m_editor.ViewportHeightPx()));
                 if (m_survivors.WantsQuit()) m_running = false;
+                m_imgui.EndFrame();
             }
             if (m_survivors3dLevel && playing) {
                 m_survivors3d.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
@@ -509,13 +510,13 @@ void Engine::MainLoop() {
                 m_survivors.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                    static_cast<float>(m_window.Height()));
                 if (m_survivors.WantsQuit()) m_running = false;
+                m_imgui.EndFrame();
             }
             if (m_survivors3dLevel && playing) {
                 m_imgui.BeginFrame();
                 m_survivors3d.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                      static_cast<float>(m_window.Height()));
                 if (m_survivors3d.WantsQuit()) m_running = false;
-                m_imgui.EndFrame();
                 m_imgui.EndFrame();
             }
         }
