@@ -119,6 +119,7 @@ void World::Shutdown() {
 }
 
 void World::Clear() {
+    m_levelKind.clear();
     m_pendingDestroy.clear();
     m_objects.clear(); // unique_ptr 释放，真正销毁对象
     m_roots.clear();
@@ -340,6 +341,7 @@ void World::BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const
 JsonValue World::ToJson() const {
     JsonValue root = JsonValue::MakeObject();
     root.Set("version", JsonValue(1));
+    if (!m_levelKind.empty()) root.Set("levelKind", JsonValue(m_levelKind));
 
     JsonValue sun = JsonValue::MakeObject();
     sun.Set("direction", Vec3ToJson(sunDirection));
@@ -393,6 +395,7 @@ bool World::FromJson(const JsonValue& root) {
     }
 
     Clear();
+    m_levelKind = root["levelKind"].AsString();
 
     if (root.Has("sun")) {
         const JsonValue& sun = root["sun"];

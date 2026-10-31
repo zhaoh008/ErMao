@@ -15,6 +15,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 
 namespace erm {
 
@@ -510,12 +511,20 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         }
         assets.CreateTextureRGBA("floor_proc", size, size, pixels.data());
 
-        for (int y = -15; y < 15; ++y) {
-            for (int x = -28; x < 28; ++x) {
-                SpawnSprite(world, "地面", "floor_proc",
-                            Vec2(static_cast<float>(x) + 0.5f, static_cast<float>(y) + 0.5f), Vec2(1.0f, 1.0f), -10);
+        // 32x32 石砖重复成 512x512 大贴图：地面只需 1 个精灵、1 个对象
+        const int repeat = 16;
+        const int bigSize = size * repeat;
+        std::vector<u8> big(static_cast<size_t>(bigSize) * bigSize * 4, 0);
+        for (int y = 0; y < bigSize; ++y) {
+            for (int x = 0; x < bigSize; ++x) {
+                const int sx = x % size;
+                const int sy = y % size;
+                std::memcpy(&big[(static_cast<size_t>(y) * bigSize + x) * 4],
+                            &pixels[(static_cast<size_t>(sy) * size + sx) * 4], 4);
             }
         }
+        assets.CreateTextureRGBA("floor_big", bigSize, bigSize, big.data());
+        SpawnSprite(world, "地面", "floor_big", Vec2(0.0f, 0.0f), Vec2(56.0f, 30.0f), -10);
     }
 
     // 玩家

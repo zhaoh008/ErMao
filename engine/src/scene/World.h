@@ -65,6 +65,10 @@ public:
     // ------------------------------------------------ 序列化
     JsonValue ToJson() const;
     bool      FromJson(const JsonValue& root);
+    // 场景来自哪个内置关卡（"survivors" / "survivors3d" / ...），用于读档后恢复 2D/3D 模式
+    void               SetLevelKind(const std::string& kind) { m_levelKind = kind; }
+    const std::string& LevelKind() const { return m_levelKind; }
+
     bool      SaveToFile(const std::string& path) const;
     bool      LoadFromFile(const std::string& path);
 
@@ -96,6 +100,7 @@ private:
     void RegisterRecursive(GameObject* object);
 
     AssetManager*                            m_assets = nullptr;
+    std::string                              m_levelKind;
     Scope<PhysicsWorld>                      m_physics;
     NavGrid                                  m_navGrid;
     std::vector<Scope<GameObject>>           m_objects; // 所有权统一在 World

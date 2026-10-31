@@ -155,6 +155,7 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     if (cmd == "scene.load") {
         const std::string path = command["path"].AsString();
         if (path.empty() || !m_world.LoadFromFile(path)) return Error("加载失败: " + path);
+        ApplyLevelMode(m_world.LevelKind());
         JsonValue result = Ok();
         result.Set("objects", JsonValue(static_cast<unsigned>(m_world.ObjectCount())));
         return result;
@@ -318,8 +319,10 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
         } else {
             return Error("未知关卡: " + kind);
         }
+        m_world.SetLevelKind(kind);
         JsonValue result = Ok();
         result.Set("objects", JsonValue(static_cast<unsigned>(m_world.ObjectCount())));
+        result.Set("levelKind", JsonValue(kind));
         return result;
     }
 

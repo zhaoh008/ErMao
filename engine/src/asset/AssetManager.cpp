@@ -2,6 +2,7 @@
 #include "asset/AssetManager.h"
 #include "asset/ObjLoader.h"
 #include "core/FileSystem.h"
+#include "core/Json.h"
 #include "core/Log.h"
 
 #include <windows.h>
@@ -36,6 +37,7 @@ bool AssetManager::Init(ID3D11Device* device) {
     for (const char* name : {"white", "checker", "grid", "noise"}) {
         GetTexture(name);
     }
+    RegisterLevels();
     LogInfo("资源管理器就绪：%zu 个网格 / %zu 张贴图", m_meshes.size(), m_textures.size());
     return true;
 }
@@ -308,6 +310,7 @@ void AssetManager::RegisterSceneAsset(const std::string& path) {
 }
 
 void AssetManager::Refresh() {
+    RegisterLevels();
     // 扫描 exe 旁 assets/scenes，把场景文件注册进资源列表
     const std::string scenesDir = FileSystem::Join(FileSystem::WritableAssetDir(), "scenes");
     WIN32_FIND_DATAW data{};
@@ -321,4 +324,33 @@ void AssetManager::Refresh() {
     FindClose(handle);
 }
 
+
+void AssetManager::RegisterLevels() {
+    // manifest 优先；读不到就用内置兜底，保证「场景」里一定能选到 2D/3D
+    const std::string path = FileSystem::AssetPath("levels/levels.json");
+    bool registered = false;
+    std::string text;
+    if (FileSystem::ReadTextFile(path, text)) {
+        std::string error;
+        const JsonValue root = JsonValue::Parse(text, &error);
+        if (root.IsObject() && root["levels"].IsArray()) {
+            for (const JsonValue& level : root["levels"].Elements()) {
+                const std::string id = level["id"].AsString();
+                const std::string name = level["name"].AsString();
+                if (id.empty() || name.empty()) continue;
+                Register("关卡 · " + name, AssetType::Scene, "level://" + id, true);
+                registered = true;
+            }
+        } else {
+            LogWarn("levels.json 解析失败: %s", error.c_str());
+        }
+    }
+    if (!registered) {
+        Register("关卡 · 2D 幸存者", AssetType::Scene, "level://survivors", true);
+        Register("关卡 · 3D 幸存者", AssetType::Scene, "level://survivors3d", true);
+        Register("关卡 · 第三人称", AssetType::Scene, "level://thirdperson", true);
+        Register("关卡 · 刷怪竞技场", AssetType::Scene, "level://arena", true);
+    }
+    LogInfo("关卡资源已注册（资源管理器 → 场景）");
+}
 } // namespace erm

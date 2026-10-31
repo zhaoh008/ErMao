@@ -28,6 +28,11 @@ private:
     void Shutdown();
     void MainLoop();
 
+    // 切换内置关卡（编辑器「关卡」菜单 / 资源管理器「场景」双击）
+    void LoadLevel(const std::string& kind);
+    // 只恢复 2D/3D/玩法模式，不重建世界（读档后调用）
+    void ApplyLevelMode(const std::string& kind);
+
     // ---- AI 优先：无头脚本接口 ----
     // 输入 {"commands":[{cmd:...}, ...]}，返回逐条结果（JSON）
     JsonValue ExecuteAgentCommand(const JsonValue& command);

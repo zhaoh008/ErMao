@@ -30,6 +30,14 @@ public:
     using ViewportRenderer = std::function<void(const Camera& camera, u32 width, u32 height)>;
 
     void Init(ImGuiLayer* imguiLayer);
+
+    // 资源管理器「场景」里的内置关卡（level://xxx）交给 Engine 重建
+    using LevelLoader = std::function<void(const std::string&)>;
+    void SetLevelLoader(LevelLoader loader) { m_levelLoader = std::move(loader); }
+    // 载入普通场景后，把场景里的 levelKind 通知 Engine 恢复 2D/3D 模式
+    using SceneLoadedCallback = std::function<void(const std::string&)>;
+    void SetSceneLoadedCallback(SceneLoadedCallback callback) { m_sceneLoaded = std::move(callback); }
+    void LoadSceneAsset(World& world, const std::string& name, const std::string& sourcePath);
     void Shutdown();
     // 忽略 imgui.ini，本次启动强制铺一次默认 Dock 布局
     void ForceDefaultLayout() { m_forceDefaultLayout = true; }
@@ -138,6 +146,8 @@ private:
     // 位移 gizmo
     // 0=位移 1=旋转 2=缩放（W/E/R 切换）
     int    m_gizmoMode = 0;
+    LevelLoader          m_levelLoader;
+    SceneLoadedCallback  m_sceneLoaded;
     bool   m_gizmoEnabled = true;
     int    m_gizmoAxis = -1;      // 0/1/2 = X/Y/Z，-1 未拖拽
     float  m_gizmoStartMouseX = 0.0f;

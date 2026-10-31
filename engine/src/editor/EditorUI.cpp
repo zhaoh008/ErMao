@@ -224,6 +224,27 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
         ImGui::EndMenu();
     }
 
+    if (ImGui::BeginMenu("关卡")) {
+        struct LevelItem { const char* id; const char* label; };
+        const LevelItem levels[] = {
+            {"survivors", "2D 幸存者（像素风）"},
+            {"survivors3d", "3D 幸存者（外部模型）"},
+            {"thirdperson", "第三人称"},
+            {"arena", "刷怪竞技场"},
+            {"skinning", "蒙皮演示"},
+            {"cull", "GPU 剔除压测"},
+        };
+        for (const LevelItem& level : levels) {
+            if (ImGui::MenuItem(level.label)) {
+                if (m_levelLoader) m_levelLoader(level.id);
+                SetStatus(std::string("已切换关卡: ") + level.label);
+            }
+        }
+        ImGui::Separator();
+        ImGui::TextDisabled("也可以在「资源管理器 → 场景」双击关卡");
+        ImGui::EndMenu();
+    }
+
     if (ImGui::BeginMenu("编辑")) {
         const bool hasSelection = m_selected != nullptr;
         if (ImGui::MenuItem("复制选中", "Ctrl+D", false, hasSelection)) DuplicateSelected(world);
@@ -719,6 +740,26 @@ bool Editor::DrawField(const FieldDesc& field, void* object, AssetManager& asset
     return changed;
 }
 
+void Editor::LoadSceneAsset(World& world, const std::string& name, const std::string& sourcePath) {
+    // 内置关卡：交给 Engine 重建（带 2D/3D 模式与玩法导演）
+    if (sourcePath.rfind("level://", 0) == 0) {
+        const std::string id = sourcePath.substr(8);
+        if (m_levelLoader) {
+            m_levelLoader(id);
+            SetStatus("已打开关卡: " + name);
+        } else {
+            SetStatus("关卡加载器未初始化", true);
+        }
+        return;
+    }
+    if (world.LoadFromFile(sourcePath)) {
+        SetStatus("场景已加载: " + name);
+        if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
+    } else {
+        SetStatus("场景加载失败: " + name, true);
+    }
+}
+
 void Editor::DrawAssets(World& world, AssetManager& assets, Renderer& renderer, Camera& editorCamera) {
     if (!ImGui::Begin("资源浏览器", &m_showAssets)) {
         ImGui::End();
@@ -799,13 +840,20 @@ void Editor::DrawAssets(World& world, AssetManager& assets, Renderer& renderer, 
                     ImGui::PopStyleColor();
                 }
 
-                if (ImGui::IsItemClicked()) m_selectedAsset = i;
+                if (ImGui::IsItemClicked()) {
+                    m_selectedAsset = i;
+                    // 关卡是"动作"而不是"文件"：单击直接打开（双击也保留）
+                    if (asset.type == AssetManager::AssetType::Scene &&
+                        asset.sourcePath.rfind("level://", 0) == 0) {
+                        LoadSceneAsset(world, asset.name, asset.sourcePath);
+                    }
+                }
                 if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                     if (asset.type == AssetManager::AssetType::Mesh) {
                         SpawnMeshObject(world, asset.name);
                         SetStatus("已实例化资源: " + asset.name);
                     } else if (asset.type == AssetManager::AssetType::Scene) {
-                        if (world.LoadFromFile(asset.sourcePath)) SetStatus("场景已加载: " + asset.name);
+            LoadSceneAsset(world, asset.name, asset.sourcePath);
                     } else if (asset.type == AssetManager::AssetType::Texture) {
                         if (m_selected && m_selected->GetComponent<MeshRenderer>()) {
                             m_selected->GetComponent<MeshRenderer>()->texture = asset.name;
@@ -859,7 +907,7 @@ void Editor::DrawAssets(World& world, AssetManager& assets, Renderer& renderer, 
             }
         }
         if (asset.type == AssetManager::AssetType::Scene && ImGui::Button("加载场景")) {
-            if (world.LoadFromFile(asset.sourcePath)) SetStatus("场景已加载: " + asset.name);
+            LoadSceneAsset(world, asset.name, asset.sourcePath);
         }
     } else {
         ImGui::TextDisabled("选择资源查看详情；双击模型放入场景。");

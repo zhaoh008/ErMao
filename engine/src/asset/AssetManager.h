@@ -43,6 +43,8 @@ public:
 
     const std::vector<AssetInfo>& Assets() const { return m_registry; }
     void Refresh();
+    // 内置关卡（"关卡 · 2D 幸存者" 等）会出现在资源浏览器的「场景」分类里
+    void RegisterLevels();
 
     size_t MeshCount() const { return m_meshes.size(); }
     size_t TextureCount() const { return m_textures.size(); }

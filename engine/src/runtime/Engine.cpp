@@ -193,6 +193,8 @@ bool Engine::Init() {
         game::BuildWaveArena(m_world);
     }
 
+    if (m_levelName != "empty") m_world.SetLevelKind(m_levelName);
+
     // 场景文件统一放在 exe 旁的 assets/scenes（与编辑器、资源浏览器一致）
     m_scenePath = FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "scenes"),
                                    m_levelName + ".ermao.json");
@@ -247,6 +249,8 @@ bool Engine::Init() {
     if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext(), !autoRun)) return false;
     if (autoRun) m_editor.ForceDefaultLayout();
     m_editor.Init(&m_imgui);
+    m_editor.SetLevelLoader([this](const std::string& kind) { LoadLevel(kind); });
+    m_editor.SetSceneLoadedCallback([this](const std::string& kind) { ApplyLevelMode(kind); });
     if (m_startPlay) m_editor.Play();
     if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
     if (m_survivorsLevel && (m_demoMode || m_smoke)) m_survivors.Reset(m_world);
@@ -312,6 +316,49 @@ bool Engine::Init() {
     return true;
 }
 
+void Engine::LoadLevel(const std::string& kind) {
+    m_world.Clear();
+    m_survivorsLevel = false;
+    m_survivors3dLevel = false;
+    m_waveLevel = false;
+    m_is2D = false;
+    m_waveGame.ReturnToMenu();
+    m_survivors.ReturnToMenu();
+    m_survivors3d.ReturnToMenu();
+
+    m_levelName = kind;
+    if (kind == "survivors3d") {
+        BuildSurvivors3DLevel(m_world, m_assets);
+        m_survivors3dLevel = true;
+    } else if (kind == "survivors") {
+        BuildSurvivorsLevel(m_world, m_assets);
+        m_survivorsLevel = true;
+        m_is2D = true;
+    } else if (kind == "arena") {
+        m_waveLevel = true;
+        game::BuildWaveArena(m_world);
+    } else if (kind == "skinning") {
+        game::BuildSkinningLevel(m_world, m_renderer);
+    } else if (kind == "cull") {
+        game::BuildCullTestLevel(m_world);
+    } else {
+        game::BuildThirdPersonLevel(m_world);
+    }
+    m_world.SetLevelKind(kind);
+    LogInfo("[关卡] 已切换: %s（%zu 个对象）", kind.c_str(), m_world.ObjectCount());
+}
+
+void Engine::ApplyLevelMode(const std::string& kind) {
+    m_survivorsLevel = (kind == "survivors");
+    m_survivors3dLevel = (kind == "survivors3d");
+    m_waveLevel = (kind == "arena");
+    m_is2D = m_survivorsLevel;
+    if (m_survivorsLevel) m_survivors.ReturnToMenu();
+    if (m_survivors3dLevel) m_survivors3d.ReturnToMenu();
+    if (m_waveLevel) m_waveGame.ReturnToMenu();
+    if (!kind.empty()) m_levelName = kind;
+    LogInfo("[关卡] 场景模式: %s", kind.empty() ? "普通场景" : kind.c_str());
+}
 void Engine::Shutdown() {
     AudioSystem::Get().Shutdown();
     m_editor.Shutdown();
