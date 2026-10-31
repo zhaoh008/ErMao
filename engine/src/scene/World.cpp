@@ -4,6 +4,7 @@
 #include "game/ThirdPersonController.h"
 #include "game/ParticleEmitter.h"
 #include "game/SkinnedCharacter.h"
+#include "game/SkinnedCharacter.h"
 #include "game/WaveGame.h"
 #include "animation/Animation.h"
 #include "asset/AssetManager.h"
@@ -204,6 +205,7 @@ void World::Update(float dt) {
             object->Update(dt);
         });
     }
+
     // 相机组件跟随 Transform
     for (GameObject* root : m_roots) {
         root->ForEach([](GameObject* object) {
@@ -247,6 +249,37 @@ bool World::HasActiveCamera() const {
 void World::BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const {
     scene.items.clear();
     scene.pointLights.clear();
+    scene.sprites.clear();
+
+    // 2D 精灵：按 layer 排序（2D 的"深度"就是绘制顺序）
+    struct SpriteEntry {
+        SpriteDraw draw;
+        int        layer = 0;
+    };
+    std::vector<SpriteEntry> spriteEntries;
+    for (GameObject* root : m_roots) {
+        root->ForEach([&](GameObject* object) {
+            if (!object->Active()) return;
+            auto* sprite = object->GetComponent<SpriteRendererComponent>();
+            if (!sprite) return;
+            Texture* texture = m_assets ? m_assets->GetTextureAsset(sprite->texture) : nullptr;
+            if (!texture) return;
+
+            const Vec3 position = object->WorldPosition();
+            SpriteDraw draw;
+            draw.texture = texture;
+            draw.dest = Vec4(position.x + sprite->offset.x, position.y + sprite->offset.y, sprite->size.x,
+                             sprite->size.y);
+            draw.uv = sprite->uv;
+            draw.color = sprite->color;
+            draw.flipX = sprite->flipX;
+            draw.rotation = sprite->rotation;
+            spriteEntries.push_back({draw, sprite->layer});
+        });
+    }
+    std::stable_sort(spriteEntries.begin(), spriteEntries.end(),
+                     [](const SpriteEntry& a, const SpriteEntry& b) { return a.layer < b.layer; });
+    for (auto& entry : spriteEntries) scene.sprites.push_back(entry.draw);
 
     scene.sunDirection = -viewCamera.Forward(); // 兜底
     scene.sunColor = sunColor;

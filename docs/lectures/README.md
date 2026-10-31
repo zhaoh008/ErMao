@@ -62,6 +62,7 @@
 | [20](L20-数据布局与JobSystem.md) | SoA、并行分块与 Amdahl | `core/JobSystem` | ✅ |
 | [21](L21-GI与光照探针.md) | 全局光照近似（设计） | `World::ambient*` | ◐ 近似 |
 | [22](L22-GPU Driven.md) | GPU Driven：compute 剔除 + 间接绘制 | `shaders/Cull.hlsl` `Renderer::GpuCulledDraw` | ✅ |
+| [23](L23-2D渲染与像素游戏.md) | 2D 渲染与像素风幸存者游戏 | `Camera2D` `SpritePass` `game/Survivors` | ✅ |
 
 ## 实验环境
 

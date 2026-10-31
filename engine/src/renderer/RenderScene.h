@@ -3,6 +3,7 @@
 
 #include "core/Math.h"
 #include "core/Types.h"
+#include "renderer/Camera.h"
 #include "renderer/Mesh.h"
 #include "rhi/Texture.h"
 
@@ -55,8 +56,21 @@ struct ParticleRender {
     Vec4  color{1, 1, 1, 1};
 };
 
+// 2D 精灵（第 23 讲）：纹理 + 目标矩形 + uv + 颜色
+struct SpriteDraw {
+    const class Texture* texture = nullptr;
+    Vec4                 dest{0, 0, 1, 1}; // x,y,w,h（世界单位，x/y 是中心）
+    Vec4                 uv{0, 0, 1, 1};   // u0,v0,u1,v1
+    Vec4                 color{1, 1, 1, 1};
+    bool                 flipX = false;
+    float                rotation = 0.0f;  // 绕中心旋转（弧度）
+};
+
 // 一帧的渲染场景
 struct RenderScene {
+    bool                          is2D = false;
+    Camera2D                      camera2D;
+    std::vector<SpriteDraw>       sprites;
     std::vector<RenderItem>       items;
     std::vector<ParticleRender>   particles;
     std::vector<SkinnedDraw>      skinned;

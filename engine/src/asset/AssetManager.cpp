@@ -129,6 +129,44 @@ Mesh* AssetManager::CreatePrimitive(const std::string& name) {
     return mesh;
 }
 
+Texture* AssetManager::CreateTextureRGBA(const std::string& name, u32 width, u32 height, const u8* rgba) {
+    auto it = m_textures.find(name);
+    if (it != m_textures.end()) return it->second.get();
+
+    auto texture = MakeScope<Texture>();
+    if (!texture->CreateFromRGBA(m_device, width, height, rgba, true, false)) {
+        LogError("程序化贴图创建失败: %s", name.c_str());
+        return nullptr;
+    }
+    Texture* raw = texture.get();
+    m_textures.emplace(name, std::move(texture));
+    Register(name, AssetType::Texture, "", false);
+    return raw;
+}
+
+Texture* AssetManager::GetTextureAsset(const std::string& relativePath) {
+    auto it = m_textures.find(relativePath);
+    if (it != m_textures.end()) return it->second.get();
+
+    const std::string fullPath = FileSystem::AssetPath(relativePath);
+    if (!FileSystem::Exists(fullPath)) {
+        LogWarn("贴图不存在: %s", fullPath.c_str());
+        return nullptr;
+    }
+
+    auto texture = MakeScope<Texture>();
+    // 像素风：关闭 mipmap，采样用 point（在 shader 侧绑定采样器时处理）
+    if (!texture->CreateFromFile(m_device, fullPath, true)) {
+        LogError("贴图加载失败: %s", fullPath.c_str());
+        return nullptr;
+    }
+    Texture* raw = texture.get();
+    m_textures.emplace(relativePath, std::move(texture));
+    Register(relativePath, AssetType::Texture, fullPath, false);
+    LogInfo("2D 贴图加载: %s (%ux%u)", relativePath.c_str(), raw->Width(), raw->Height());
+    return raw;
+}
+
 Texture* AssetManager::GetTexture(const std::string& name) {
     if (name.empty()) return GetTexture("white");
     auto it = m_textures.find(name);

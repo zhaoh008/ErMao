@@ -547,3 +547,13 @@ GPU 计时拆分（渲染成本 vs 帧跨度）、自动截图禁用 imgui.ini�
 - `Renderer::GpuCulledDraw`：上传实例 → dispatch → `DrawIndexedInstancedIndirect`；
 - `--level cull` 压测：6400 个同批次立方体，GPU 可见 5683，与 CPU 剔除结果一致；
 - 踩坑记录：D3D11 不允许 UAV|VERTEX_BUFFER 同 buffer（需 copy 到 VB）、实例矩阵必须行向量左乘。
+
+### 15.6 2D 支持与游戏发布（2026-10-31 晚）
+
+| 方向 | 内容 |
+|---|---|
+| 2D 渲染 | `Camera2D`（正交）+ `Sprite.hlsl` + `Renderer::SpritePass`（按纹理合批）+ `SpriteRendererComponent` / `SpriteAnimatorComponent`（序列帧、帧内裁剪） |
+| 2D 游戏 | 「二毛幸存者」：WASD 移动、自动射箭、兽人波次、经验宝石、升级、主菜单/暂停/失败（`game/Survivors.*`） |
+| 素材 | 用户提供的 Soldier/Orc 角色包 + Kenney Tiny Dungeon（CC0）；`assets/sprites/` 附许可说明 |
+| 游戏发布 | `Packager::PackageGameWindows/LinuxSource`：Windows 生成可直接运行的 `ErMaoSurvivors.exe`（`game.cfg` 决定关卡/是否进编辑器）；Linux 生成同一款游戏的源码包并写明后端缺口 |
+| 文档 | `docs/lectures/L23-2D渲染与像素游戏.md`、`docs/09-打包与发布.md` |

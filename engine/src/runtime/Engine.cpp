@@ -11,12 +11,14 @@
 #include "physics/PhysicsWorld.h"
 #include "platform/Input.h"
 #include "rhi/Screenshot.h"
+#include "core/FileSystem.h"
 #include "runtime/Packager.h"
 #include "scene/Components.h"
 
 #include <windows.h>
 
 #include <imgui.h>
+#include <sstream>
 
 namespace erm {
 
@@ -26,6 +28,28 @@ constexpr int   kMaxSubSteps = 5;
 }
 
 int Engine::Run(int argc, char** argv) {
+    // 游戏包：exe 旁的 game.cfg 决定默认关卡与模式（命令行参数优先级更高）
+    const std::string gameConfigPath = FileSystem::Join(FileSystem::ExecutableDir(), "game.cfg");
+    if (FileSystem::Exists(gameConfigPath)) {
+        std::string text;
+        if (FileSystem::ReadTextFile(gameConfigPath, text)) {
+            std::istringstream stream(text);
+            std::string        line;
+            while (std::getline(stream, line)) {
+                const size_t eq = line.find('=');
+                if (eq == std::string::npos) continue;
+                const std::string key = line.substr(0, eq);
+                std::string value = line.substr(eq + 1);
+                if (!value.empty() && value.back() == '\r') value.pop_back();
+                if (key == "level") m_levelName = value;
+                else if (key == "editor") m_showEditor = (value != "0");
+                else if (key == "play") m_startPlay = (value != "0");
+            }
+            LogInfo("游戏配置: level=%s editor=%d play=%d", m_levelName.c_str(), m_showEditor ? 1 : 0,
+                    m_startPlay ? 1 : 0);
+        }
+    }
+
     for (int i = 1; i < argc; ++i) {
         const std::string arg = argv[i];
         if (arg == "--screenshot" && i + 1 < argc) {
@@ -41,10 +65,18 @@ int Engine::Run(int argc, char** argv) {
             m_levelName = argv[++i];
         } else if (arg == "--test-serialize") {
             m_testSerialize = true;
+        } else if (arg == "--package-game" && i + 1 < argc) {
+            m_packageGame = argv[++i];
         } else if (arg == "--package" && i + 1 < argc) {
             m_packageTarget = argv[++i];
         } else if (arg == "--import" && i + 1 < argc) {
             m_importPath = argv[++i];
+        } else if (arg == "--demo2d") {
+            // 一键 2D 演示：幸存者关卡 + 自动开局 + 无编辑器
+            m_levelName = "survivors";
+            m_showEditor = false;
+            m_startPlay = true;
+            m_demoMode = true;
         } else if (arg == "--demo") {
             // 一键演示：竞技场 + 自动开火 + 无编辑器
             m_levelName = "arena";
@@ -114,6 +146,10 @@ bool Engine::Init() {
         game::BuildThirdPersonLevel(m_world);
     } else if (m_levelName == "cull") {
         game::BuildCullTestLevel(m_world);
+    } else if (m_levelName == "survivors") {
+        BuildSurvivorsLevel(m_world, m_assets);
+        m_survivorsLevel = true;
+        m_is2D = true;
     } else if (m_levelName == "skinning") {
         game::BuildSkinningLevel(m_world, m_renderer);
     } else {
@@ -177,6 +213,7 @@ bool Engine::Init() {
     m_editor.Init(&m_imgui);
     if (m_startPlay) m_editor.Play();
     if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
+    if (m_survivorsLevel && (m_demoMode || m_smoke)) m_survivors.Reset(m_world);
     if (m_demoMode) CombatComponent::SetAutoFire(true);
     if (m_smoke) {
         GameObject* player = m_world.FindByName("玩家");
@@ -188,6 +225,13 @@ bool Engine::Init() {
     };
 
 
+    if (!m_packageGame.empty()) {
+        const PackageResult result = (m_packageGame == "linux")
+                                         ? Packager::PackageGameLinuxSource("ErMaoSurvivors", "survivors")
+                                         : Packager::PackageGameWindows("ErMaoSurvivors", "survivors");
+        LogInfo("[打包自检] 游戏包 success=%d %s", result.success ? 1 : 0, result.message.c_str());
+        m_running = false;
+    }
     if (!m_packageTarget.empty()) {
         // --package windows|linux：无界面打包自检
         const PackageResult result = (m_packageTarget == "linux") ? Packager::PackageLinuxSource()
@@ -252,6 +296,17 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
 
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
+    if (m_is2D) {
+        // 2D：正交相机跟随玩家（超出关卡边界时夹住）
+        Camera2D camera2D;
+        camera2D.halfHeight = 6.4f;
+        if (GameObject* player = m_world.FindByName("玩家")) {
+            const Vec3 position = player->Position();
+            camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+        }
+        m_scene.is2D = true;
+        m_scene.camera2D = camera2D;
+    }
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
 
@@ -327,6 +382,12 @@ void Engine::MainLoop() {
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
             if (!playing) m_waveGame.ReturnToMenu();
         }
+        if (m_survivorsLevel) {
+            if (playing) m_survivors.Update(m_world, dt);
+            if (m_survivors.GetState() != SurvivorsDirector::State::Playing) gameplayInput = false;
+            if (!playing) m_survivors.ReturnToMenu();
+            SurvivorsPlayerComponent::SetInputEnabled(gameplayInput);
+        }
         ThirdPersonController::SetInputEnabled(gameplayInput);
 
         // 5) UI + 视口渲染
@@ -353,6 +414,12 @@ void Engine::MainLoop() {
                                           static_cast<float>(m_editor.ViewportHeightPx()));
                 if (m_waveGame.WantsQuit()) m_running = false;
             }
+            if (m_survivorsLevel && playing) {
+                m_survivors.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
+                                   static_cast<float>(m_editor.ViewportWidthPx()),
+                                   static_cast<float>(m_editor.ViewportHeightPx()));
+                if (m_survivors.WantsQuit()) m_running = false;
+            }
 
             float clear[4] = {0.055f, 0.06f, 0.07f, 1.0f};
             m_device.BeginFrame(clear);
@@ -362,6 +429,16 @@ void Engine::MainLoop() {
             m_world.BuildRenderScene(m_scene, viewCamera);
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
+            if (m_is2D) {
+                Camera2D camera2D;
+                camera2D.halfHeight = 6.4f;
+                if (GameObject* player = m_world.FindByName("玩家")) {
+                    const Vec3 position = player->Position();
+                    camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+                }
+                m_scene.is2D = true;
+                m_scene.camera2D = camera2D;
+            }
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
 
             // 无编辑器时也要有 HUD/血条：UI 直接叠加在已渲染的后备缓冲上
@@ -372,6 +449,13 @@ void Engine::MainLoop() {
                 m_waveGame.DrawHealthBars(m_world, *barCamera, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                           static_cast<float>(m_window.Height()));
                 if (m_waveGame.WantsQuit()) m_running = false;
+                m_imgui.EndFrame();
+            }
+            if (m_survivorsLevel && playing) {
+                m_imgui.BeginFrame();
+                m_survivors.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
+                                   static_cast<float>(m_window.Height()));
+                if (m_survivors.WantsQuit()) m_running = false;
                 m_imgui.EndFrame();
             }
         }

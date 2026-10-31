@@ -28,6 +28,10 @@ public:
 
     Mesh*    GetMesh(const std::string& name);
     Texture* GetTexture(const std::string& name);
+    // 2D：按 assets/ 下的相对路径懒加载贴图，例如 "sprites/soldier_walk.png"
+    Texture* GetTextureAsset(const std::string& relativePath);
+    // 2D：用 CPU 像素创建纹理（程序化图标）
+    Texture* CreateTextureRGBA(const std::string& name, u32 width, u32 height, const u8* rgba);
     Mesh*    CreateMesh(const std::string& key, const MeshData& data);
 
     // 导入外部资源：复制到 exe 旁的 assets/{models,textures}，再加载并注册

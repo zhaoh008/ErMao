@@ -1,5 +1,7 @@
 // ErMao Engine - 内置组件实现（含反射描述）
 #include "scene/Components.h"
+#include "asset/AssetManager.h"
+#include "scene/World.h"
 #include "scene/GameObject.h"
 #include "scene/World.h"
 
@@ -93,4 +95,51 @@ void RegisterAllComponents() {
     Reflection::Register<SpinnerComponent>("Spinner");
 }
 
+
+void SpriteAnimatorComponent::OnUpdate(float dt) {
+    if (!m_owner || !playing) return;
+    auto* sprite = m_owner->GetComponent<SpriteRendererComponent>();
+    if (!sprite) return;
+
+    int columns = columnsOverride;
+    if (columns <= 0) {
+        Texture* texture = GetWorld() && GetWorld()->Assets() ? GetWorld()->Assets()->GetTextureAsset(sprite->texture)
+                                                              : nullptr;
+        columns = texture && texture->Height() > 0 ? static_cast<int>(texture->Width() / texture->Height()) : 1;
+    }
+    if (columns <= 0) return;
+
+    m_time += dt;
+    int frame = static_cast<int>(m_time * fps);
+    if (loop) {
+        frame %= columns;
+    } else if (frame >= columns) {
+        frame = columns - 1;
+        playing = false;
+    }
+    m_frame = frame;
+
+    const float width = 1.0f / static_cast<float>(columns);
+    const float u0 = width * static_cast<float>(m_frame) + width * frameMin.x;
+    const float u1 = width * static_cast<float>(m_frame) + width * frameMax.x;
+    sprite->uv = Vec4(u0, frameMin.y, u1, frameMax.y);
+}
+
+void SpriteAnimatorComponent::Describe(TypeInfo& t) {
+    t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SpriteAnimatorComponent>(); };
+    t.Field("fps", FieldType::Float, &SpriteAnimatorComponent::fps, "帧率", 0.1f, 60.0f);
+    t.Field("playing", FieldType::Bool, &SpriteAnimatorComponent::playing, "播放");
+    t.Field("loop", FieldType::Bool, &SpriteAnimatorComponent::loop, "循环");
+}
+
+void SpriteRendererComponent::Describe(TypeInfo& t) {
+    t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SpriteRendererComponent>(); };
+    t.Field("texture", FieldType::String, &SpriteRendererComponent::texture, "贴图（sprites/…）");
+    t.Field("uv", FieldType::Vec4, &SpriteRendererComponent::uv, "UV 矩形");
+    t.Field("size", FieldType::Vec2, &SpriteRendererComponent::size, "尺寸");
+    t.Field("offset", FieldType::Vec2, &SpriteRendererComponent::offset, "偏移");
+    t.Field("color", FieldType::Color, &SpriteRendererComponent::color, "颜色");
+    t.Field("flipX", FieldType::Bool, &SpriteRendererComponent::flipX, "水平翻转");
+    t.Field("layer", FieldType::Int, &SpriteRendererComponent::layer, "层级");
+}
 } // namespace erm

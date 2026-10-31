@@ -53,6 +53,15 @@ bool Renderer::Init(Device* device) {
     if (!CreateGpuCullResources()) {
         LogWarn("GPU 剔除不可用，回退 CPU 批处理");
     }
+    if (!m_spriteBuffer.Create(m_device->GetDevice(), nullptr, 65536 * sizeof(SpriteVertex), D3D11_BIND_VERTEX_BUFFER,
+                               D3D11_USAGE_DYNAMIC)) {
+        LogError("精灵顶点缓冲创建失败");
+        return false;
+    }
+    if (!m_spriteVP.Create(m_device->GetDevice())) {
+        LogError("精灵常量缓冲创建失败");
+        return false;
+    }
     if (!m_particleBuffer.Create(m_device->GetDevice(), nullptr, 4096 * sizeof(ParticleVertex),
                                  D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC)) {
         LogError("粒子顶点缓冲创建失败");
@@ -116,6 +125,15 @@ bool Renderer::CreateShaders() {
     if (!m_particleShader.CreateInputLayout(dev, kParticleLayout, _countof(kParticleLayout))) return false;
 
     if (!m_copyShader.Compile(dev, "Copy.hlsl", "VSMain", "PSMain")) return false;
+
+    // 2D 精灵
+    if (!m_spriteShader.Compile(dev, "Sprite.hlsl", "VSMain", "PSMain")) return false;
+    const D3D11_INPUT_ELEMENT_DESC kSpriteLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 8, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"COLOR", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 16, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    if (!m_spriteShader.CreateInputLayout(dev, kSpriteLayout, _countof(kSpriteLayout))) return false;
     return true;
 }
 
@@ -383,6 +401,77 @@ void Renderer::ReadbackGpuCullStats(ID3D11DeviceContext* ctx) {
         }
         m_stats.gpuVisibleInstances = visible;
         ctx->Unmap(m_gpuArgsStaging.Get(), 0);
+    }
+}
+
+void Renderer::SpritePass(ID3D11DeviceContext* ctx, const RenderScene& scene, float aspect) {
+    if (scene.sprites.empty()) return;
+
+    const Mat4 viewProj = scene.camera2D.ViewProjection(aspect);
+    m_spriteVP.Update(ctx, viewProj);
+
+    // 按纹理合并：同一张图（例如整块地板）只发一次 draw
+    struct Run {
+        const Texture* texture = nullptr;
+        u32            first = 0;
+        u32            count = 0;
+    };
+    std::vector<Run> runs;
+
+    m_spriteVertices.clear();
+    m_spriteVertices.reserve(scene.sprites.size() * 6);
+    for (const SpriteDraw& sprite : scene.sprites) {
+        if (!sprite.texture) continue;
+        if (runs.empty() || runs.back().texture != sprite.texture) {
+            runs.push_back({sprite.texture, static_cast<u32>(m_spriteVertices.size()), 0});
+        }
+
+        const float hw = sprite.dest.z * 0.5f;
+        const float hh = sprite.dest.w * 0.5f;
+        const float x0 = sprite.dest.x - hw;
+        const float x1 = sprite.dest.x + hw;
+        const float y0 = sprite.dest.y - hh;
+        const float y1 = sprite.dest.y + hh;
+
+        float u0 = sprite.uv.x, v0 = sprite.uv.y, u1 = sprite.uv.z, v1 = sprite.uv.w;
+        if (sprite.flipX) std::swap(u0, u1);
+
+        m_spriteVertices.push_back({Vec2(x0, y0), Vec2(u0, v1), sprite.color});
+        m_spriteVertices.push_back({Vec2(x1, y0), Vec2(u1, v1), sprite.color});
+        m_spriteVertices.push_back({Vec2(x1, y1), Vec2(u1, v0), sprite.color});
+        m_spriteVertices.push_back({Vec2(x0, y0), Vec2(u0, v1), sprite.color});
+        m_spriteVertices.push_back({Vec2(x1, y1), Vec2(u1, v0), sprite.color});
+        m_spriteVertices.push_back({Vec2(x0, y1), Vec2(u0, v0), sprite.color});
+        runs.back().count += 6;
+    }
+    if (m_spriteVertices.empty()) return;
+
+    m_spriteBuffer.Update(ctx, m_spriteVertices.data(), m_spriteVertices.size() * sizeof(SpriteVertex));
+
+    m_spriteShader.Bind(ctx);
+    ID3D11Buffer* vpBuffer = m_spriteVP.Get();
+    ctx->VSSetConstantBuffers(0, 1, &vpBuffer);
+
+    RenderStates::SetDepthNone(ctx);
+    RenderStates::SetAlphaBlend(ctx);
+    RenderStates::SetCullNone(ctx);
+    ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+
+    // 像素风：点采样
+    Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP);
+
+    UINT stride = sizeof(SpriteVertex);
+    UINT offset = 0;
+    ID3D11Buffer* vb = m_spriteBuffer.Get();
+    ctx->IASetVertexBuffers(0, 1, &vb, &stride, &offset);
+
+    for (const Run& run : runs) {
+        if (run.count == 0 || !run.texture) continue;
+        run.texture->BindPS(ctx, 0);
+        ctx->Draw(run.count, run.first);
+        ++m_stats.drawCalls;
+        m_stats.triangles += run.count / 3;
+        ++m_stats.instances;
     }
 }
 
@@ -685,6 +774,20 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
                               ID3D11RenderTargetView* outputRtv, u32 outputWidth, u32 outputHeight) {
     if (outputWidth == 0 || outputHeight == 0) return;
     ID3D11DeviceContext* ctx = m_device->GetContext();
+
+    // ---------------- 2D 路径：正交相机 + 精灵，直接画到输出目标
+    if (scene.is2D) {
+        m_stats.drawCalls = 0;
+        m_stats.instances = 0;
+        m_stats.triangles = 0;
+        SetViewport(outputWidth, outputHeight);
+        ID3D11RenderTargetView* target = outputRtv ? outputRtv : m_device->GetBackbufferRTV();
+        const float clear2D[4] = {0.045f, 0.055f, 0.075f, 1.0f};
+        ctx->ClearRenderTargetView(target, clear2D);
+        ctx->OMSetRenderTargets(1, &target, nullptr);
+        SpritePass(ctx, scene, static_cast<float>(outputWidth) / static_cast<float>(outputHeight));
+        return;
+    }
     m_currentScene = &scene; // OpaquePass 里的蒙皮绘制需要
     m_currentCamera = &camera;
 

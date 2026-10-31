@@ -144,6 +144,8 @@ private:
     void OpaquePass(ID3D11DeviceContext* ctx, bool wireframe);
     void SkinnedPass(ID3D11DeviceContext* ctx);
     void ParticlePass(ID3D11DeviceContext* ctx);
+    // 2D：正交 + 精灵（第 23 讲）
+    void SpritePass(ID3D11DeviceContext* ctx, const RenderScene& scene, float aspect);
     // 离屏视口 -> 后备缓冲（统一两条渲染路径的口径）
     void CopyPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height);
     // GPU Driven：创建资源 / compute 剔除 + 间接绘制
@@ -170,6 +172,7 @@ private:
     Shader m_skinnedShader;
     Shader m_particleShader;
     Shader m_copyShader;
+    Shader m_spriteShader;
 
     ConstantBuffer<PerFrameCB>    m_perFrame;
     ConstantBuffer<PointLightsCB> m_pointLights;
@@ -250,6 +253,16 @@ private:
     };
     Shader                          m_cullShader;
     ConstantBuffer<GpuCullCB>       m_cullParams;
+
+    // 2D 精灵（第 23 讲）
+    struct SpriteVertex {
+        Vec2 position;
+        Vec2 uv;
+        Vec4 color;
+    };
+    ConstantBuffer<Mat4> m_spriteVP;
+    std::vector<SpriteVertex> m_spriteVertices;
+    GpuBuffer                 m_spriteBuffer;
     ComPtr<ID3D11Buffer>            m_gpuInstanceSource;
     ComPtr<ID3D11ShaderResourceView> m_gpuInstanceSRV;
     ComPtr<ID3D11Buffer>            m_gpuCompact;

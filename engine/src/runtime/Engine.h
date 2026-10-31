@@ -5,6 +5,7 @@
 #include "core/Types.h"
 #include "editor/EditorUI.h"
 #include "editor/ImGuiLayer.h"
+#include "game/Survivors.h"
 #include "game/WaveGame.h"
 #include "platform/Window.h"
 #include "renderer/Camera.h"
@@ -38,6 +39,9 @@ private:
     Camera      m_editorCamera;
     RenderScene m_scene; // 复用，避免每帧堆分配（P2-10）
     WaveGame    m_waveGame; // 刷怪 Demo（arena 关卡时才启用）
+    SurvivorsDirector m_survivors; // 2D 幸存者（survivors 关卡）
+    bool        m_survivorsLevel = false;
+    bool        m_is2D = false;
     bool        m_waveLevel = false;
     bool        m_demoMode = false;
 
@@ -58,6 +62,7 @@ private:
     bool        m_smoke = false;
     std::string m_importPath;
     std::string m_packageTarget; // windows/linux
+    std::string m_packageGame;   // windows/linux（游戏包）
     bool        m_noShadows = false;
     bool        m_noGpuCull = false;
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图

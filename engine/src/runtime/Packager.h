@@ -21,6 +21,14 @@ public:
     // outputRoot 为空时使用 <工程目录>/dist
     static PackageResult PackageWindows(const std::string& outputRoot = {});
     static PackageResult PackageLinuxSource(const std::string& outputRoot = {});
+
+    // 游戏包：exe 会读取同目录 game.cfg 直接进入游戏（不需要编辑器）
+    // Windows：<gameName>-Windows/ 里是可运行的 <gameName>.exe + assets + game.cfg
+    // Linux：  <gameName>-Linux-Source/ 是同一款游戏的源码包（需先补图形后端，见 README）
+    static PackageResult PackageGameWindows(const std::string& gameName, const std::string& level,
+                                            const std::string& outputRoot = {});
+    static PackageResult PackageGameLinuxSource(const std::string& gameName, const std::string& level,
+                                                const std::string& outputRoot = {});
 };
 
 } // namespace erm

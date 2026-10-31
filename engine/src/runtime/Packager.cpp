@@ -146,4 +146,99 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
     return result;
 }
 
+
+PackageResult Packager::PackageGameWindows(const std::string& gameName, const std::string& level,
+                                           const std::string& outputRoot) {
+    PackageResult result;
+    const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
+    const std::string target = FileSystem::Join(root, gameName + "-Windows");
+    result.outputDir = target;
+
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::u8path(target), ec);
+    std::filesystem::create_directories(std::filesystem::u8path(target), ec);
+
+    const std::string exeDir = FileSystem::ExecutableDir();
+    const std::string exeTarget = FileSystem::Join(target, gameName + ".exe");
+    if (!FileSystem::CopyFileTo(FileSystem::Join(exeDir, "ErMao.exe"), exeTarget)) {
+        result.message = "复制 ErMao.exe 失败";
+        return result;
+    }
+    if (!CopyTree(FileSystem::Join(exeDir, "shaders"), FileSystem::Join(target, "shaders")) ||
+        !CopyTree(FileSystem::Join(exeDir, "assets"), FileSystem::Join(target, "assets"))) {
+        result.message = "复制 shaders/assets 失败";
+        return result;
+    }
+
+    // 游戏启动配置：exe 名称无关，game.cfg 决定默认关卡与模式
+    WriteText(FileSystem::Join(target, "game.cfg"),
+              "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
+
+    WriteText(FileSystem::Join(target, "run.bat"), "@echo off\r\nstart \"\" \"%~dp0" + gameName + ".exe\"\r\n");
+    WriteText(FileSystem::Join(target, "README.txt"),
+              gameName + " - Windows 游戏包\r\n"
+              "\r\n"
+              "双击 run.bat 或 " + gameName + ".exe 启动。\r\n"
+              "本包包含游戏本身（引擎 + 资源），不是只打包引擎。\r\n"
+              "\r\n"
+              "操作：WASD 移动，自动攻击，Esc 暂停。\r\n"
+              "assets/ 是游戏资源，shaders/ 是运行时编译的 HLSL；修改前请备份。\r\n");
+
+    // 2D 素材许可（如果存在）
+    const std::string license = FileSystem::Join(exeDir, "assets/sprites/LICENSE-2D-ASSETS.txt");
+    if (FileSystem::Exists(license)) {
+        FileSystem::CopyFileTo(license, FileSystem::Join(target, "LICENSE-2D-ASSETS.txt"));
+    }
+
+    result.success = true;
+    result.message = "Windows 游戏包已生成：" + target;
+    LogInfo("[打包] %s", result.message.c_str());
+    return result;
+}
+
+PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, const std::string& level,
+                                               const std::string& outputRoot) {
+    PackageResult result;
+    const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
+    const std::string target = FileSystem::Join(root, gameName + "-Linux-Source");
+    result.outputDir = target;
+
+    std::error_code ec;
+    std::filesystem::remove_all(std::filesystem::u8path(target), ec);
+    std::filesystem::create_directories(std::filesystem::u8path(target), ec);
+
+    const std::string project = ProjectRoot();
+    if (!CopyTree(FileSystem::Join(project, "engine"), FileSystem::Join(target, "engine"))) {
+        result.message = "复制 engine 源码失败（需要从工程目录运行）";
+        return result;
+    }
+    CopyTree(FileSystem::Join(project, "third_party"), FileSystem::Join(target, "third_party"));
+    CopyTree(FileSystem::Join(project, "docs"), FileSystem::Join(target, "docs"));
+    FileSystem::CopyFileTo(FileSystem::Join(project, "CMakeLists.txt"), FileSystem::Join(target, "CMakeLists.txt"));
+    WriteText(FileSystem::Join(target, "game.cfg"),
+              "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
+    WriteText(FileSystem::Join(target, "build.sh"),
+              "#!/usr/bin/env bash\n"
+              "set -e\n"
+              "echo \"这是 " + gameName + " 的 Linux 源码包。\"\n"
+              "echo \"引擎目前只有 Win32 + D3D11 后端，Linux 上还不能直接构建出可执行文件。\"\n"
+              "echo \"需要补：GLFW/SDL 平台层、Vulkan/OpenGL 的 rhi、HLSL->SPIR-V、ImGui 后端。\"\n"
+              "echo \"补完后：cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j\"\n"
+              "exit 0\n");
+    WriteText(FileSystem::Join(target, "README-LINUX.md"),
+              "# " + gameName + " - Linux 源码包\n\n"
+              "游戏逻辑（2D 精灵、玩法、HUD、菜单）与资源都在这个包里，但引擎的图形/窗口是 Win32 + D3D11，\n"
+              "因此本包**不含 Linux 可执行文件**。要得到 Linux 版游戏，需要先补平台与图形后端：\n\n"
+              "1. 平台层：GLFW/SDL2 替换 `platform/Window` 与输入；\n"
+              "2. 图形层：`rhi/` 增加 Vulkan 或 OpenGL 实现；\n"
+              "3. 着色器：HLSL 转 SPIR-V/GLSL（或直接 DXC → SPIR-V）；\n"
+              "4. UI：ImGui 换 `imgui_impl_glfw` + `imgui_impl_vulkan`；\n"
+              "5. 用 `game.cfg` 指定默认关卡（" + level + "）。\n\n"
+              "游戏资源在 `engine/assets/`，构建入口是 `CMakeLists.txt`。\n");
+
+    result.success = true;
+    result.message = "Linux 游戏源码包已生成（需自行补图形后端）：" + target;
+    LogWarn("[打包] %s", result.message.c_str());
+    return result;
+}
 } // namespace erm
