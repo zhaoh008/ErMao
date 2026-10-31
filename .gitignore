@@ -16,3 +16,6 @@ validate.json
 
 # 生成的 HTML 副本（根目录那份入库，这里只保留本地）
 docs/site/
+
+# setup.ps1 下载的便携工具
+.tools/

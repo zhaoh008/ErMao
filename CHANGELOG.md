@@ -5,6 +5,16 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-01
+
+### Fixed
+- 无 Vulkan SDK 的机器编译失败（ulkan 头文件被无条件包含）：ERMAO_HAS_VULKAN 宏隔离 + 空实现
+- setup.ps1 把仓库根目录算成上一级
+
+### Added
+- setup.bat / setup.ps1 一键依赖检查/安装、构建、冒烟
+- docs/12-其他电脑运行.md（含干净 clone 验证步骤）
+
 ## [0.8.0] - 2026-11-01
 
 ### Added
