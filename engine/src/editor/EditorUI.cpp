@@ -181,7 +181,10 @@ void Editor::DrawDockspace(World& world, Renderer& renderer, AssetManager& asset
 
     if (!m_layoutInitialized) {
         m_layoutInitialized = true;
-        if (!FileSystem::Exists("imgui.ini")) {
+        // 审核 P2-22：ini 现在在 exe 旁，而且 --frames/--screenshot 时要强制默认布局，
+        // 否则残留的"视口折叠"会让自动截图得到空画面。
+        const std::string iniPath = FileSystem::Join(FileSystem::ExecutableDir(), "imgui.ini");
+        if (m_forceDefaultLayout || !FileSystem::Exists(iniPath)) {
             BuildDefaultLayout(g_dockspaceId);
         }
     }
@@ -904,7 +907,18 @@ void Editor::DrawStats(World& world, Renderer& renderer) {
     ImGui::Text("CPU 提交: 阴影 %.3f / 不透明 %.3f / 后处理 %.3f ms", stats.cpuShadowMs,
                 stats.cpuOpaqueMs, stats.cpuPostMs);
     if (stats.gpuTimingValid) {
-        ImGui::Text("GPU 帧时间: %.2f ms", stats.gpuFrameMs);
+        if (stats.gpuRenderValid) {
+            ImGui::Text("GPU 渲染: %.2f ms", stats.gpuRenderMs);
+        } else {
+            ImGui::TextDisabled("GPU 渲染: --");
+        }
+        ImGui::Text("GPU 帧跨度: %.2f ms", stats.gpuFrameMs);
+        if (ImGui::IsItemHovered()) {
+            ImGui::SetTooltip("Shadow→Post 是渲染成本；帧跨度含 Present/vsync 等待，\n"
+                              "vsync 开启时会接近一帧时间（16.7ms）。");
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled(stats.gpuTimingValid ? "(有效)" : "(等待查询)");
     } else {
         ImGui::TextDisabled("GPU 时间戳: 采集中…");
     }

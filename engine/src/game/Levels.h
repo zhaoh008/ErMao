@@ -7,6 +7,7 @@
 
 namespace erm {
 class World;
+class Renderer;
 }
 
 namespace erm::game {
@@ -15,6 +16,8 @@ namespace erm::game {
 void BuildThirdPersonLevel(World& world);
 // 刷怪 Demo 的竞技场：围墙、掩体、玩家（带生命/射击），敌人由 WaveGame 动态生成
 void BuildWaveArena(World& world);
+// 蒙皮演示关卡：需要 Renderer 来创建 GPU 蒙皮网格
+void BuildSkinningLevel(World& world, Renderer& renderer);
 
 // 早期的基础演示场景（保留，方便对比）
 void BuildDemoScene(World& world);

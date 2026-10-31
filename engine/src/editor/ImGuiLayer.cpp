@@ -21,7 +21,7 @@ bool FileExists(const char* path) {
 }
 } // namespace
 
-bool ImGuiLayer::Init(Window& window, void* d3dDevice, void* d3dContext) {
+bool ImGuiLayer::Init(Window& window, void* d3dDevice, void* d3dContext, bool useIniFile) {
     IMGUI_CHECKVERSION();
     m_context = ImGui::CreateContext();
     ImGui::SetCurrentContext(m_context);
@@ -39,7 +39,7 @@ bool ImGuiLayer::Init(Window& window, void* d3dDevice, void* d3dContext) {
 
     // ini 放在 exe 旁边，避免从不同 CWD 启动时到处生成 imgui.ini（审核 P3-36）
     static std::string iniPath = FileSystem::Join(FileSystem::ExecutableDir(), "imgui.ini");
-    io.IniFilename = iniPath.c_str();
+    io.IniFilename = useIniFile ? iniPath.c_str() : nullptr;
 
     ApplyStyle(m_dpiScale);
     if (!LoadFonts(m_dpiScale)) {

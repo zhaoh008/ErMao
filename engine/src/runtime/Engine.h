@@ -60,7 +60,6 @@ private:
     std::string m_packageTarget; // windows/linux
     std::string m_levelName = "arena";
     std::string m_scenePath = "assets/scenes/thirdperson.ermao.json";
-    class GameObject* m_player = nullptr;
 };
 
 } // namespace erm

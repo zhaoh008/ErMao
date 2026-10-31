@@ -18,6 +18,7 @@
 #include "renderer/Camera.h"
 #include "renderer/DebugDraw.h"
 #include "renderer/RenderScene.h"
+#include "renderer/SkinnedMesh.h"
 #include "rhi/Buffer.h"
 #include "rhi/Device.h"
 #include "rhi/RenderTarget.h"
@@ -35,7 +36,12 @@ public:
         float cpuShadowMs = 0.0f;
         float cpuOpaqueMs = 0.0f;
         float cpuPostMs = 0.0f;
-        float gpuFrameMs = 0.0f;   // 时间戳查询（上一帧），无查询时保持 0
+        // 两个口径（审核 P2-21）：
+        // gpuRenderMs = Shadow→Post 的 GPU 时间，量的是渲染成本；
+        // gpuFrameMs  = 整帧 GPU 时间戳跨度，vsync 开时会包含等待翻转的空转。
+        float gpuRenderMs = 0.0f;
+        float gpuFrameMs = 0.0f;
+        bool  gpuRenderValid = false;
         bool  gpuTimingValid = false;
     };
 
@@ -49,6 +55,8 @@ public:
                           bool wireframe = false);
 
     ID3D11ShaderResourceView* ViewportTexture() const { return m_viewportTarget.ColorSRV(); }
+    // 创建（并由渲染器持有）一个蒙皮网格：关卡代码只提供 CPU 数据
+    const SkinnedMesh* CreateSkinnedMesh(const SkinnedMeshData& data);
     // 资源浏览器缩略图：首次调用时把网格渲染到 128² RT 并缓存
     ID3D11ShaderResourceView* GetMeshThumbnail(const Mesh* mesh);
     ID3D11ShaderResourceView* GetTextureThumbnail(const Texture* texture) {
@@ -128,11 +136,14 @@ private:
     void ShadowPass(ID3D11DeviceContext* ctx);
     void SkyPass(ID3D11DeviceContext* ctx);
     void OpaquePass(ID3D11DeviceContext* ctx, bool wireframe);
+    void SkinnedPass(ID3D11DeviceContext* ctx);
     void DebugPass(ID3D11DeviceContext* ctx);
     void PostPass(ID3D11DeviceContext* ctx, ID3D11RenderTargetView* target, u32 width, u32 height);
 
     void SetViewport(u32 width, u32 height);
     void UpdateGpuTiming(ID3D11DeviceContext* ctx, bool begin);
+    // 只包 Shadow→Post 的查询，得到真实渲染成本（与 vsync 无关）
+    void UpdateRenderTiming(ID3D11DeviceContext* ctx, bool begin);
 
     Device* m_device = nullptr;
     u32     m_windowWidth = 0;
@@ -143,13 +154,27 @@ private:
     Shader m_skyShader;
     Shader m_debugShader;
     Shader m_postShader;
+    Shader m_skinnedShader;
 
     ConstantBuffer<PerFrameCB>    m_perFrame;
     ConstantBuffer<PointLightsCB> m_pointLights;
     ConstantBuffer<PostCB>        m_postParams;
 
+    // 蒙皮：骨骼调色板（b2）+ 每角色常量（b3）
+    struct BonesCB {
+        Mat4 bones[64];
+    };
+    struct SkinnedObjectCB {
+        Mat4 world;
+        Vec4 albedo;
+        Vec4 params;
+    };
+    ConstantBuffer<BonesCB>        m_bones;
+    ConstantBuffer<SkinnedObjectCB> m_skinnedObject;
+
     RenderTarget m_sceneTarget;   // HDR RGBA16F + 深度（与当前输出同尺寸）
     std::unordered_map<u32, Scope<RenderTarget>> m_thumbnails; // meshId -> 128² 缩略图
+    std::vector<Scope<SkinnedMesh>> m_skinnedMeshes;
     RenderTarget m_viewportTarget; // LDR RGBA8，供编辑器 ImGui::Image 使用
     DepthTarget  m_shadowMap;
 
@@ -170,6 +195,11 @@ private:
     ID3D11Query* m_queryDisjoint = nullptr;
     ID3D11Query* m_queryStart = nullptr;
     ID3D11Query* m_queryEnd = nullptr;
+    ID3D11Query* m_renderDisjoint = nullptr;
+    ID3D11Query* m_renderStart = nullptr;
+    ID3D11Query* m_renderEnd = nullptr;
+    bool         m_renderPending = false;
+    bool         m_renderActive = false;
     bool         m_queryPending = false;     // 数据已写入、等下一帧读取
     bool         m_queryActiveThisFrame = false; // 本帧 Begin 过，End 必须成对
 
@@ -182,6 +212,7 @@ private:
     u32   m_viewportHeight = 0;
 
     Stats m_stats;
+    const RenderScene* m_currentScene = nullptr; // OpaquePass 里画蒙皮网格用
 };
 
 } // namespace erm

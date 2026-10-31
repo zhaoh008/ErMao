@@ -38,9 +38,20 @@ struct HealthBarRender {
     Vec4  color{1, 1, 1, 1};
 };
 
+// 蒙皮网格的绘制项（GAMES104 第 8 讲）：骨骼矩阵在 C++ 侧算好，直接喂给 shader
+struct SkinnedDraw {
+    const class SkinnedMesh* mesh = nullptr;
+    Mat4                     world = Mat4::Identity();
+    std::vector<Mat4>        bones;      // 每人一份 S_i = P_i * B_i^{-1}
+    Vec4                     albedo{0.8f, 0.8f, 0.8f, 1.0f};
+    float                    roughness = 0.5f;
+    float                    metallic = 0.0f;
+};
+
 // 一帧的渲染场景
 struct RenderScene {
     std::vector<RenderItem>       items;
+    std::vector<SkinnedDraw>      skinned;
     std::vector<PointLightRender> pointLights;
     std::vector<HealthBarRender>  healthBars;
 

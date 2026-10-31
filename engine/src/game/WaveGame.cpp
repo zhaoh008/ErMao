@@ -307,15 +307,19 @@ void WaveGame::DrawHealthBars(World& world, const Camera& camera, float viewport
             auto* health = object->GetComponent<HealthComponent>();
             if (!health || !health->showBar || health->health <= 0.0f) return;
 
+            // 遮挡判定瞄准"角色头部"，不是血条本身：
+            // 否则"人被墙挡住、血条露在墙上方"时会画出一条悬空血条（审核 P3-52）
             const Vec3 head = object->WorldPosition() + Vec3(0, health->barOffsetY, 0);
+            const Vec3 occluderTarget = object->WorldPosition() + Vec3(0, 0.9f, 0);
             Vec2       screen;
             if (!camera.WorldToScreen(head, Vec2(viewportWidth, viewportHeight), screen)) return;
 
             const float distance = Length(camera.position - head);
             // 遮挡剔除：相机到血条之间如果撞到几何体就不画（否则会"透视"）
-            Ray       visibilityRay{camera.position, Normalize(head - camera.position)};
+            Ray       visibilityRay{camera.position, Normalize(occluderTarget - camera.position)};
             World::RaycastHit blocker;
-            if (world.Raycast(visibilityRay, distance - 0.35f, blocker) && blocker.object != object) return;
+            const float headDistance = Length(occluderTarget - camera.position);
+            if (world.Raycast(visibilityRay, headDistance - 0.25f, blocker) && blocker.object != object) return;
             const float barWidth = Clamp(1600.0f / (std::max)(distance, 1.0f), 44.0f, 170.0f);
             const float barHeight = 9.0f;
             const float px = viewportX + screen.x;

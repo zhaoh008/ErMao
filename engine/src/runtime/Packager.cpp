@@ -72,6 +72,8 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
     }
 
     WriteText(FileSystem::Join(target, "run.bat"), "@echo off\r\nstart \"\" \"%~dp0ErMao.exe\"\r\n");
+    WriteText(FileSystem::Join(root, "GENERATED_DO_NOT_EDIT.txt"),
+              "dist/ 是打包产物，不要手改。\r\n改源码请改工程目录，然后重新执行 文件 → 打包。\r\n");
     WriteText(FileSystem::Join(target, "README.txt"),
               "ErMao Engine - Windows package\r\n"
               "\r\n"
@@ -109,11 +111,21 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
 
     WriteText(FileSystem::Join(target, "build.sh"),
               "#!/usr/bin/env bash\n"
+              "# ErMao v0.3 的图形/窗口层是 Win32 + D3D11，Linux 上无法直接构建。\n"
+              "# 这个脚本只做环境检查，避免让 cmake 抛出一个看不懂的 FATAL_ERROR。\n"
               "set -e\n"
-              "# ErMao 目前只有 D3D11 后端，Linux 下需要先补一个图形后端（Vulkan/OpenGL）。\n"
-              "# 这里保留 CMake 入口，方便在补完后端后直接构建。\n"
-              "cmake -S . -B build -DCMAKE_BUILD_TYPE=Release\n"
-              "cmake --build build -j\n");
+              "if [ \"$(uname -s)\" != \"Linux\" ]; then\n"
+              "  echo \"这是一个 Linux 源码包；请在 Linux 上运行。\"\n"
+              "fi\n"
+              "echo \"\"\n"
+              "echo \"ErMao 目前没有 Linux 运行时：需要先补 Vulkan/OpenGL 后端。\"\n"
+              "echo \"步骤见 README-LINUX.md：\"\n"
+              "echo \"  1) 平台层换 GLFW/SDL2    2) rhi 增加 Vulkan/OpenGL\"\n"
+              "echo \"  3) HLSL 转 SPIR-V/GLSL   4) ImGui 换 glfw+vulkan 后端\"\n"
+              "echo \"  5) 打包 assets/shaders\"\n"
+              "echo \"\"\n"
+              "echo \"补完后端后可执行：cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j\"\n"
+              "exit 0\n");
 
     WriteText(FileSystem::Join(target, "README-LINUX.md"),
               "# ErMao Linux 源码包\n\n"

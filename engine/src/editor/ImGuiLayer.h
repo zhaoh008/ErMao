@@ -16,7 +16,8 @@ class Window;
 
 class ImGuiLayer {
 public:
-    bool Init(Window& window, void* d3dDevice, void* d3dContext);
+    // useIniFile=false 时不读写 imgui.ini（--frames/--screenshot 自检用，避免残留布局影响截图）
+    bool Init(Window& window, void* d3dDevice, void* d3dContext, bool useIniFile = true);
     void Shutdown();
 
     void BeginFrame();

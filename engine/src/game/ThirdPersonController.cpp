@@ -11,24 +11,30 @@
 namespace erm {
 
 namespace {
-bool g_inputEnabled = true;
-bool g_simulated = false;
-Vec2 g_simulatedMove{0, 0};
-bool g_simulatedJump = false;
-bool g_simulatedRun = false;
+
+// 输入状态收进一个结构体（审核 P3-49）：以后要接"录像回放/自动测试"，
+// 只需要替换这一个来源，而不是到处找散落的全局变量。
+struct TestInput {
+    bool enabled = true;      // 编辑器是否把输入交给角色
+    bool simulated = false;   // 是否使用脚本化输入
+    Vec2 move{0, 0};          // 脚本化移动（x=右, y=前）
+    bool jump = false;
+    bool run = false;
+} g_testInput;
+
 } // namespace
 
-void ThirdPersonController::SetInputEnabled(bool enabled) { g_inputEnabled = enabled; }
-bool ThirdPersonController::InputEnabled() { return g_inputEnabled; }
+void ThirdPersonController::SetInputEnabled(bool enabled) { g_testInput.enabled = enabled; }
+bool ThirdPersonController::InputEnabled() { return g_testInput.enabled; }
 
 void ThirdPersonController::SetSimulatedInput(const Vec2& move, bool jump, bool run) {
-    g_simulated = true;
-    g_simulatedMove = move;
-    g_simulatedJump = jump;
-    g_simulatedRun = run;
+    g_testInput.simulated = true;
+    g_testInput.move = move;
+    g_testInput.jump = jump;
+    g_testInput.run = run;
 }
 
-void ThirdPersonController::ClearSimulatedInput() { g_simulated = false; }
+void ThirdPersonController::ClearSimulatedInput() { g_testInput.simulated = false; }
 
 void ThirdPersonController::OnStart() {
     if (!m_owner) return;
@@ -50,33 +56,40 @@ void ThirdPersonController::OnStart() {
 }
 
 void ThirdPersonController::OnUpdate(float dt) {
-    if (!m_owner || dt <= 0.0f) return;
-    World* world = GetWorld();
-    if (!world) return;
+    if (!m_owner) return;
 
-    // ------------------------------------------------ 鼠标：轨道相机
-    // 注意符号：yaw 增大时 forward = (-sin, 0, -cos) 会向左偏，
-    // 所以"鼠标右移 → 视角右转"必须是 yaw 减小。v0.2 这里写反了。
-    if (g_inputEnabled && Input::IsMouseDown(1)) {
+    // 鼠标看视角：用"帧"的鼠标增量，不放进固定步长（否则一帧跑两步会转两倍）
+    if (g_testInput.enabled && Input::IsMouseDown(1)) {
         const Vec2 delta = Input::MouseDelta();
+        // yaw 增大时 forward=(-sin,0,-cos) 向左偏，所以鼠标右移必须 yaw 减小
         yawDegrees -= delta.x * mouseSensitivity;
         pitchDegrees += (invertY ? 1.0f : -1.0f) * delta.y * mouseSensitivity;
     }
     const float wheel = Input::WheelDelta();
-    if (g_inputEnabled && std::fabs(wheel) > 0.001f) {
+    if (g_testInput.enabled && std::fabs(wheel) > 0.001f) {
         cameraDistance = Clamp(cameraDistance - wheel * 0.6f, cameraMinDistance, cameraMaxDistance);
     }
     pitchDegrees = Clamp(pitchDegrees, minPitch, maxPitch);
 
+    // 相机在渲染帧更新：移动发生在固定步长里，这里只负责"跟上去"
+    UpdateCamera();
+    (void)dt;
+}
+
+void ThirdPersonController::OnFixedUpdate(float dt) {
+    if (!m_owner || dt <= 0.0f) return;
+    World* world = GetWorld();
+    if (!world) return;
+
     // ------------------------------------------------ 输入：相对相机朝向移动
-    const Quat  yawRotation = Quat::FromEuler(ToRadians(yawDegrees), 0.0f, 0.0f);
-    const Vec3  cameraForward = yawRotation.RotateVector(Vec3(0, 0, -1));
-    const Vec3  cameraRight = yawRotation.RotateVector(Vec3(1, 0, 0));
+    const Quat yawRotation = Quat::FromEuler(ToRadians(yawDegrees), 0.0f, 0.0f);
+    const Vec3 cameraForward = yawRotation.RotateVector(Vec3(0, 0, -1));
+    const Vec3 cameraRight = yawRotation.RotateVector(Vec3(1, 0, 0));
 
     Vec3 wish{0, 0, 0};
-    if (g_simulated) {
-        wish = cameraForward * g_simulatedMove.y + cameraRight * g_simulatedMove.x;
-    } else if (g_inputEnabled) {
+    if (g_testInput.simulated) {
+        wish = cameraForward * g_testInput.move.y + cameraRight * g_testInput.move.x;
+    } else if (g_testInput.enabled) {
         if (Input::IsKeyDown('W')) wish += cameraForward;
         if (Input::IsKeyDown('S')) wish -= cameraForward;
         if (Input::IsKeyDown('D')) wish += cameraRight;
@@ -84,22 +97,20 @@ void ThirdPersonController::OnUpdate(float dt) {
     }
     if (LengthSq(wish) > 0.0f) wish = Normalize(wish);
 
-    const bool  running = g_simulated ? g_simulatedRun : Input::IsKeyDown(VK_SHIFT);
-    // 跳跃要的是"边沿"：按住空格不能连续起跳（审核 P3-46）
-    bool jumpPressed = false;
-    if (g_simulated) {
-        jumpPressed = g_simulatedJump && !m_simulatedJumpPrev;
-        m_simulatedJumpPrev = g_simulatedJump;
+    const bool running = g_testInput.simulated ? g_testInput.run : Input::IsKeyDown(VK_SHIFT);
+    bool       jumpPressed = false;
+    if (g_testInput.simulated) {
+        jumpPressed = g_testInput.jump && !m_simulatedJumpPrev;
+        m_simulatedJumpPrev = g_testInput.jump;
     } else {
-        jumpPressed = g_inputEnabled && Input::IsKeyPressed(VK_SPACE);
+        jumpPressed = g_testInput.enabled && Input::IsKeyPressed(VK_SPACE);
     }
     const float speed = running ? runSpeed : moveSpeed;
 
-    // 水平速度直接给定（教学级角色：不做加速度/摩擦模型，手感更"跟手"）
     velocity.x = wish.x * speed;
     velocity.z = wish.z * speed;
 
-    // ------------------------------------------------ 重力与跳跃
+    // ------------------------------------------------ 重力与跳跃（固定步长积分）
     if (grounded && jumpPressed) {
         m_verticalVelocity = jumpSpeed;
         grounded = false;
@@ -119,7 +130,7 @@ void ThirdPersonController::OnUpdate(float dt) {
     groundRay.origin = position + Vec3(0, 0.15f, 0);
     groundRay.direction = Vec3(0, -1, 0);
     World::RaycastHit hit;
-    const float groundProbe = height * 0.5f + 0.35f;
+    const float      groundProbe = height * 0.5f + 0.35f;
     if (world->Raycast(groundRay, groundProbe, hit) && hit.object != m_owner) {
         const float targetY = hit.point.y + height * 0.5f;
         if (position.y <= targetY + 0.05f) {
@@ -140,7 +151,7 @@ void ThirdPersonController::OnUpdate(float dt) {
     // ------------------------------------------------ 朝向
     if (LengthSq(wish) > 0.001f) {
         const float targetYaw = std::atan2(-wish.x, -wish.z);
-        float currentYaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+        float       currentYaw = 0.0f, pitch = 0.0f, roll = 0.0f;
         m_owner->Rotation().ToEuler(currentYaw, pitch, roll);
         float delta = targetYaw - currentYaw;
         while (delta > kPi) delta -= kTwoPi;
@@ -149,11 +160,7 @@ void ThirdPersonController::OnUpdate(float dt) {
         delta = Clamp(delta, -step, step);
         m_owner->SetRotation(Quat::FromEuler(currentYaw + delta, 0.0f, 0.0f));
     }
-
-    UpdateCamera();
-
 }
-
 void ThirdPersonController::ResolveCollisions() {
     World* world = GetWorld();
     if (!world) return;
@@ -173,6 +180,9 @@ void ThirdPersonController::ResolveCollisions() {
                            Clamp(center.z, box.min.z, box.max.z)};
         Vec3 delta = Vec3(center.x, center.y - height * 0.1f, center.z) - closest;
         const float distance = Length(delta);
+
+        // 脚底已经高于盒顶 → 人站在它上面，不做水平推离（审核 P3-48 边缘侧滑）
+        if (center.y - height * 0.5f >= box.max.y - 0.05f) continue;
 
         // 只在 XZ 上做推离：竖直方向交给地面检测，避免和"站上平台"打架
         if (distance < radius && distance > 1e-4f) {

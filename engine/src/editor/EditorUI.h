@@ -31,6 +31,8 @@ public:
 
     void Init(ImGuiLayer* imguiLayer);
     void Shutdown();
+    // 忽略 imgui.ini，本次启动强制铺一次默认 Dock 布局
+    void ForceDefaultLayout() { m_forceDefaultLayout = true; }
     void Draw(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera,
               const ViewportRenderer& renderViewport, float dt);
 
@@ -96,6 +98,7 @@ private:
     bool m_wantsExit = false;
     bool m_viewportHovered = false;
     bool m_layoutInitialized = false;
+    bool m_forceDefaultLayout = false;
     bool m_showDemo = false;
 
     // 面板开关

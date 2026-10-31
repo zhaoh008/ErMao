@@ -1,5 +1,6 @@
 // ErMao Engine - 渲染器实现
 #include "renderer/Renderer.h"
+#include "renderer/SkinnedMesh.h"
 #include "core/JobSystem.h"
 #include "core/Log.h"
 #include "core/Timer.h"
@@ -85,12 +86,24 @@ bool Renderer::CreateShaders() {
 
     if (!m_debugShader.Compile(dev, "DebugLine.hlsl", "VSMain", "PSMain")) return false;
     if (!m_debugShader.CreateInputLayout(dev, kDebugLayout, _countof(kDebugLayout))) return false;
+
+    // 蒙皮着色器：POSITION/NORMAL/UV/BLENDINDICES(u32x4)/BLENDWEIGHT(float4)，stride=64
+    if (!m_skinnedShader.Compile(dev, "Skinned.hlsl", "VSMain", "PSMain")) return false;
+    const D3D11_INPUT_ELEMENT_DESC kSkinnedLayout[] = {
+        {"POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"BLENDINDICES", 0, DXGI_FORMAT_R32G32B32A32_UINT, 0, 32, D3D11_INPUT_PER_VERTEX_DATA, 0},
+        {"BLENDWEIGHT", 0, DXGI_FORMAT_R32G32B32A32_FLOAT, 0, 48, D3D11_INPUT_PER_VERTEX_DATA, 0},
+    };
+    if (!m_skinnedShader.CreateInputLayout(dev, kSkinnedLayout, _countof(kSkinnedLayout))) return false;
     return true;
 }
 
 bool Renderer::CreateConstantBuffers() {
     ID3D11Device* dev = m_device->GetDevice();
-    return m_perFrame.Create(dev) && m_pointLights.Create(dev) && m_postParams.Create(dev);
+    return m_perFrame.Create(dev) && m_pointLights.Create(dev) && m_postParams.Create(dev) && m_bones.Create(dev) &&
+           m_skinnedObject.Create(dev);
 }
 
 bool Renderer::CreateInstanceBuffer(u32 maxInstances) {
@@ -107,6 +120,12 @@ bool Renderer::CreateTimingQueries() {
     desc.Query = D3D11_QUERY_TIMESTAMP;
     if (FAILED(m_device->GetDevice()->CreateQuery(&desc, &m_queryStart))) return false;
     if (FAILED(m_device->GetDevice()->CreateQuery(&desc, &m_queryEnd))) return false;
+    // disjoint 查询必须用 TIMESTAMP_DISJOINT 创建（复用 TIMESTAMP 的 desc 会 GetData E_INVALIDARG）
+    D3D11_QUERY_DESC disjointDesc{};
+    disjointDesc.Query = D3D11_QUERY_TIMESTAMP_DISJOINT;
+    if (FAILED(m_device->GetDevice()->CreateQuery(&disjointDesc, &m_renderDisjoint))) return false;
+    if (FAILED(m_device->GetDevice()->CreateQuery(&desc, &m_renderStart))) return false;
+    if (FAILED(m_device->GetDevice()->CreateQuery(&desc, &m_renderEnd))) return false;
     return true;
 }
 
@@ -139,6 +158,11 @@ void Renderer::Shutdown() {
         m_shadowRaster->Release();
         m_shadowRaster = nullptr;
     }
+    if (m_renderDisjoint) m_renderDisjoint->Release();
+    if (m_renderStart) m_renderStart->Release();
+    if (m_renderEnd) m_renderEnd->Release();
+    m_renderDisjoint = m_renderStart = m_renderEnd = nullptr;
+
     if (m_queryDisjoint) m_queryDisjoint->Release();
     if (m_queryStart) m_queryStart->Release();
     if (m_queryEnd) m_queryEnd->Release();
@@ -307,6 +331,13 @@ void Renderer::DrawBatches(ID3D11DeviceContext* ctx) {
     }
 }
 
+const SkinnedMesh* Renderer::CreateSkinnedMesh(const SkinnedMeshData& data) {
+    auto mesh = MakeScope<SkinnedMesh>();
+    if (!mesh->Create(m_device->GetDevice(), data)) return nullptr;
+    m_skinnedMeshes.push_back(std::move(mesh));
+    return m_skinnedMeshes.back().get();
+}
+
 ID3D11ShaderResourceView* Renderer::GetMeshThumbnail(const Mesh* mesh) {
     if (!mesh || !mesh->IsValid()) return nullptr;
 
@@ -387,10 +418,42 @@ void Renderer::UpdateGpuTiming(ID3D11DeviceContext* ctx, bool begin) {
     }
 }
 
+void Renderer::UpdateRenderTiming(ID3D11DeviceContext* ctx, bool begin) {
+    if (!m_renderDisjoint) return;
+    if (begin) {
+        if (m_renderPending) {
+            D3D11_QUERY_DATA_TIMESTAMP_DISJOINT disjoint{};
+            const HRESULT hr = ctx->GetData(m_renderDisjoint, &disjoint, sizeof(disjoint), 0);
+            if (hr == S_OK) {
+                UINT64 start = 0, end = 0;
+                ctx->GetData(m_renderStart, &start, sizeof(start), 0);
+                ctx->GetData(m_renderEnd, &end, sizeof(end), 0);
+                if (!disjoint.Disjoint && disjoint.Frequency > 0) {
+                    m_stats.gpuRenderMs =
+                        static_cast<float>(static_cast<double>(end - start) / disjoint.Frequency * 1000.0);
+                    m_stats.gpuRenderValid = true;
+                }
+                m_renderPending = false;
+            }
+        }
+        if (!m_renderPending) {
+            ctx->Begin(m_renderDisjoint);
+            ctx->End(m_renderStart);
+            m_renderActive = true;
+        }
+    } else if (m_renderActive) {
+        ctx->End(m_renderEnd);
+        ctx->End(m_renderDisjoint);
+        m_renderActive = false;
+        m_renderPending = true;
+    }
+}
+
 void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, float time, bool wireframe,
                               ID3D11RenderTargetView* outputRtv, u32 outputWidth, u32 outputHeight) {
     if (outputWidth == 0 || outputHeight == 0) return;
     ID3D11DeviceContext* ctx = m_device->GetContext();
+    m_currentScene = &scene; // OpaquePass 里的蒙皮绘制需要
 
     m_stats.drawCalls = 0;
 
@@ -426,6 +489,7 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
     UpdateGpuTiming(ctx, true);
     BuildBatches(camera, scene, true);
     UploadInstances(ctx);
+    UpdateRenderTiming(ctx, true); // 渲染成本从这里开始计（Shadow 之前）
 
     // ------------------------------------------------ Shadow
     const double t0 = Timer::Now();
@@ -448,6 +512,7 @@ void Renderer::RenderInternal(const Camera& camera, const RenderScene& scene, fl
 
     // ------------------------------------------------ Post → 输出
     PostPass(ctx, outputRtv, outputWidth, outputHeight);
+    UpdateRenderTiming(ctx, false); // Post 之后结束：不含 Present/vsync 等待
 
     m_stats.cpuShadowMs = static_cast<float>((t1 - t0) * 1000.0);
     m_stats.cpuOpaqueMs = static_cast<float>((t2 - t1) * 1000.0);
@@ -479,8 +544,44 @@ void Renderer::SkyPass(ID3D11DeviceContext* ctx) {
     ++m_stats.drawCalls;
 }
 
+void Renderer::SkinnedPass(ID3D11DeviceContext* ctx) {
+    if (!m_currentScene || m_currentScene->skinned.empty()) return;
+
+    m_skinnedShader.Bind(ctx);
+    m_shadowMap.BindAsTexture(ctx, 0);
+    m_perFrame.BindVSPS(ctx, 0);
+    m_pointLights.BindPS(ctx, 1);
+    Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP);
+    Texture::BindSampler(ctx, 1, D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP);
+
+    for (const SkinnedDraw& draw : m_currentScene->skinned) {
+        if (!draw.mesh || !draw.mesh->IsValid()) continue;
+
+        BonesCB bones{};
+        const size_t count = (std::min)(draw.bones.size(), static_cast<size_t>(64));
+        for (size_t i = 0; i < count; ++i) bones.bones[i] = draw.bones[i];
+        m_bones.Update(ctx, bones);
+
+        SkinnedObjectCB object{};
+        object.world = draw.world;
+        object.albedo = draw.albedo;
+        object.params = Vec4(draw.roughness, draw.metallic, 0.0f, 0.0f);
+        m_skinnedObject.Update(ctx, object);
+
+        m_bones.BindVS(ctx, 2);
+        m_skinnedObject.BindVSPS(ctx, 3);
+        draw.mesh->Bind(ctx);
+        draw.mesh->Draw(ctx);
+
+        ++m_stats.drawCalls;
+        ++m_stats.instances;
+        m_stats.triangles += draw.mesh->IndexCount() / 3;
+    }
+}
+
 void Renderer::OpaquePass(ID3D11DeviceContext* ctx, bool wireframe) {
-    if (m_batches.empty()) return;
+    const bool hasSkinned = m_currentScene && !m_currentScene->skinned.empty();
+    if (m_batches.empty() && !hasSkinned) return;
     RenderStates::SetOpaque(ctx);
     RenderStates::SetCullBack(ctx, true);
     if (wireframe) RenderStates::SetWireframe(ctx, true);
@@ -493,6 +594,7 @@ void Renderer::OpaquePass(ID3D11DeviceContext* ctx, bool wireframe) {
     Texture::BindSampler(ctx, 1, D3D11_FILTER_ANISOTROPIC, D3D11_TEXTURE_ADDRESS_WRAP);
 
     DrawBatches(ctx);
+    SkinnedPass(ctx);
 
     if (wireframe) RenderStates::SetWireframe(ctx, false);
 

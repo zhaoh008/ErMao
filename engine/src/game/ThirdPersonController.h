@@ -43,6 +43,7 @@ public:
 
     void OnStart() override;
     void OnUpdate(float dt) override;
+    void OnFixedUpdate(float dt) override;
 
     // 编辑器：只有视口获得焦点时才把输入交给角色
     static void SetInputEnabled(bool enabled);

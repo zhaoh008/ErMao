@@ -5,6 +5,7 @@
 #include "core/Log.h"
 #include "core/Timer.h"
 #include "game/Levels.h"
+#include "game/SkinningDemo.h"
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
 #include "platform/Input.h"
@@ -100,6 +101,8 @@ bool Engine::Init() {
         game::BuildDemoScene(m_world);
     } else if (m_levelName == "thirdperson") {
         game::BuildThirdPersonLevel(m_world);
+    } else if (m_levelName == "skinning") {
+        game::BuildSkinningLevel(m_world, m_renderer);
     } else {
         m_waveLevel = true;
         game::BuildWaveArena(m_world);
@@ -155,7 +158,9 @@ bool Engine::Init() {
     m_editorCamera.pitch = -0.32f;
     m_editorCamera.aspect = static_cast<float>(m_window.Width()) / static_cast<float>(m_window.Height());
 
-    if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext())) return false;
+    const bool autoRun = (m_autoFrames > 0) || !m_screenshotPath.empty();
+    if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext(), !autoRun)) return false;
+    if (autoRun) m_editor.ForceDefaultLayout();
     m_editor.Init(&m_imgui);
     if (m_startPlay) m_editor.Play();
     if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
@@ -220,6 +225,7 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
 
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
+    game::CollectSkinnedDraws(m_world, m_scene);
 
 
     m_renderer.Debug().Begin();
@@ -326,6 +332,7 @@ void Engine::MainLoop() {
         } else {
             m_renderer.Debug().Begin();
             m_world.BuildRenderScene(m_scene, viewCamera);
+    game::CollectSkinnedDraws(m_world, m_scene);
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
 
             // 无编辑器时也要有 HUD/血条：UI 直接叠加在已渲染的后备缓冲上
