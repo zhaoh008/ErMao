@@ -511,3 +511,32 @@ build\bin\ErMao.exe --noeditor --play --frames 120 --screenshot game.png   :: �
 | 验证 | `--demo`、`--package`、PIE 点击流程截图、打包产物独立运行 |
 
 详细说明见 `docs/07-v0.3-新功能.md`。
+
+---
+
+## 15. v0.4 交付（2026-10-31 下午）：把后段课程做实 + 讲义化
+
+### 15.1 新实现（对应 GAMES104 第 8/12/17 讲）
+
+| 系统 | 文件 | 说明 |
+|---|---|---|
+| 骨骼蒙皮 | `animation/Skeleton.*`、`renderer/SkinnedMesh.*`、`shaders/Skinned.hlsl`、`game/SkinnedCharacter.*`、`game/SkinningDemo.cpp` | 骨架/逆绑定矩阵/关键帧采样/姿势混合/LBS；6 骨骼管状网格 + 4 个角色不同相位 |
+| 粒子 | `game/ParticleEmitter.*`、`shaders/Particle.hlsl`、`Renderer::ParticlePass` | SoA + 累加器发射 + swap-remove + billboard + 无纹理圆形 alpha |
+| 行为树 | `ai/BehaviorTree.*`、`EnemyComponent::BuildTree` | Sequence/Selector/Cooldown/Running 续跑；敌人巡逻/追击/攻击/低血逃跑 |
+
+### 15.2 文档
+
+- 新增 `docs/lectures/`：第 0 课 + 22 讲 + 术语表 + 索引（概念卡/数学/代码/实验/练习/差距）。
+- 新增 `docs/08-学习指南.md`：七天路线、读代码三问、提问模板、边界说明。
+- 新增 `tools/docs-check.ps1`：扫描文档里引用的源码路径是否真实存在，接入 `build.bat`。
+- 新增 `docs/figures/`：材质 4 宫格、阴影 A/B 对比（由 `--roughness/--metallic/--noshadows` 生成）。
+
+### 15.3 审核 R9–R18 的修复
+
+GPU 计时拆分（渲染成本 vs 帧跨度）、自动截图禁用 imgui.ini、删除悬垂 `m_player`、
+控制器固定步长/边沿跳跃/边缘侧滑、dist 生成标记与 Linux 脚本守卫、血条遮挡改为瞄准头部。
+逐条见 `docs/06` 第八节。
+
+### 15.4 当前仍未实现
+
+网络（18-19）、GI 探针（21）、GPU Driven（22）——只有设计文档，`docs/lectures` 里明确标注。

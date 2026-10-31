@@ -1,4 +1,4 @@
-# ErMao Engine（二毛引擎）v0.3
+# ErMao Engine（二毛引擎）v0.4
 
 > Windows / C++17 / D3D11 / **Dear ImGui** 的 GAMES104 教学引擎。
 > 分层干净、能一条命令跑起来、编辑器五脏俱全，关卡与玩法**代码优先**。
@@ -24,6 +24,14 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 | 视口 | 右键拖动环视 · WASD/QE 移动 · 左键拾取 · **F 聚焦选中** · 拖动三轴 Gizmo 平移 |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · **左键射击** · Esc 暂停 |
 | 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
+
+## v0.4 做了什么（2026-10-31）
+
+- **骨骼蒙皮**（第 8 讲）：骨架/逆绑定矩阵/关键帧采样/姿势混合/LBS shader；`--level skinning` 四个角色不同相位与混合权重
+- **粒子系统**（第 12 讲）：SoA + 累加器发射 + swap-remove + billboard；竞技场两处火把 + 传送门
+- **行为树**（第 17 讲）：Sequence/Selector/Cooldown/Running；敌人巡逻/追击/攻击/低血逃跑
+- **讲义**：`docs/lectures/` 第 0 课 + 22 讲 + 术语表 + 学习指南；每条原理都给数学依据与代码位置
+- **工程**：文档引用检查（`build.bat` 自动跑）、GPU 计时拆成"渲染成本/帧跨度"两个口径
 
 ## v0.3 做了什么
 
