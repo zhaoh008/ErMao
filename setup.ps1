@@ -15,7 +15,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$Root = Split-Path -Parent $PSScriptRoot
+$Root = $PSScriptRoot
 Set-Location $Root
 
 $LogPath = Join-Path $Root "setup.log"
