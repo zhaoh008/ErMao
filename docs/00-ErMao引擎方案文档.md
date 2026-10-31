@@ -347,7 +347,7 @@ D3D11 的坑：**Present 前必须先 `OMSetRenderTargets` 回 backbuffer**（�
 | 09 | 动画进阶 | 状态机 + 0.25s 交叉淡入 | 走→停 平滑过渡 |
 | 10 | 物理基础 | 积分器、碰撞检测、冲量求解 | 小球下落弹跳不穿地 |
 | 11 | 物理应用 | 射线拾取、触发器、关节（简化） | 点击物体、AI 视线 |
-| 12 | 特效 | 调试粒子/轨迹（Points + 加法混合） | 小球拖尾 |
+| 12 | 特效 | `game/ParticleEmitter` + `shaders/Particle.hlsl`（billboard + Alpha 混合） | 竞技场火把 / 传送门 |
 | 13 | 工具链 | 编辑器 UI、Inspector、日志 Console | 编辑器全貌 |
 | 14 | 工具链进阶 | Play-In-Editor 快照、Gizmo、场景序列化 | Play/Stop 回滚 |
 | 15 | Gameplay 复杂性与积木 | `PlayerController`、组件组合、事件（简化） | WASD 控制角色 |

@@ -21,7 +21,14 @@ float ParticleEmitterComponent::Random01() {
     return static_cast<float>(m_rng & 0xFFFFFF) / static_cast<float>(0xFFFFFF);
 }
 
-void ParticleEmitterComponent::OnStart() { m_accumulator = 0.0f; }
+void ParticleEmitterComponent::OnStart() {
+    m_accumulator = 0.0f;
+    // 预留到上限，避免运行中反复扩容（审核 R20 的建议）
+    m_positions.reserve(kMaxParticles);
+    m_velocities.reserve(kMaxParticles);
+    m_life.reserve(kMaxParticles);
+    m_maxLife.reserve(kMaxParticles);
+}
 
 void ParticleEmitterComponent::Spawn(u32 count) {
     for (u32 i = 0; i < count; ++i) {
