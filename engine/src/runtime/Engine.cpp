@@ -50,6 +50,14 @@ int Engine::Run(int argc, char** argv) {
             m_showEditor = false;
             m_startPlay = true;
             m_demoMode = true;
+        } else if (arg == "--noshadows") {
+            m_noShadows = true;
+        } else if (arg == "--debugview" && i + 1 < argc) {
+            m_debugView = std::atoi(argv[++i]);
+        } else if (arg == "--roughness" && i + 1 < argc) {
+            m_overrideRoughness = static_cast<float>(std::atof(argv[++i]));
+        } else if (arg == "--metallic" && i + 1 < argc) {
+            m_overrideMetallic = static_cast<float>(std::atof(argv[++i]));
         } else if (arg == "--smoke") {
             m_smoke = true;
             m_startPlay = true;
@@ -181,6 +189,19 @@ bool Engine::Init() {
                                                                   : Packager::PackageWindows();
         LogInfo("[打包自检] success=%d %s", result.success ? 1 : 0, result.message.c_str());
         m_running = false;
+    }
+    // 教学截图开关：阴影/调试视图/材质覆盖
+    if (m_noShadows) m_renderer.ShadowsEnabled() = false;
+    if (m_debugView >= 0) m_renderer.DebugView() = m_debugView;
+    if (m_overrideRoughness >= 0.0f || m_overrideMetallic >= 0.0f) {
+        for (GameObject* root : m_world.RootObjects()) {
+            root->ForEach([this](GameObject* object) {
+                auto* mr = object->GetComponent<MeshRenderer>();
+                if (!mr) return;
+                if (m_overrideRoughness >= 0.0f) mr->roughness = m_overrideRoughness;
+                if (m_overrideMetallic >= 0.0f) mr->metallic = m_overrideMetallic;
+            });
+        }
     }
     LogInfo("初始化完成：%zu 个对象，JobSystem %u 线程", m_world.ObjectCount(), JobSystem::ThreadCount());
     return true;

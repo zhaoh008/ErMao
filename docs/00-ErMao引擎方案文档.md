@@ -118,11 +118,11 @@ D:\GameEngine\
 │       ├─ scene\       Transform.h World.h/.cpp GameObject.h/.cpp Components.h/.cpp
 │       ├─ reflect\     Reflection.h/.cpp Serializer.h/.cpp
 │       ├─ asset\       AssetManager.h/.cpp ObjLoader.h/.cpp TextureLoader.h/.cpp PrimitiveMesh.h/.cpp
-│       ├─ physics\     PhysicsWorld.h/.cpp Collider.h Raycast.h/.cpp
+│       ├─ physics\     PhysicsWorld.h / PhysicsWorldSim.cpp（简化刚体）
 │       ├─ animation\   AnimationClip.h/.cpp Animator.h/.cpp Skeleton.h/.cpp
 │       ├─ ai\          NavGrid.h/.cpp BehaviorTree.h/.cpp Agent.h/.cpp
 │       ├─ editor\      Ui.h/.cpp (即时模式控件) Editor.h/.cpp (面板/Gizmo)
-│       └─ runtime\     Application.h/.cpp Engine.h/.cpp DemoGame.h/.cpp main.cpp
+│       └─ runtime\     Engine.h/.cpp main.cpp Packager.h/.cpp
 └─ build\                           # CMake 生成物
 ```
 

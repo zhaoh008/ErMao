@@ -1,0 +1,128 @@
+# 第 16 讲：AI 与寻路——导航栅格、A\* 与感知
+
+> 对应 GAMES104 第 16 讲（基础 AI）。
+> 代码：`ai/NavGrid.h/.cpp`、`ai/Agents.h/.cpp`。
+> 目标：把"敌人绕开箱子追到你"拆成三件事：可行走栅格、A\* 最短路、感知与状态机。
+
+---
+
+## 1. 导航栅格
+
+把 XZ 平面按 `cellSize`（本工程 0.5m）划成 `W×H` 个格子：
+
+```
+cellX = floor(worldX / cellSize)
+cellZ = floor(worldZ / cellSize)
+index = cellZ * W + cellX
+```
+
+- 静态物体的 AABB 投影到格子 → 标记为阻挡；
+- 用"膨胀"把阻挡格向外扩 `agentRadius / cellSize` 格（否则贴墙走会卡住）；
+- 生成一次（`World::RebuildNavigation`），场景变化时重建。
+
+这就是最朴素的"2.5D 寻路"：高度不参与，适合平坦场地。
+
+---
+
+## 2. A\* 算法
+
+### 2.1 定义
+
+- `g(n)`：从起点到 `n` 的实际代价；
+- `h(n)`：从 `n` 到终点的**启发式估计**；
+- `f(n) = g(n) + h(n)`：优先队列的排序键。
+
+每次弹出 `f` 最小的节点，若它是终点则结束；否则扩展邻居 `g' = g + cost`，
+若 `g' < g(neighbor)` 则更新并入队。
+
+### 2.2 启发式必须"可采纳"
+
+若 `h(n) ≤ 真实剩余代价`（admissible），A\* 保证找到最优解。
+本工程的启发式：
+
+```cpp
+auto heuristic = [&](int idx) {
+    const int dx = std::abs(x - goalX), dz = std::abs(z - goalZ);
+    return static_cast<float>(dx + dz);        // 4 邻接：曼哈顿距离
+};
+```
+
+- 4 邻接（上下左右）：曼哈顿距离可采纳；
+- 8 邻接（含对角）：必须用**八方向距离**（`max(dx,dz) + (√2-1)·min(dx,dz)`），
+  否则曼哈顿距离会高估对角代价（不可采纳，找不到最优）。
+
+本工程用 4 邻接 + 曼哈顿，简单且正确。
+
+### 2.3 复杂度
+
+最坏 `O(E log V)`（每个节点入队多次，`log` 来自优先队列）。
+启发式越接近真实代价，扩展的节点越少——`h ≡ 0` 时退化成 Dijkstra。
+
+---
+
+## 3. 路径平滑
+
+A\* 给的是格子序列，直接走会"锯齿"。两种平滑：
+
+1. **视线拉直**：从当前点尝试连到更远的路径点，若 `HasLineOfSight` 通过就跳过中间点；
+2. **转向插值**：沿路径走时用"朝向下一个点"的插值（本工程角色用 `turnSpeed` 限制转向速度）。
+
+本工程用 2 + 简单的路径点推进（到点 0.4m 内切下一个）。
+
+---
+
+## 4. 感知（Perception）
+
+```cpp
+// 视野：距离 + 夹角 + 视线遮挡
+if (distance > sightRange) return false;
+const float cosAngle = Dot(forward, normalize(playerPos - eye));
+if (cosAngle < std::cos(ToRadians(sightAngleDegrees))) return false;
+if (!Nav().HasLineOfSight(eye, playerPos)) return false;
+return true;
+```
+
+- **距离**：超过 `sightRange` 看不见；
+- **夹角**：视野锥（例如 120°，`cos(60°) = 0.5`）；
+- **遮挡**：从眼睛到目标做一次射线，被墙挡住就看不见。
+
+三个条件缺一不可——只做距离会"隔墙追人"，只做夹角会"背后长眼"。
+
+---
+
+## 5. 状态机
+
+```
+Patrol --看见玩家--> Chase --靠近--> Attack
+  ↑                    |               |
+  └----丢失目标--------┘<----玩家远离---┘
+```
+
+本工程 `NavAgentComponent::OnUpdate` 用 `state` 字段（0=巡逻 1=追击）实现，
+状态之间用条件切换，每个状态有自己的移动目标与速度。
+
+**为什么用状态机而不是行为树**：状态少时状态机更简单、可调试；
+状态爆炸（巡逻/警戒/追击/攻击/逃跑/掩护…）时才需要行为树（第 17 讲）。
+
+---
+
+## 6. 实验
+
+```bat
+build\bin\ErMao.exe --level thirdperson --play --frames 300
+```
+
+1. 三个红色 AI 在场地里巡逻；
+2. 玩家靠近到 `sightRange` 内且不在墙后 → AI 转向追击；
+3. 躲到柱子后面 → AI 丢失目标，回到巡逻。
+
+日志里 `nav 生成：100 x 100 格（0.50 m/格）` 是栅格参数。
+
+---
+
+## 7. 自测题
+
+1. 为什么 8 邻接不能用曼哈顿距离？给出一个反例（起点/终点/障碍布局）。
+2. 证明 A\* 在 `h` 可采纳时返回最优解（提示：反证，若返回次优，队列里某个最优路径节点的 `f ≤ 最优代价 < 返回代价`）。
+3. 视野锥用 `cos` 比较而不是 `acos`，好处是什么？
+4. 栅格膨胀的半径怎么取？取小了/取大了分别会怎样？
