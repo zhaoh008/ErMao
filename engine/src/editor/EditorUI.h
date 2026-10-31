@@ -136,6 +136,8 @@ private:
     float m_benchParallel = 0.0f;
 
     // 位移 gizmo
+    // 0=位移 1=旋转 2=缩放（W/E/R 切换）
+    int    m_gizmoMode = 0;
     bool   m_gizmoEnabled = true;
     int    m_gizmoAxis = -1;      // 0/1/2 = X/Y/Z，-1 未拖拽
     float  m_gizmoStartMouseX = 0.0f;
@@ -144,6 +146,8 @@ private:
     float  m_gizmoAxisScreenX = 0.0f;
     float  m_gizmoAxisScreenY = 0.0f;
     float  m_gizmoWorldPerPixel = 0.01f;
+    Vec3   m_gizmoStartScale{1.0f, 1.0f, 1.0f};
+    Quat   m_gizmoStartRotation{0, 0, 0, 1};
 
     // 视口信息
     u32   m_viewportWidth = 0;

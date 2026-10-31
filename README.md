@@ -21,7 +21,7 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 
 | 场景 | 操作 |
 |---|---|
-| 视口 | 右键拖动环视 · WASD/QE 移动 · 左键拾取 · **F 聚焦选中** · 拖动三轴 Gizmo 平移 |
+| 视口 | 右键拖动 + WASD/QE 移动相机 · 左键拾取 · **W/E/R 位移/旋转/缩放 Gizmo** · F 聚焦 |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · **左键射击** · Esc 暂停 |
 | 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
 
@@ -31,7 +31,8 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 - **2D 游戏**：类《吸血鬼幸存者》的「二毛幸存者」——WASD 移动、自动射箭、兽人波次、经验宝石、升级、主菜单/暂停/失败
 - **游戏包发布**（重点）：`文件 → 打包 → 打包游戏：二毛幸存者（Windows）` 产出可直接运行的 `ErMaoSurvivors.exe`；
   Linux 产出同一款游戏的**源码包**（引擎只有 D3D11 后端，README 写明补齐步骤，不假装有 Linux 二进制）
-- **素材**：用户提供的 Soldier/Orc 角色包 + Kenney Tiny Dungeon（CC0，`assets/sprites/`，附许可）
+- **编辑器**：Gizmo 三件套（W 位移 / E 旋转 / R 缩放）；相机改为右键+WASD，给 Gizmo 让路
+- **素材**：用户提供的 Soldier/Orc 角色包 + Kenney Tiny Dungeon（CC0，`assets/sprites/`，附许可，登记在 `docs/assets-credits.md`）
 - 包装细节：`game.cfg` 决定默认关卡与是否进编辑器；`--demo2d` 一键演示
 
 ## v0.4 做了什么（2026-10-31）

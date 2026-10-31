@@ -321,6 +321,19 @@ void Editor::DrawToolbar(World& world, Renderer& renderer) {
     ImGui::SameLine();
     ImGui::BeginDisabled(!m_playing);
     if (ImGui::Button(m_paused ? "继续" : "暂停", ImVec2(64, 26))) Pause();
+    ImGui::SameLine();
+    ImGui::Separator();
+    ImGui::SameLine();
+    {
+        const char* gizmoNames[3] = {"移动 W", "旋转 E", "缩放 R"};
+        for (int gi = 0; gi < 3; ++gi) {
+            const bool active = (m_gizmoMode == gi);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.85f, 0.62f, 0.22f, 0.85f));
+            if (ImGui::Button(gizmoNames[gi], ImVec2(64, 26))) m_gizmoMode = gi;
+            if (active) ImGui::PopStyleColor();
+            if (gi < 2) ImGui::SameLine();
+        }
+    }
     ImGui::EndDisabled();
 
     ImGui::SameLine(0, 18);
@@ -379,16 +392,26 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
                 const Vec3 forward = editorCamera.Forward();
                 const Vec3 right = editorCamera.Right();
                 Vec3 move{0, 0, 0};
-                if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
-                if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
-                if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
-                if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
-                if (ImGui::IsKeyDown(ImGuiKey_E)) move += Vec3(0, 1, 0);
-                if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= Vec3(0, 1, 0);
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                    if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
+                    if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
+                    if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
+                    if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
+                    if (ImGui::IsKeyDown(ImGuiKey_E)) move += Vec3(0, 1, 0);
+                    if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= Vec3(0, 1, 0);
+                }
                 if (LengthSq(move) > 0.0f) editorCamera.position += Normalize(move) * speed;
             }
 
-            // ---- 位移 gizmo（先于拾取，避免拖拽轴时改选中）
+            // ---- Gizmo 模式切换：W 移动 / E 旋转 / R 缩放
+            if (!m_playing && m_viewportHovered && !ImGui::GetIO().WantTextInput &&
+                !ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                if (ImGui::IsKeyPressed(ImGuiKey_W)) m_gizmoMode = 0;
+                if (ImGui::IsKeyPressed(ImGuiKey_E)) m_gizmoMode = 1;
+                if (ImGui::IsKeyPressed(ImGuiKey_R)) m_gizmoMode = 2;
+            }
+
+            // ---- 位移/旋转/缩放 gizmo（先于拾取，避免拖拽轴时改选中）
             if (!m_playing && m_gizmoEnabled && m_selected && m_viewportHovered) {
                 DrawGizmo(world, editorCamera, imageMin,
                           ImVec2(static_cast<float>(m_viewportWidth), static_cast<float>(m_viewportHeight)));
@@ -1064,7 +1087,7 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
     const float distance = Length(editorCamera.position - origin);
     const float axisLength = Clamp(distance * 0.16f, 0.35f, 6.0f);
 
-    const Vec3 axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+    const Vec3  axes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
     const ImU32 colors[3] = {IM_COL32(232, 78, 78, 255), IM_COL32(96, 208, 96, 255), IM_COL32(88, 140, 240, 255)};
 
     auto project = [&](const Vec3& worldPos, ImVec2& out) -> bool {
@@ -1079,10 +1102,87 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
 
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const ImVec2 mouse = ImGui::GetIO().MousePos;
+    const bool   activeDrag = m_gizmoAxis >= 0;
 
-    // 命中测试：鼠标到线段的屏幕距离
-    int hoveredAxis = -1;
-    float bestDistance = 10.0f;
+    if (m_gizmoMode == 1) {
+        // ---------------- 旋转：三个环 ----------------
+        int    hovered = -1;
+        float  best = 9.0f;
+        for (int i = 0; i < 3; ++i) {
+            // 在垂直于轴的平面里取两个基向量
+            const Vec3 n = axes[i];
+            const Vec3 u = Normalize(Cross(n, std::fabs(n.y) > 0.9f ? Vec3(1, 0, 0) : Vec3(0, 1, 0)));
+            const Vec3 v = Cross(n, u);
+
+            ImVec2 points[33];
+            bool   valid[33] = {false};
+            int    validCount = 0;
+            for (int k = 0; k <= 32; ++k) {
+                const float angle = kTwoPi * static_cast<float>(k) / 32.0f;
+                const Vec3  p = origin + (u * std::cos(angle) + v * std::sin(angle)) * axisLength;
+                if (project(p, points[k])) {
+                    valid[k] = true;
+                    ++validCount;
+                }
+            }
+            if (validCount < 8) continue;
+
+            // 命中：鼠标到线段的最短距离
+            ImVec2 prev = points[0];
+            for (int k = 1; k <= 32; ++k) {
+                if (!valid[k] || !valid[k - 1]) { prev = points[k]; continue; }
+                const ImVec2 a = prev;
+                const ImVec2 b = points[k];
+                prev = b;
+                const ImVec2 ab(b.x - a.x, b.y - a.y);
+                const float  len2 = ab.x * ab.x + ab.y * ab.y;
+                if (len2 < 1.0f) continue;
+                float t = ((mouse.x - a.x) * ab.x + (mouse.y - a.y) * ab.y) / len2;
+                t = Clamp(t, 0.0f, 1.0f);
+                const float dx = mouse.x - (a.x + ab.x * t);
+                const float dy = mouse.y - (a.y + ab.y * t);
+                const float dist = std::sqrt(dx * dx + dy * dy);
+                if (dist < best) {
+                    best = dist;
+                    hovered = i;
+                }
+            }
+
+            // 绘制环
+            const bool  active = (i == hovered) || (i == m_gizmoAxis);
+            ImVec2 last;
+            bool   hasLast = false;
+            for (int k = 0; k <= 32; ++k) {
+                if (!valid[k]) { hasLast = false; continue; }
+                if (hasLast) draw->AddLine(last, points[k], colors[i], active ? 3.5f : 2.0f);
+                last = points[k];
+                hasLast = true;
+            }
+        }
+
+        if (!activeDrag && hovered >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            m_gizmoAxis = hovered;
+            m_gizmoStartMouseX = mouse.x;
+            m_gizmoStartMouseY = mouse.y;
+            m_gizmoStartRotation = m_selected->Rotation();
+        }
+        if (activeDrag) {
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                const float delta = (mouse.x - m_gizmoStartMouseX) + (mouse.y - m_gizmoStartMouseY);
+                const float angle = delta * 0.01f;
+                const Quat  rotation = Quat::FromAxisAngle(axes[m_gizmoAxis], angle) * m_gizmoStartRotation;
+                m_selected->SetRotation(rotation);
+            } else {
+                m_gizmoAxis = -1;
+            }
+        }
+        draw->AddCircleFilled(screenOrigin, 3.0f, IM_COL32(240, 240, 240, 200));
+        return;
+    }
+
+    // ---------------- 位移 / 缩放：三轴 ----------------
+    int    hoveredAxis = -1;
+    float  bestDistance = 10.0f;
     ImVec2 axisEnds[3];
     bool   axisValid[3] = {false, false, false};
     for (int i = 0; i < 3; ++i) {
@@ -1095,21 +1195,21 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
         if (lengthSq < 1.0f) continue;
         float t = ((mouse.x - a.x) * ab.x + (mouse.y - a.y) * ab.y) / lengthSq;
         t = Clamp(t, 0.0f, 1.0f);
-        const ImVec2 closest(a.x + ab.x * t, a.y + ab.y * t);
-        const float  dist = std::sqrt((mouse.x - closest.x) * (mouse.x - closest.x) +
-                                      (mouse.y - closest.y) * (mouse.y - closest.y));
+        const float dx = mouse.x - (a.x + ab.x * t);
+        const float dy = mouse.y - (a.y + ab.y * t);
+        const float dist = std::sqrt(dx * dx + dy * dy);
         if (dist < bestDistance) {
             bestDistance = dist;
             hoveredAxis = i;
         }
     }
 
-    // 开始拖拽
-    if (m_gizmoAxis < 0 && hoveredAxis >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+    if (!activeDrag && hoveredAxis >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
         m_gizmoAxis = hoveredAxis;
         m_gizmoStartMouseX = mouse.x;
         m_gizmoStartMouseY = mouse.y;
         m_gizmoStartPosition = m_selected->Position();
+        m_gizmoStartScale = m_selected->Scale();
         const ImVec2 ab(axisEnds[hoveredAxis].x - screenOrigin.x, axisEnds[hoveredAxis].y - screenOrigin.y);
         const float  length = std::sqrt(ab.x * ab.x + ab.y * ab.y);
         if (length > 2.0f) {
@@ -1121,25 +1221,37 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
         }
     }
 
-    // 拖拽中
-    if (m_gizmoAxis >= 0) {
+    if (activeDrag) {
         if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
             const float along = (mouse.x - m_gizmoStartMouseX) * m_gizmoAxisScreenX +
                                 (mouse.y - m_gizmoStartMouseY) * m_gizmoAxisScreenY;
-            Vec3 position = m_gizmoStartPosition + axes[m_gizmoAxis] * (along * m_gizmoWorldPerPixel);
-            m_selected->SetPosition(position);
+            if (m_gizmoMode == 2) {
+                const float factor = Clamp(1.0f + along * 0.01f, 0.05f, 10.0f);
+                Vec3        scale = m_gizmoStartScale;
+                if (m_gizmoAxis == 0) scale.x *= factor;
+                if (m_gizmoAxis == 1) scale.y *= factor;
+                if (m_gizmoAxis == 2) scale.z *= factor;
+                m_selected->SetScale(scale);
+            } else {
+                const Vec3 position = m_gizmoStartPosition + axes[m_gizmoAxis] * (along * m_gizmoWorldPerPixel);
+                m_selected->SetPosition(position);
+            }
         } else {
             m_gizmoAxis = -1;
         }
     }
 
-    // 绘制
-    if (m_gizmoAxis >= 0) hoveredAxis = m_gizmoAxis;
+    if (activeDrag) hoveredAxis = m_gizmoAxis;
     for (int i = 0; i < 3; ++i) {
         if (!axisValid[i]) continue;
         const bool active = (i == hoveredAxis);
         draw->AddLine(screenOrigin, axisEnds[i], colors[i], active ? 4.0f : 2.5f);
-        draw->AddCircleFilled(axisEnds[i], active ? 6.0f : 4.5f, colors[i]);
+        if (m_gizmoMode == 2) {
+            draw->AddRectFilled(ImVec2(axisEnds[i].x - 5, axisEnds[i].y - 5),
+                                ImVec2(axisEnds[i].x + 5, axisEnds[i].y + 5), colors[i]);
+        } else {
+            draw->AddCircleFilled(axisEnds[i], active ? 6.0f : 4.5f, colors[i]);
+        }
     }
     draw->AddCircleFilled(screenOrigin, 3.5f, IM_COL32(240, 240, 240, 220));
 }
