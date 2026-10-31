@@ -1,5 +1,12 @@
 # ErMao Engine（二毛引擎）v0.8
 
+## 🧭 Git 与版本管理
+
+- 稳定分支 `main`；里程碑标签 `v0.2.0 ~ v0.8.0`（`git tag -n`）
+- 提交规范、分支模型、钩子、CI 见 [Git 工作流](docs/11-Git工作流.md)
+- 接远程仓库：`pwsh -File tools\git-remote.ps1 -Url <仓库地址> -Push`
+- 本地钩子：`git config core.hooksPath .githooks`（拦截构建产物 + 文档引用检查）
+
 ## ✍️ 博客系列规划
 
 学习成果要整理成博客：`docs/blog/00-系列规划.md`（10 篇 / 41 章，含每篇细纲、配图、实验与自检），
