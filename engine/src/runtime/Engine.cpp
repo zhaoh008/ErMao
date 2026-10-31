@@ -71,6 +71,11 @@ int Engine::Run(int argc, char** argv) {
             m_packageTarget = argv[++i];
         } else if (arg == "--import" && i + 1 < argc) {
             m_importPath = argv[++i];
+        } else if (arg == "--demo3d") {
+            m_levelName = "survivors3d";
+            m_showEditor = false;
+            m_startPlay = true;
+            m_demoMode = true;
         } else if (arg == "--demo2d") {
             // 一键 2D 演示：幸存者关卡 + 自动开局 + 无编辑器
             m_levelName = "survivors";
@@ -146,6 +151,9 @@ bool Engine::Init() {
         game::BuildThirdPersonLevel(m_world);
     } else if (m_levelName == "cull") {
         game::BuildCullTestLevel(m_world);
+    } else if (m_levelName == "survivors3d") {
+        BuildSurvivors3DLevel(m_world, m_assets);
+        m_survivors3dLevel = true;
     } else if (m_levelName == "survivors") {
         BuildSurvivorsLevel(m_world, m_assets);
         m_survivorsLevel = true;
@@ -214,6 +222,7 @@ bool Engine::Init() {
     if (m_startPlay) m_editor.Play();
     if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
     if (m_survivorsLevel && (m_demoMode || m_smoke)) m_survivors.Reset(m_world);
+    if (m_survivors3dLevel && (m_demoMode || m_smoke)) m_survivors3d.Reset(m_world);
     if (m_demoMode) CombatComponent::SetAutoFire(true);
     if (m_smoke) {
         GameObject* player = m_world.FindByName("玩家");
@@ -226,10 +235,13 @@ bool Engine::Init() {
 
 
     if (!m_packageGame.empty()) {
-        const PackageResult result = (m_packageGame == "linux")
-                                         ? Packager::PackageGameLinuxSource("ErMaoSurvivors", "survivors")
-                                         : Packager::PackageGameWindows("ErMaoSurvivors", "survivors");
-        LogInfo("[打包自检] 游戏包 success=%d %s", result.success ? 1 : 0, result.message.c_str());
+        const bool linuxPackage = (m_packageGame == "linux");
+        const PackageResult result2 = linuxPackage ? Packager::PackageGameLinuxSource("ErMaoSurvivors", "survivors")
+                                                   : Packager::PackageGameWindows("ErMaoSurvivors", "survivors");
+        const PackageResult result3 = linuxPackage ? Packager::PackageGameLinuxSource("ErMaoSurvivors3D", "survivors3d")
+                                                   : Packager::PackageGameWindows("ErMaoSurvivors3D", "survivors3d");
+        LogInfo("[打包自检] 2D 游戏包 success=%d %s", result2.success ? 1 : 0, result2.message.c_str());
+        LogInfo("[打包自检] 3D 游戏包 success=%d %s", result3.success ? 1 : 0, result3.message.c_str());
         m_running = false;
     }
     if (!m_packageTarget.empty()) {
@@ -295,6 +307,25 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     Camera viewCamera = camera;
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
 
+            if (m_survivors3dLevel) {
+                // 3D 幸存者：第三人称俯视跟随
+                if (GameObject* player = m_world.FindByName("玩家")) {
+                    const Vec3 p = player->Position();
+                    viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
+                    const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
+                    viewCamera.yaw = std::atan2(-dir.x, -dir.z);
+                    viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
+                }
+            }
+    if (m_survivors3dLevel) {
+        if (GameObject* player = m_world.FindByName("玩家")) {
+            const Vec3 p = player->Position();
+            viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
+            const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
+            viewCamera.yaw = std::atan2(-dir.x, -dir.z);
+            viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
+        }
+    }
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
     if (m_is2D) {
         // 2D：正交相机跟随玩家（超出关卡边界时夹住）
@@ -382,6 +413,12 @@ void Engine::MainLoop() {
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
             if (!playing) m_waveGame.ReturnToMenu();
         }
+        if (m_survivors3dLevel) {
+            if (playing) m_survivors3d.Update(m_world, dt);
+            if (m_survivors3d.GetState() != Survivors3DDirector::State::Playing) gameplayInput = false;
+            if (!playing) m_survivors3d.ReturnToMenu();
+            Survivors3DPlayerComponent::SetInputEnabled(gameplayInput);
+        }
         if (m_survivorsLevel) {
             if (playing) m_survivors.Update(m_world, dt);
             if (m_survivors.GetState() != SurvivorsDirector::State::Playing) gameplayInput = false;
@@ -420,12 +457,28 @@ void Engine::MainLoop() {
                                    static_cast<float>(m_editor.ViewportHeightPx()));
                 if (m_survivors.WantsQuit()) m_running = false;
             }
+            if (m_survivors3dLevel && playing) {
+                m_survivors3d.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
+                                     static_cast<float>(m_editor.ViewportWidthPx()),
+                                     static_cast<float>(m_editor.ViewportHeightPx()));
+                if (m_survivors3d.WantsQuit()) m_running = false;
+            }
 
             float clear[4] = {0.055f, 0.06f, 0.07f, 1.0f};
             m_device.BeginFrame(clear);
             m_imgui.EndFrame();
         } else {
             m_renderer.Debug().Begin();
+            if (m_survivors3dLevel) {
+                // 3D 幸存者：第三人称俯视跟随
+                if (GameObject* player = m_world.FindByName("玩家")) {
+                    const Vec3 p = player->Position();
+                    viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
+                    const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
+                    viewCamera.yaw = std::atan2(-dir.x, -dir.z);
+                    viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
+                }
+            }
             m_world.BuildRenderScene(m_scene, viewCamera);
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
@@ -456,6 +509,13 @@ void Engine::MainLoop() {
                 m_survivors.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                    static_cast<float>(m_window.Height()));
                 if (m_survivors.WantsQuit()) m_running = false;
+            }
+            if (m_survivors3dLevel && playing) {
+                m_imgui.BeginFrame();
+                m_survivors3d.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
+                                     static_cast<float>(m_window.Height()));
+                if (m_survivors3d.WantsQuit()) m_running = false;
+                m_imgui.EndFrame();
                 m_imgui.EndFrame();
             }
         }

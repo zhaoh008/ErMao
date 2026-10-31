@@ -923,9 +923,19 @@ void Renderer::ParticlePass(ID3D11DeviceContext* ctx) {
     const Vec3 right = m_currentCamera->Right();
     const Vec3 up = m_currentCamera->Up();
 
+    struct Run {
+        const Texture* texture = nullptr;
+        u32            first = 0;
+        u32            count = 0;
+    };
+    std::vector<Run> runs;
+
     m_particleVertices.clear();
     m_particleVertices.reserve(m_currentScene->particles.size() * 6);
     for (const ParticleRender& p : m_currentScene->particles) {
+        if (runs.empty() || runs.back().texture != p.texture) {
+            runs.push_back({p.texture, static_cast<u32>(m_particleVertices.size()), 0});
+        }
         const Vec3 r = right * p.size;
         const Vec3 u = up * p.size;
         const Vec3 c = p.position;
@@ -936,14 +946,18 @@ void Renderer::ParticlePass(ID3D11DeviceContext* ctx) {
         m_particleVertices.push_back({p0, p.color, Vec2(0, 0)});
         m_particleVertices.push_back({p2, p.color, Vec2(1, 1)});
         m_particleVertices.push_back({p3, p.color, Vec2(0, 1)});
+        runs.back().count += 6;
     }
+    if (m_particleVertices.empty()) return;
 
     m_particleBuffer.Update(ctx, m_particleVertices.data(), m_particleVertices.size() * sizeof(ParticleVertex));
 
     m_particleShader.Bind(ctx);
     m_perFrame.BindVSPS(ctx, 0);
+    ID3D11Buffer* paramsBuffer = m_particleParams.Get();
+    ctx->VSSetConstantBuffers(1, 1, &paramsBuffer);
+    ctx->PSSetConstantBuffers(1, 1, &paramsBuffer);
     RenderStates::SetDepthTestNoWrite(ctx);
-    RenderStates::SetAlphaBlend(ctx);
     RenderStates::SetCullNone(ctx);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
@@ -951,10 +965,27 @@ void Renderer::ParticlePass(ID3D11DeviceContext* ctx) {
     UINT offset = 0;
     ID3D11Buffer* buffer = m_particleBuffer.Get();
     ctx->IASetVertexBuffers(0, 1, &buffer, &stride, &offset);
-    ctx->Draw(static_cast<UINT>(m_particleVertices.size()), 0);
 
-    ++m_stats.drawCalls;
-    m_stats.triangles += static_cast<u32>(m_particleVertices.size() / 3);
+    for (const Run& run : runs) {
+        if (run.count == 0) continue;
+        ParticleParamsCB params{};
+        params.params.x = run.texture ? 1.0f : 0.0f;
+        m_particleParams.Update(ctx, params);
+        if (run.texture) {
+            run.texture->BindPS(ctx, 0);
+            Texture::BindSampler(ctx, 1, D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_TEXTURE_ADDRESS_CLAMP);
+            RenderStates::SetAdditiveBlend(ctx);
+        } else {
+            ID3D11ShaderResourceView* nullSrv[1] = {nullptr};
+            ctx->PSSetShaderResources(0, 1, nullSrv);
+            RenderStates::SetAlphaBlend(ctx);
+        }
+        ctx->Draw(run.count, run.first);
+        ++m_stats.drawCalls;
+        m_stats.triangles += run.count / 3;
+    }
+
+    RenderStates::SetAlphaBlend(ctx);
 }
 
 void Renderer::OpaquePass(ID3D11DeviceContext* ctx, bool wireframe) {

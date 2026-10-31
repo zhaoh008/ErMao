@@ -129,6 +129,36 @@ Mesh* AssetManager::CreatePrimitive(const std::string& name) {
     return mesh;
 }
 
+Mesh* AssetManager::GetMeshAsset(const std::string& relativePath) {
+    auto it = m_meshes.find(relativePath);
+    if (it != m_meshes.end()) return it->second.get();
+
+    const std::string fullPath = FileSystem::AssetPath(relativePath);
+    if (!FileSystem::Exists(fullPath)) {
+        LogWarn("模型不存在: %s", fullPath.c_str());
+        return nullptr;
+    }
+    MeshData data;
+    std::string error;
+    if (!LoadObjMesh(fullPath, data, &error)) {
+        LogError("OBJ 加载失败 %s: %s", relativePath.c_str(), error.c_str());
+        return nullptr;
+    }
+    auto mesh = MakeScope<Mesh>();
+    if (!mesh->Create(m_device, data)) {
+        LogError("模型上传 GPU 失败: %s", relativePath.c_str());
+        return nullptr;
+    }
+    Mesh* raw = mesh.get();
+    m_meshes.emplace(relativePath, std::move(mesh));
+    AssetInfo& info = Register(relativePath, AssetType::Mesh, fullPath, false);
+    info.vertexCount = data.VertexCount();
+    info.indexCount = data.IndexCount();
+    LogInfo("3D 模型加载: %s（%u 顶点 / %u 三角形）", relativePath.c_str(), data.VertexCount(),
+            data.IndexCount() / 3);
+    return raw;
+}
+
 Texture* AssetManager::CreateTextureRGBA(const std::string& name, u32 width, u32 height, const u8* rgba) {
     auto it = m_textures.find(name);
     if (it != m_textures.end()) return it->second.get();

@@ -12,6 +12,16 @@
 | `engine/assets/sprites/arrow.png` | 同上 | 同上 | 同上 | 仅重命名 |
 | `engine/assets/sprites/kenney_tilemap.png` | https://kenney.nl/assets/tiny-dungeon | Kenney | **CC0 1.0** | 未改动（`LICENSE-kenney-tiny-dungeon.txt` 随附） |
 
+
+## 3D 素材
+
+| 文件 | 来源 | 作者 | 许可 | 改动 |
+|---|---|---|---|---|
+| `models/kenney/character-a..f.obj` | https://kenney.nl/assets/blocky-characters | Kenney | **CC0** | 未改动 |
+| `models/kenney/character-{skeleton,zombie,vampire,ghost}.obj` | https://kenney.nl/assets/graveyard-kit | Kenney | **CC0** | 未改动 |
+| `models/kenney/{cross,cross-wood,column-large,crypt-a,coffin,candle,altar-stone}.obj` | 同上 | Kenney | **CC0** | 未改动 |
+| `textures/kenney/colormap.png` | 同上 | Kenney | **CC0** | 未改动 |
+| `particles/{flame_01,flame_02,fire_01,spark_01,spark_02,smoke_01,smoke_02,star_01,light_01}.png` | https://kenney.nl/assets/particle-pack | Kenney | **CC0** | 未改动 |
 ## 程序化资源（无第三方版权）
 
 | 资源 | 生成位置 | 说明 |

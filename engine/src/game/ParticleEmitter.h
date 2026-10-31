@@ -35,10 +35,11 @@ public:
     Vec4  colorEnd{0.55f, 0.10f, 0.05f, 0.0f};
     float sizeStart = 0.16f;
     float sizeEnd = 0.03f;
+    std::string texture; // 例如 "particles/flame_01.png"；空 = 程序化圆点
 
     void OnStart() override;
     void OnUpdate(float dt) override;
-    void Collect(std::vector<ParticleRender>& out) const;
+    void Collect(std::vector<ParticleRender>& out, const class Texture* texture) const;
 
     u32 AliveCount() const { return static_cast<u32>(m_positions.size()); }
 

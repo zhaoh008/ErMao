@@ -1,4 +1,4 @@
-# ErMao Engine（二毛引擎）v0.5
+# ErMao Engine（二毛引擎）v0.6
 
 > Windows / C++17 / D3D11 / **Dear ImGui** 的 GAMES104 教学引擎。
 > 分层干净、能一条命令跑起来、编辑器五脏俱全，关卡与玩法**代码优先**。
@@ -24,6 +24,14 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 | 视口 | 右键拖动 + WASD/QE 移动相机 · 左键拾取 · **W/E/R 位移/旋转/缩放 Gizmo** · F 聚焦 |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · **左键射击** · Esc 暂停 |
 | 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
+
+## v0.6 做了什么（2026-10-31 深夜）
+
+- **3D 幸存者**：`--demo3d`；XZ 平面移动、第三人称俯视跟随、外部 OBJ 角色/亡灵/墓碑、粒子特效、波次与升级
+- **外部资源链路**：`AssetManager::GetMeshAsset` 懒加载 OBJ（`models/kenney/*.obj`），`World` 自动识别"路径式"网格/贴图
+- **特效**：粒子支持贴图 + 加法混合（Kenney Particle Pack 火焰/火花/星光），火把/命中/拾取都有特效
+- **发布**：2D 与 3D **两个游戏包**都能打出可运行的 Windows exe；Linux 各出一份源码包
+- **素材**：Kenney Blocky Characters / Graveyard Kit / Particle Pack（CC0），登记在 `docs/assets-credits.md`
 
 ## v0.5 做了什么（2026-10-31 晚）
 

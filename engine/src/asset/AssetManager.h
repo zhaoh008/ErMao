@@ -32,6 +32,8 @@ public:
     Texture* GetTextureAsset(const std::string& relativePath);
     // 2D：用 CPU 像素创建纹理（程序化图标）
     Texture* CreateTextureRGBA(const std::string& name, u32 width, u32 height, const u8* rgba);
+    // 3D：按 assets/ 下的相对路径懒加载 OBJ，例如 "models/kenney/character-a.obj"
+    Mesh* GetMeshAsset(const std::string& relativePath);
     Mesh*    CreateMesh(const std::string& key, const MeshData& data);
 
     // 导入外部资源：复制到 exe 旁的 assets/{models,textures}，再加载并注册

@@ -260,7 +260,11 @@ private:
         Vec2 uv;
         Vec4 color;
     };
+    struct ParticleParamsCB {
+        Vec4 params;   // x=useTexture
+    };
     ConstantBuffer<Mat4> m_spriteVP;
+    ConstantBuffer<ParticleParamsCB> m_particleParams;
     std::vector<SpriteVertex> m_spriteVertices;
     GpuBuffer                 m_spriteBuffer;
     ComPtr<ID3D11Buffer>            m_gpuInstanceSource;

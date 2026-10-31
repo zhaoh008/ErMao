@@ -51,9 +51,10 @@ struct SkinnedDraw {
 
 // 粒子（第 12 讲）：位置 + 大小 + 颜色，渲染器负责画成面向相机的 billboard
 struct ParticleRender {
-    Vec3  position{0, 0, 0};
-    float size = 0.1f;
-    Vec4  color{1, 1, 1, 1};
+    Vec3                 position{0, 0, 0};
+    float                size = 0.1f;
+    Vec4                 color{1, 1, 1, 1};
+    const class Texture* texture = nullptr; // 非空则采样贴图（火焰/火花），否则画程序化圆点
 };
 
 // 2D 精灵（第 23 讲）：纹理 + 目标矩形 + uv + 颜色

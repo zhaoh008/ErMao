@@ -1,7 +1,7 @@
 // ErMao Engine - 粒子 billboard（GAMES104 第 12 讲）
 //
-// 顶点由 CPU 每帧生成：位置 + 颜色 + uv（不做实例化，教学规模足够）。
-// 像素阶段按 uv 到中心的距离算 alpha，得到一个柔和的圆点，不需要纹理。
+// 两种像素：程序化圆点（无贴图）或采样 Kenney 粒子贴图（火焰/火花/烟）。
+// 有贴图时用加法混合（黑底素材），没有时用普通 alpha 混合。
 
 cbuffer PerFrame : register(b0)
 {
@@ -16,6 +16,14 @@ cbuffer PerFrame : register(b0)
     float4   gShadowParams;
     float4   gMisc;
 };
+
+cbuffer ParticleParams : register(b1)
+{
+    float4 gParams; // x=是否使用贴图
+};
+
+Texture2D    gParticleTex  : register(t0);
+SamplerState gParticleSamp : register(s1);
 
 struct VSInput
 {
@@ -42,12 +50,17 @@ VSOutput VSMain(VSInput input)
 
 float4 PSMain(VSOutput input) : SV_TARGET
 {
-    // uv ∈ [0,1]^2 → d ∈ [-1,1]^2，半径 1 的圆盘外丢弃
+    if (gParams.x > 0.5)
+    {
+        // 黑底粒子贴图：rgb 当亮度、a 当遮罩；配合加法混合
+        float4 tex = gParticleTex.Sample(gParticleSamp, input.uv);
+        float3 rgb = tex.rgb * input.color.rgb * max(tex.a, 0.0);
+        return float4(rgb, 1.0);
+    }
+
     float2 d = input.uv * 2.0 - 1.0;
     float  r2 = dot(d, d);
     if (r2 > 1.0) discard;
-
-    // 中心亮、边缘透明（1 - r² 的 1.5 次方，近似高斯但更便宜）
     float alpha = input.color.a * pow(saturate(1.0 - r2), 1.5);
     return float4(input.color.rgb, alpha);
 }

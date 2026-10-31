@@ -316,14 +316,19 @@ void World::BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const
             if (auto* renderer = object->GetComponent<MeshRenderer>()) {
                 if (!m_assets) return;
                 RenderItem item;
-                item.mesh = m_assets->GetMesh(renderer->mesh);
+                item.mesh = renderer->mesh.find('/') != std::string::npos ? m_assets->GetMeshAsset(renderer->mesh)
+                                                                          : m_assets->GetMesh(renderer->mesh);
                 item.world = object->WorldMatrix();
                 item.albedo = renderer->albedo;
                 item.roughness = renderer->roughness;
                 item.metallic = renderer->metallic;
                 item.emissive = renderer->emissive;
                 item.uvScale = renderer->uvScale;
-                item.baseColor = renderer->texture.empty() ? nullptr : m_assets->GetTexture(renderer->texture);
+                if (!renderer->texture.empty()) {
+                    item.baseColor = renderer->texture.find('/') != std::string::npos
+                                         ? m_assets->GetTextureAsset(renderer->texture)
+                                         : m_assets->GetTexture(renderer->texture);
+                }
                 item.castShadow = renderer->castShadow;
                 if (item.mesh) scene.items.push_back(item);
             }

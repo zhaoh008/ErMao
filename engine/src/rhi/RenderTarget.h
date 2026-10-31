@@ -69,6 +69,8 @@ public:
     static void SetDepthTestNoWrite(ID3D11DeviceContext* ctx);
     static void SetDepthNone(ID3D11DeviceContext* ctx);
     static void SetAlphaBlend(ID3D11DeviceContext* ctx);
+    // 2D/粒子：预乘/加法混合（黑底贴图用加法最自然）
+    static void SetAdditiveBlend(ID3D11DeviceContext* ctx);
     static void SetWireframe(ID3D11DeviceContext* ctx, bool enabled);
     static void SetCullBack(ID3D11DeviceContext* ctx, bool cull);
     static void SetCullNone(ID3D11DeviceContext* ctx);
@@ -80,6 +82,7 @@ private:
     static ComPtr<ID3D11DepthStencilState> s_depthNone;
     static ComPtr<ID3D11BlendState>        s_blendOpaque;
     static ComPtr<ID3D11BlendState>        s_blendAlpha;
+    static ComPtr<ID3D11BlendState>        s_blendAdditive;
     static ComPtr<ID3D11RasterizerState>   s_rasterSolid;
     static ComPtr<ID3D11RasterizerState>   s_rasterWire;
     static ComPtr<ID3D11RasterizerState>   s_rasterNoCull;

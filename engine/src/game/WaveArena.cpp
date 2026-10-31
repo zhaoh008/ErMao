@@ -131,6 +131,7 @@ void BuildWaveArena(World& world) {
         emitter->colorStart = color;
         emitter->colorEnd = Vec4(color.x * 0.4f, color.y * 0.2f, color.z * 0.1f, 0.0f);
         emitter->sizeStart = 0.30f;
+        emitter->texture = "particles/flame_01.png";
         emitter->sizeEnd = 0.03f;
     };
     addTorch("火把_A", Vec3(-3.5f, 0.15f, -10.0f), Vec4(1.0f, 0.62f, 0.22f, 1.0f));

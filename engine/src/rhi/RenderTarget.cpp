@@ -142,6 +142,7 @@ ComPtr<ID3D11DepthStencilState> RenderStates::s_depthTestOnly;
 ComPtr<ID3D11DepthStencilState> RenderStates::s_depthNone;
 ComPtr<ID3D11BlendState>        RenderStates::s_blendOpaque;
 ComPtr<ID3D11BlendState>        RenderStates::s_blendAlpha;
+ComPtr<ID3D11BlendState>        RenderStates::s_blendAdditive;
 ComPtr<ID3D11RasterizerState>   RenderStates::s_rasterSolid;
 ComPtr<ID3D11RasterizerState>   RenderStates::s_rasterWire;
 ComPtr<ID3D11RasterizerState>   RenderStates::s_rasterNoCull;
@@ -174,6 +175,15 @@ void RenderStates::Init(ID3D11Device* device) {
     bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
     bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     device->CreateBlendState(&bd, &s_blendAlpha);
+
+    bd.RenderTarget[0].BlendEnable = TRUE;
+    bd.RenderTarget[0].SrcBlend = D3D11_BLEND_ONE;
+    bd.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    bd.RenderTarget[0].BlendOp = D3D11_BLEND_OP_ADD;
+    bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
+    bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ONE;
+    bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
+    device->CreateBlendState(&bd, &s_blendAdditive);
 
     D3D11_RASTERIZER_DESC rd{};
     rd.FillMode = D3D11_FILL_SOLID;
@@ -227,6 +237,11 @@ void RenderStates::SetDepthNone(ID3D11DeviceContext* ctx) {
 void RenderStates::SetAlphaBlend(ID3D11DeviceContext* ctx) {
     const float blend[4] = {0, 0, 0, 0};
     ctx->OMSetBlendState(s_blendAlpha.Get(), blend, 0xFFFFFFFF);
+}
+
+void RenderStates::SetAdditiveBlend(ID3D11DeviceContext* ctx) {
+    const float blend[4] = {0, 0, 0, 0};
+    ctx->OMSetBlendState(s_blendAdditive.Get(), blend, 0xFFFFFFFF);
 }
 
 void RenderStates::SetWireframe(ID3D11DeviceContext* ctx, bool enabled) {

@@ -1,6 +1,7 @@
 // ErMao Engine - 粒子发射器实现（GAMES104 第 12 讲）
 #include "game/ParticleEmitter.h"
 
+#include "asset/AssetManager.h"
 #include "scene/GameObject.h"
 #include "scene/World.h"
 
@@ -91,7 +92,7 @@ void ParticleEmitterComponent::OnUpdate(float dt) {
     }
 }
 
-void ParticleEmitterComponent::Collect(std::vector<ParticleRender>& out) const {
+void ParticleEmitterComponent::Collect(std::vector<ParticleRender>& out, const Texture* texture) const {
     if (!m_owner) return;
     const Vec3 origin = m_owner->WorldPosition();
 
@@ -101,6 +102,7 @@ void ParticleEmitterComponent::Collect(std::vector<ParticleRender>& out) const {
         particle.position = origin + m_positions[i];
         particle.size = Lerp(sizeStart, sizeEnd, t);
         particle.color = Lerp(colorStart, colorEnd, t);
+        particle.texture = texture;
         out.push_back(particle);
     }
 }
@@ -108,9 +110,14 @@ void ParticleEmitterComponent::Collect(std::vector<ParticleRender>& out) const {
 void CollectParticles(World& world, RenderScene& scene) {
     scene.particles.clear();
     for (GameObject* root : world.RootObjects()) {
-        root->ForEach([&scene](GameObject* object) {
+        root->ForEach([&scene, &world](GameObject* object) {
             auto* emitter = object->GetComponent<ParticleEmitterComponent>();
-            if (emitter) emitter->Collect(scene.particles);
+            if (!emitter) return;
+            const Texture* texture = nullptr;
+            if (!emitter->texture.empty() && world.Assets()) {
+                texture = world.Assets()->GetTextureAsset(emitter->texture);
+            }
+            emitter->Collect(scene.particles, texture);
         });
     }
 }
@@ -124,6 +131,7 @@ void ParticleEmitterComponent::Describe(TypeInfo& t) {
     t.Field("sizeStart", FieldType::Float, &ParticleEmitterComponent::sizeStart, "初始大小", 0.01f, 2.0f);
     t.Field("colorStart", FieldType::Color, &ParticleEmitterComponent::colorStart, "起始颜色");
     t.Field("colorEnd", FieldType::Color, &ParticleEmitterComponent::colorEnd, "结束颜色");
+    t.Field("texture", FieldType::String, &ParticleEmitterComponent::texture, "贴图（particles/…）");
 }
 
 } // namespace erm

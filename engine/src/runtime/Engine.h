@@ -6,6 +6,7 @@
 #include "editor/EditorUI.h"
 #include "editor/ImGuiLayer.h"
 #include "game/Survivors.h"
+#include "game/Survivors3D.h"
 #include "game/WaveGame.h"
 #include "platform/Window.h"
 #include "renderer/Camera.h"
@@ -41,6 +42,8 @@ private:
     WaveGame    m_waveGame; // 刷怪 Demo（arena 关卡时才启用）
     SurvivorsDirector m_survivors; // 2D 幸存者（survivors 关卡）
     bool        m_survivorsLevel = false;
+    Survivors3DDirector m_survivors3d; // 3D 幸存者（survivors3d 关卡）
+    bool        m_survivors3dLevel = false;
     bool        m_is2D = false;
     bool        m_waveLevel = false;
     bool        m_demoMode = false;
