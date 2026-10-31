@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ErMao VERSION 0.2 LANGUAGES CXX)
+project(ErMao VERSION 0.8.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -65,17 +65,24 @@ source_group(TREE ${CMAKE_CURRENT_SOURCE_DIR}/engine/src FILES ${ERMAO_SOURCE_GR
 # ---------------------------------------------------------------- executable
 add_executable(ErMao ${CMAKE_CURRENT_SOURCE_DIR}/engine/src/runtime/main.cpp)
 
-# Vulkan SDK（可选）：存在时启用 rhi/VulkanBackend
-if(DEFINED ENV{VULKAN_SDK})
-    message(STATUS "Vulkan SDK: $ENV{VULKAN_SDK}")
-    target_include_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Include")
+# ---------------------------------------------------------------- Vulkan（可选）
+# 没有 Vulkan SDK 的机器必须能正常编译：ERMAO_HAS_VULKAN 控制源码实现，
+# 未安装时 VulkanBackend.cpp 退化为空实现（--vulkan-test 提示不可用，D3D11 不受影响）。
+set(ERMAO_VULKAN_SDK "$ENV{VULKAN_SDK}")
+if(ERMAO_VULKAN_SDK AND EXISTS "${ERMAO_VULKAN_SDK}/Include/vulkan/vulkan.h")
+    message(STATUS "Vulkan SDK: ${ERMAO_VULKAN_SDK}（启用 Vulkan 后端）")
+    target_compile_definitions(ErMaoEngine PRIVATE ERMAO_HAS_VULKAN=1)
+    target_include_directories(ErMaoEngine PRIVATE "${ERMAO_VULKAN_SDK}/Include")
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
-        target_link_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Lib")
+        target_link_directories(ErMaoEngine PRIVATE "${ERMAO_VULKAN_SDK}/Lib")
+        target_link_directories(ErMao PRIVATE "${ERMAO_VULKAN_SDK}/Lib")
     else()
-        target_link_directories(ErMaoEngine PRIVATE "$ENV{VULKAN_SDK}/Lib32")
+        target_link_directories(ErMaoEngine PRIVATE "${ERMAO_VULKAN_SDK}/Lib32")
+        target_link_directories(ErMao PRIVATE "${ERMAO_VULKAN_SDK}/Lib32")
     endif()
     target_link_libraries(ErMaoEngine PUBLIC vulkan-1)
-    target_link_directories(ErMao PRIVATE "$ENV{VULKAN_SDK}/Lib")
+else()
+    message(STATUS "Vulkan SDK 未安装：跳过 Vulkan 后端（D3D11 仍可用）")
 endif()
 target_link_libraries(ErMao PRIVATE ErMaoEngine)
 set_target_properties(ErMao PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin")

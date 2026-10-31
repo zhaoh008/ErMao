@@ -1,6 +1,8 @@
 // ErMao Engine - Vulkan 阶段一实现
 #include "rhi/VulkanBackend.h"
 
+#if defined(ERMAO_HAS_VULKAN) && ERMAO_HAS_VULKAN
+
 #include "core/Log.h"
 #include "platform/Window.h"
 
@@ -613,3 +615,18 @@ void VulkanDemo::Shutdown() {
 }
 
 } // namespace erm
+#else // 没有 Vulkan SDK：空实现，保证 D3D11 构建不受影响
+#include "core/Log.h"
+
+namespace erm {
+
+bool VulkanDemo::Init(Window&) {
+    LogWarn("[Vulkan] 本机未安装 Vulkan SDK，--vulkan-test 不可用（引擎仍走 D3D11）");
+    return false;
+}
+bool VulkanDemo::Run(u32, const std::string&) { return false; }
+void VulkanDemo::Shutdown() {}
+
+} // namespace erm
+
+#endif // ERMAO_HAS_VULKAN
