@@ -13,3 +13,6 @@ agent-report.json
 agent-make-report.json
 agent-dcc-report.json
 validate.json
+
+# 生成的 HTML 副本（根目录那份入库，这里只保留本地）
+docs/site/
