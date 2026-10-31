@@ -45,6 +45,8 @@ GUIDE = [
     ("10-AI开发指南.md", "AI 开发指南"),
     ("assets-credits.md", "素材来源"),
     ("lectures/参考资料.md", "参考资料总表"),
+    ("blog/00-系列规划.md", "博客系列规划"),
+    ("blog/审稿清单.md", "博客审稿清单"),
 ]
 LECTURES = sorted([p.name for p in (DOCS / "lectures").glob("L*.md")])
 
