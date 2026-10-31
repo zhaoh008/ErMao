@@ -2,6 +2,7 @@
 #pragma once
 
 #include "asset/AssetManager.h"
+#include "core/Json.h"
 #include "core/Types.h"
 #include "editor/EditorUI.h"
 #include "editor/ImGuiLayer.h"
@@ -26,6 +27,13 @@ private:
     bool Init();
     void Shutdown();
     void MainLoop();
+
+    // ---- AI 优先：无头脚本接口 ----
+    // 输入 {"commands":[{cmd:...}, ...]}，返回逐条结果（JSON）
+    JsonValue ExecuteAgentCommand(const JsonValue& command);
+    bool      RunAgentScript(const std::string& path, const std::string& outputPath);
+    bool      RenderAgentScreenshot(const std::string& path);
+    JsonValue ValidateWorld();
     void UpdateGameplay(float dt);
     void RenderViewportScene(const Camera& camera, u32 width, u32 height);
     void CaptureScreenshot(const std::string& path);
@@ -69,6 +77,9 @@ private:
     std::string m_packageGame;   // windows/linux（游戏包）
     bool        m_audioTest = false;
     bool        m_vulkanTest = false;
+    std::string m_scriptPath;
+    std::string m_jsonOut;
+    bool        m_validateOnly = false;
     bool        m_noShadows = false;
     bool        m_noGpuCull = false;
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图

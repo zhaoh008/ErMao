@@ -20,6 +20,7 @@
 #include <windows.h>
 
 #include <cstdlib>
+#include <fstream>
 #include <imgui.h>
 #include <sstream>
 
@@ -74,6 +75,12 @@ int Engine::Run(int argc, char** argv) {
             m_packageTarget = argv[++i];
         } else if (arg == "--import" && i + 1 < argc) {
             m_importPath = argv[++i];
+        } else if (arg == "--script" && i + 1 < argc) {
+            m_scriptPath = argv[++i];
+        } else if (arg == "--json-out" && i + 1 < argc) {
+            m_jsonOut = argv[++i];
+        } else if (arg == "--validate") {
+            m_validateOnly = true;
         } else if (arg == "--vulkan-test") {
             m_vulkanTest = true;
         } else if (arg == "--audio-test") {
@@ -164,7 +171,9 @@ bool Engine::Init() {
             LogError("[自检] 导入失败：%s", error.c_str());
         }
     }
-    if (m_levelName == "demo") {
+    if (m_levelName == "empty") {
+        // AI 脚本模式：从空场景开始
+    } else if (m_levelName == "demo") {
         game::BuildDemoScene(m_world);
     } else if (m_levelName == "thirdperson") {
         game::BuildThirdPersonLevel(m_world);
@@ -283,6 +292,21 @@ bool Engine::Init() {
                 if (m_overrideMetallic >= 0.0f) mr->metallic = m_overrideMetallic;
             });
         }
+    }
+    if (!m_scriptPath.empty() || m_validateOnly) {
+        JsonValue report;
+        if (m_validateOnly) {
+            report = ValidateWorld();
+        } else {
+            RunAgentScript(m_scriptPath, m_jsonOut);
+            report = JsonValue::MakeObject();
+            report.Set("script", JsonValue(m_scriptPath));
+        }
+        if (!m_jsonOut.empty()) {
+            std::ofstream out(m_jsonOut, std::ios::binary);
+            out << report.Dump(2);
+        }
+        m_running = false;
     }
     LogInfo("初始化完成：%zu 个对象，JobSystem %u 线程", m_world.ObjectCount(), JobSystem::ThreadCount());
     return true;

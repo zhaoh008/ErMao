@@ -8,3 +8,8 @@ roundtrip-*.json
 screenshot_*.png
 .probe/
 .staging/
+# AI 脚本输出
+agent-report.json
+agent-make-report.json
+agent-dcc-report.json
+validate.json

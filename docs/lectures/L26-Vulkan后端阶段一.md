@@ -182,7 +182,7 @@ type ErMao.log | findstr Vulkan
 
 ## 9. 迁移路线（下一阶段）
 
-1. **RHI 接口**：`rhi/IDevice.h` 定义 `CreateTexture/CreateBuffer/BeginFrame/Draw`；
+1. **RHI 接口（计划）**：在 `rhi/` 下新增设备抽象，定义 `CreateTexture/CreateBuffer/BeginFrame/Draw`；
 2. **Sky + Opaque**：先迁最简单的两个 pass，验证 PBR 着色器 SPIR-V 化；
 3. **Shadow**：需要 depth image + sampler comparison；
 4. **ImGui**：`imgui_impl_vulkan` + descriptor pool；

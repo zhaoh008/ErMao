@@ -1,4 +1,4 @@
-# ErMao Engine（二毛引擎）v0.7
+# ErMao Engine（二毛引擎）v0.8
 
 ## 📖 学习文档（双击即开）
 
@@ -43,6 +43,15 @@ build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场�
 | 视口 | 右键拖动 + WASD/QE 移动相机 · 左键拾取 · **W/E/R 位移/旋转/缩放 Gizmo** · F 聚焦 |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · **左键射击** · Esc 暂停 |
 | 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
+
+## v0.8 做了什么（2026-11-01 凌晨）
+
+- **AI 优先接口**：`--script commands.json --json-out report.json`，无头完成
+  「建场景 → 加组件/改字段（反射） → 导资产 → 存盘 → 截图 → 打包」；`--validate` 输出结构化校验
+- 命令集：`scene.*` / `object.*` / `component.add|set|get` / `assets.import|list` / `level.build` /
+  `camera.set` / `screenshot` / `package.game` / `validate`
+- 示例：`agent/examples/*.json`（建场景、接 DCC 资产、一键出游戏包）；指南 `docs/10-AI开发指南.md`
+- 设计立场：**不做蓝图/节点图**；逻辑 = C++ 组件 + JSON 数据，编辑器只是命令的一个前端
 
 ## v0.7 做了什么（2026-11-01 凌晨）
 
