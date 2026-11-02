@@ -940,6 +940,7 @@ void Editor::LoadSceneAsset(World& world, const std::string& name, const std::st
     if (world.LoadFromFile(sourcePath)) {
         // LoadFromFile 会整体替换 World，旧的选中项已随 Clear 释放。
         Select(nullptr);
+        m_scenePath = sourcePath;
         SetStatus("场景已加载: " + name);
         if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
@@ -1674,6 +1675,7 @@ void Editor::LoadScene(World& world) {
 
 void Editor::NewScene(World& world) {
     Select(nullptr); // world.Clear 会释放所有对象，先断开选中项
+    m_scenePath.clear();
     world.Clear();
     GameObject* camera = world.CreateGameObject("主相机");
     camera->SetPosition(Vec3(0, 4, 12));
