@@ -5,8 +5,19 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# ---------------------------------------------------------------- 编译器要求
+# ErMao 只支持 MSVC（D3D11 / WIC / XAudio2 / HLSL 都依赖 Windows SDK 与 MSVC ABI）。
+# CLion 默认可能选 MinGW 或没有工具链，这里给出可操作的修复提示。
 if(NOT MSVC)
-    message(FATAL_ERROR "ErMao 目前只支持 MSVC (Visual Studio 2022 x64)")
+    message(FATAL_ERROR
+        "ErMao 需要 MSVC（Visual Studio 2022 x64），当前编译器是 ${CMAKE_CXX_COMPILER_ID}。\n"
+        "CLion 修复步骤：\n"
+        "  1) Settings -> Build, Execution, Deployment -> Toolchains：选择 Visual Studio（不要用 MinGW）；\n"
+        "  2) Settings -> Build -> CMake：Generator 选 \"Visual Studio 17 2022\"（推荐）或 Ninja；\n"
+        "     也可以直接选仓库里的 CMakePresets.json 预设 vs2022；\n"
+        "  3) 删除旧的 cmake-build-* 目录后重新 Reload CMake Project。\n"
+        "命令行：运行 setup.bat，或用 \"x64 Native Tools Command Prompt for VS 2022\"。\n"
+        "详见 docs/13-CLion配置.md")
 endif()
 
 # 所有可执行文件/静态库统一输出到 build/bin
@@ -15,13 +26,21 @@ foreach(cfg Debug Release RelWithDebInfo MinSizeRel)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CFG} ${CMAKE_BINARY_DIR}/bin)
     set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFG} ${CMAKE_BINARY_DIR}/lib)
 endforeach()
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_compile_definitions(
     UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS
     ERM_PLATFORM_WINDOWS=1
     IMGUI_DEFINE_MATH_OPERATORS
 )
-add_compile_options(/utf-8 /MP /W3 /permissive-)
+if(MSVC)
+    add_compile_options(/utf-8 /W3 /permissive-)
+    if(CMAKE_GENERATOR MATCHES "Visual Studio")
+        add_compile_options(/MP) # Ninja 下由 jobserver 并行，不需要 /MP
+    endif()
+endif()
 add_compile_options($<$<CONFIG:Debug>:/Zi> $<$<CONFIG:Debug>:/Od>)
 
 # ---------------------------------------------------------------- Dear ImGui

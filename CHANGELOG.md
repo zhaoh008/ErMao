@@ -5,6 +5,18 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-11-02
+
+### Added
+- `CMakePresets.json`：`vs2022` / `ninja-msvc-debug` / `ninja-msvc-release` 预设
+- `docs/13-CLion配置.md`：工具链、Generator、Run Configuration、报错对照
+
+### Fixed
+- CLion 用 MinGW 或未配置工具链时，CMake 报 `No CMAKE_CXX_COMPILER` / 一堆编译错误：
+  现在直接给出可操作的修复步骤
+- Ninja 单配置生成器也把产物放到 `build/bin`；`/MP` 仅在 VS 生成器下启用
+
+
 ### Added
 - 菜单栏「关卡」：2D 幸存者 / 3D 幸存者 / 第三人称 / 竞技场 / 蒙皮 / GPU 剔除
 - 资源管理器「场景」新增内置关卡（`关卡 · 2D 幸存者` 等），单击即切换

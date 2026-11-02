@@ -19,3 +19,9 @@ docs/site/
 
 # setup.ps1 下载的便携工具
 .tools/
+
+# IDE / 临时构建
+.idea/
+cmake-build-*/
+build-*/
+build_novk/
