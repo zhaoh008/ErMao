@@ -1,16 +1,15 @@
 // ErMao Engine - 世界实现
 #include "scene/World.h"
 #include "ai/Agents.h"
-#include "game/ThirdPersonController.h"
-#include "game/ParticleEmitter.h"
-#include "game/SkinnedCharacter.h"
-#include "game/SkinnedCharacter.h"
-#include "game/WaveGame.h"
+#include "ai/NavGrid.h"
 #include "animation/Animation.h"
 #include "asset/AssetManager.h"
 #include "core/FileSystem.h"
+#include "core/Json.h"
 #include "core/Log.h"
 #include "physics/PhysicsWorld.h"
+#include "renderer/Camera.h"
+#include "renderer/RenderScene.h"
 #include "scene/Components.h"
 
 #include <algorithm>
@@ -94,23 +93,15 @@ void DeserializeField(const FieldDesc& field, void* object, const JsonValue& val
 
 } // namespace
 
-World::World() = default;
+World::World() : m_navGrid(MakeScope<NavGrid>()) {}
 World::~World() { Clear(); }
 
 void World::Init(AssetManager* assets) {
     m_assets = assets;
     m_physics = MakeScope<PhysicsWorld>();
+    // 基础组件由 scene/ai 注册；game 组件由 runtime 的 Engine::Init 调 game::RegisterGameComponents()。
     RegisterAllComponents();
     RegisterAgentComponents();
-    Reflection::Register<AnimatorComponent>("Animator");
-    Reflection::Register<ThirdPersonController>("Third Person Controller");
-    Reflection::Register<HealthComponent>("Health");
-    Reflection::Register<CombatComponent>("Combat");
-    Reflection::Register<ProjectileComponent>("Projectile");
-    Reflection::Register<EnemyComponent>("Enemy");
-    Reflection::Register<SkinnedCharacterComponent>("Skinned Character");
-    Reflection::Register<ParticleEmitterComponent>("Particle Emitter");
-    LogInfo("World 初始化（已注册 %zu 种组件）", Reflection::All().size());
 }
 
 void World::Shutdown() {
@@ -688,7 +679,7 @@ void World::CreateDemoScene() {
 }
 
 void World::RebuildNavigation() {
-    m_navGrid.Build(*this, -25.0f, 25.0f, -25.0f, 25.0f, 0.5f, 0.45f);
+    m_navGrid->Build(*this, -25.0f, 25.0f, -25.0f, 25.0f, 0.5f, 0.45f);
 }
 
 } // namespace erm

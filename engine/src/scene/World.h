@@ -1,12 +1,8 @@
 // ErMao Engine - 世界（GAMES104 第 2/3 讲：场景管理与系统调度）
 #pragma once
 
-#include "ai/NavGrid.h"
-#include "core/Json.h"
 #include "core/Math.h"
 #include "core/Types.h"
-#include "renderer/Camera.h"
-#include "renderer/RenderScene.h"
 #include "scene/GameObject.h"
 
 #include <unordered_map>
@@ -14,8 +10,12 @@
 namespace erm {
 
 class AssetManager;
+class Camera;
+class JsonValue;
+class NavGrid;
 class PhysicsWorld;
 class Renderer;
+struct RenderScene;
 
 // World 持有场景中所有 GameObject，并负责：
 //   * 创建/销毁（延迟到帧尾，避免迭代器失效）
@@ -80,8 +80,8 @@ public:
     u64            NextId() const { return m_nextId; }
 
     // 导航网格（AI 用）：场景变化后调用 RebuildNavigation
-    NavGrid&       Nav() { return m_navGrid; }
-    const NavGrid& Nav() const { return m_navGrid; }
+    NavGrid&       Nav() { return *m_navGrid; }
+    const NavGrid& Nav() const { return *m_navGrid; }
     void           RebuildNavigation();
 
     // 全局光照参数（编辑器可直接调）
@@ -102,7 +102,7 @@ private:
     AssetManager*                            m_assets = nullptr;
     std::string                              m_levelKind;
     Scope<PhysicsWorld>                      m_physics;
-    NavGrid                                  m_navGrid;
+    Scope<NavGrid>                           m_navGrid;
     std::vector<Scope<GameObject>>           m_objects; // 所有权统一在 World
     std::vector<GameObject*>                 m_roots;
     std::unordered_map<u64, GameObject*>     m_idToObject;

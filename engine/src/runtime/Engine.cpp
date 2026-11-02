@@ -6,6 +6,7 @@
 #include "core/Timer.h"
 #include "game/Levels.h"
 #include "game/ParticleEmitter.h"
+#include "game/RegisterComponents.h"
 #include "game/SkinningDemo.h"
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
@@ -13,7 +14,6 @@
 #include "platform/Audio.h"
 #include "platform/Input.h"
 #include "rhi/Screenshot.h"
-#include "core/FileSystem.h"
 #include "runtime/Packager.h"
 #include "scene/Components.h"
 
@@ -238,6 +238,8 @@ bool Engine::Init() {
     if (!m_assets.Init(m_device.GetDevice())) return false;
 
     m_world.Init(&m_assets);
+    game::RegisterGameComponents();
+    LogInfo("组件注册完成（共 %zu 种）", Reflection::All().size());
 
     // 资源导入自检：把外部 OBJ 复制进 assets/models 再加载
     if (!m_importPath.empty()) {

@@ -199,14 +199,4 @@ void BlendPoses(const std::vector<BoneTransform>& a, const std::vector<BoneTrans
     }
 }
 
-void SkinnedMeshData::ComputeBounds() {
-    if (vertices.empty()) {
-        bounds = AABB{};
-        return;
-    }
-    bounds.min = vertices[0].position;
-    bounds.max = vertices[0].position;
-    for (const auto& v : vertices) bounds.Expand(v.position);
-}
-
 } // namespace erm

@@ -1,9 +1,9 @@
 // ErMao Engine - 蒙皮网格的 GPU 缓冲（GAMES104 第 8 讲）
 #pragma once
 
-#include "animation/Skeleton.h"
 #include "core/Math.h"
 #include "core/Types.h"
+#include "renderer/SkinnedMeshData.h"
 
 #include <d3d11.h>
 #include <wrl/client.h>

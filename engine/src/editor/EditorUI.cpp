@@ -1,7 +1,9 @@
 // ErMao Engine - 编辑器实现（Dear ImGui）
 #include "editor/EditorUI.h"
+#include "ai/NavGrid.h"
 #include "asset/AssetManager.h"
 #include "core/FileSystem.h"
+#include "core/Json.h"
 #include "core/JobSystem.h"
 #include "core/Log.h"
 #include "editor/ImGuiLayer.h"
