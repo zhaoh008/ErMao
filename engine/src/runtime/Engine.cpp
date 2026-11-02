@@ -248,6 +248,7 @@ bool Engine::Init() {
                     mesh->IndexCount() / 3);
         } else {
             LogError("[自检] 导入失败：%s", error.c_str());
+            m_headlessFailed = true;
         }
     }
     if (m_levelName == "empty") {
@@ -298,9 +299,11 @@ bool Engine::Init() {
 
         if (first.empty() || second.empty()) {
             LogError("[自检] 序列化往返失败：JSON 解析错误");
+            m_headlessFailed = true;
         } else {
             const bool stable = (first == second);
             const bool identical = (original == first);
+            if (!stable) m_headlessFailed = true;
             LogInfo("[自检] 序列化往返: %zu -> %zu 个对象，再次往返稳定=%s，首次字节一致=%s", before,
                     m_world.ObjectCount(), stable ? "是" : "否", identical ? "是" : "否");
             if (!identical) {
