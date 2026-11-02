@@ -144,6 +144,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 场景
     if (cmd == "scene.new") {
         m_world.Clear();
+        // scene.new 是"清空世界"，也必须把引擎侧的关卡模式状态复位；否则从 2D 关卡
+        // 建空场景后 m_is2D/m_survivorsLevel 仍为 true，截图与运行会沿用上一关。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
+        m_is2D = false;
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         return Ok();
     }
     if (cmd == "scene.save") {
