@@ -1389,6 +1389,7 @@ void Editor::LoadScene(World& world) {
         m_scenePath = path;
         Select(nullptr);
         SetStatus("场景已加载: " + path);
+        if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
         SetStatus("加载失败: " + path, true);
     }
@@ -1416,6 +1417,7 @@ void Editor::NewScene(World& world) {
     world.RebuildNavigation();
     Select(nullptr);
     SetStatus("已新建空场景");
+    if (m_sceneLoaded) m_sceneLoaded(std::string());
 }
 
 void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
