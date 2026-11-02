@@ -94,6 +94,7 @@ private:
     std::string m_scriptPath;
     std::string m_jsonOut;
     bool        m_validateOnly = false;
+    bool        m_headlessFailed = false; // 无头任务（脚本/校验/打包）失败 → 非 0 退出码
     bool        m_noShadows = false;
     bool        m_noGpuCull = false;
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图

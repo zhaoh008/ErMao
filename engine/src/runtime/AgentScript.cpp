@@ -344,6 +344,7 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
         if (game.empty() || level.empty()) return Error("缺少 name/level");
         const PackageResult result = (target == "linux") ? Packager::PackageGameLinuxSource(game, level)
                                                          : Packager::PackageGameWindows(game, level);
+        if (!result.success) return Error(result.message);
         JsonValue out = Ok();
         out.Set("output", JsonValue(result.outputDir));
         out.Set("message", JsonValue(result.message));
