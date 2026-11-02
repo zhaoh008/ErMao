@@ -1315,7 +1315,10 @@ void Editor::DeleteSelected(World& world) {
     if (!m_selected) return;
     const std::string name = m_selected->Name();
     world.DestroyObject(m_selected);
+    // 编辑模式下 World::Update 不运行，延迟销毁队列没人处理；这里立即处理，
+    // 否则 Delete 只是清掉选中项，对象仍会被渲染/保存，直到进入 Play 才消失。
     Select(nullptr);
+    world.ProcessPendingDestruction();
     SetStatus("已删除: " + name);
 }
 
