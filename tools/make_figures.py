@@ -1,8 +1,8 @@
-# 把教学截图拼成对比图（带标签），输出到 docs/figures/
+# 把教学截图拼成对比图（带标签），输出到 文档/figures/
 from PIL import Image, ImageDraw, ImageFont
 from pathlib import Path
 
-ROOT = Path(r"D:\GameEngine\docs\figures")
+ROOT = Path(r"D:\GameEngine\文档\figures")
 FONT_PATH = r"C:\Windows\Fonts\msyh.ttc"
 
 def load(path):

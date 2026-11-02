@@ -199,7 +199,7 @@ int Engine::Run(int argc, char** argv) {
 }
 
 bool Engine::Init() {
-    // 日志文件放在 exe 旁边（与 docs/03 的排错说明一致），发布版默认不产生。
+    // 日志文件放在 exe 旁边（与 文档/版本文档/构建与运行.md 的排错说明一致），发布版默认不产生。
     Log::Init(m_logFile ? FileSystem::Join(FileSystem::ExecutableDir(), "ErMao.log") : std::string());
     if (m_devMode) LogInfo("[日志] 开发版控制台: %s", m_devConsole ? "已连接（日志同时输出到控制台）" : "不可用（仅写日志文件）");
     LogInfo("ErMao Engine 启动（v0.2 / Dear ImGui）");
@@ -212,7 +212,7 @@ bool Engine::Init() {
     if (m_vulkanTest) {
         VulkanDemo demo;
         if (demo.Init(m_window)) {
-            demo.Run(120, "docs/screenshots/vulkan.png");
+            demo.Run(120, "文档/screenshots/vulkan.png");
         } else {
             LogError("[Vulkan] 初始化失败");
         }

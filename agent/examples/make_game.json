@@ -1,7 +1,7 @@
 {
   "commands": [
     { "cmd": "level.build", "kind": "survivors3d" },
-    { "cmd": "screenshot", "path": "docs/screenshots/agent-level.png" },
+    { "cmd": "screenshot", "path": "文档/screenshots/agent-level.png" },
     { "cmd": "package.game", "name": "AIGame", "level": "survivors3d", "target": "windows" }
   ]
 }

@@ -318,7 +318,7 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
                            "反射驱动编辑器。");
         ImGui::Separator();
         ImGui::TextDisabled("关卡: game/ThirdPersonLevel.cpp   UI: editor/EditorUI.cpp");
-        ImGui::TextDisabled("文档: docs/00 ~ docs/06");
+        ImGui::TextDisabled("文档: 文档/README.md");
         if (ImGui::Button("关闭")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }

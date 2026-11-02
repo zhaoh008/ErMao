@@ -17,7 +17,7 @@ if(NOT MSVC)
         "     也可以直接选仓库里的 CMakePresets.json 预设 vs2022；\n"
         "  3) 删除旧的 cmake-build-* 目录后重新 Reload CMake Project。\n"
         "命令行：运行 setup.bat，或用 \"x64 Native Tools Command Prompt for VS 2022\"。\n"
-        "详见 docs/13-CLion配置.md")
+        "详见 文档/版本文档/构建与运行.md")
 endif()
 
 # 所有可执行文件/静态库统一输出到 build/bin

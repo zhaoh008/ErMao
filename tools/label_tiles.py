@@ -13,5 +13,5 @@ for y in range(rows):
         out.alpha_composite(tile, (x*16*scale, y*16*scale))
         idx = y*cols + x
         draw.text((x*16*scale+2, y*16*scale+1), str(idx), fill=(255,255,0,255), font=font)
-out.save(r"D:\GameEngine\docs\figures\kenney-tiles-labeled.png")
+out.save(r"D:\GameEngine\文档\figures\kenney-tiles-labeled.png")
 print(cols, rows, out.size)

@@ -1,4 +1,4 @@
-# 文档引用检查：确保 docs 里提到的源文件都真实存在
+# 文档引用检查：确保 文档/ 里提到的源文件都真实存在
 # 用法：powershell -NoProfile -File tools\docs-check.ps1
 # 退出码：0 = 全部存在；1 = 有失效引用
 $ErrorActionPreference = "Stop"
@@ -10,8 +10,7 @@ $searchDirs = @(
     (Join-Path $root "third_party")
 )
 $docFiles = @()
-$docFiles += Get-ChildItem -Path (Join-Path $root "docs") -Filter *.md -File
-$docFiles += Get-ChildItem -Path (Join-Path $root "docs\lectures") -Filter *.md -File -ErrorAction SilentlyContinue
+$docFiles += Get-ChildItem -Path (Join-Path $root "文档") -Filter *.md -File -Recurse
 
 # 只匹配本工程源码引用；hlsl 放在 h 前面，避免匹配到 "PBR.h" 这种前缀
 $pattern = '[A-Za-z0-9_\-]+/[A-Za-z0-9_\-/]+\.(hlsl|cpp|ps1|h)(?![A-Za-z0-9])'

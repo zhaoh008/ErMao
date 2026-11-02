@@ -14,4 +14,4 @@
 | package.game | name, level, target(windows|linux) |
 | validate | — |
 
-例子见 `agent/examples/*.json`，完整说明见 `docs/10-AI开发指南.md`。
+例子见 `agent/examples/*.json`，完整说明见 `文档/教学文档/AI开发指南.md`。
