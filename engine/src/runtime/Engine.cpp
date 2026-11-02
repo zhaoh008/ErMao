@@ -238,6 +238,10 @@ bool Engine::Init() {
     if (!m_assets.Init(m_device.GetDevice())) return false;
 
     m_world.Init(&m_assets);
+    // 场景/脚本可能在任意进程启动时读档：先把游戏模块的组件注册进反射表
+    RegisterSurvivorsComponents();
+    RegisterSurvivors3DComponents();
+    LogInfo("World 初始化（已注册 %zu 种组件）", Reflection::All().size());
 
     // 资源导入自检：把外部 OBJ 复制进 assets/models 再加载
     if (!m_importPath.empty()) {

@@ -110,7 +110,6 @@ void World::Init(AssetManager* assets) {
     Reflection::Register<EnemyComponent>("Enemy");
     Reflection::Register<SkinnedCharacterComponent>("Skinned Character");
     Reflection::Register<ParticleEmitterComponent>("Particle Emitter");
-    LogInfo("World 初始化（已注册 %zu 种组件）", Reflection::All().size());
 }
 
 void World::Shutdown() {

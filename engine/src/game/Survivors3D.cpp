@@ -769,7 +769,14 @@ void BuildSurvivors3DLevel(World& world, AssetManager& assets) {
     LogInfo("3D 幸存者关卡：%zu 个对象（外部模型 + 粒子特效）", world.ObjectCount());
 }
 
-void RegisterSurvivors3DComponents() {}
+void RegisterSurvivors3DComponents() {
+    Reflection::Register<Survivors3DPlayerComponent>("Survivors3D Player");
+    Reflection::Register<Survivors3DEnemyComponent>("Survivors3D Enemy");
+    Reflection::Register<Survivors3DProjectileComponent>("Survivors3D Projectile");
+    Reflection::Register<Survivors3DGemComponent>("Survivors3D Gem");
+    // 特效组件定义在本 TU 的匿名命名空间，注册函数也放在这里
+    Reflection::Register<Survivors3DEffectComponent>("Survivors3D Effect");
+}
 
 } // namespace erm
 

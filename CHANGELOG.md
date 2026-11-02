@@ -32,6 +32,9 @@
 
 ### Fixed
 
+- 组件预注册不完整：补齐 `Sprite Renderer` / `Sprite Animator` 与 9 个 Survivors/Survivors3D 玩法组件（共 27 种），
+  新进程 `component.add` / `scene.load` 不再因 `Reflection::Find` 查不到类型而丢组件；同步 AI 开发指南的组件显示名，
+  删除不存在的 `Box Collider`、修正 `Rigidbody` 拼写并补全 `Nav Agent` 等已注册名称
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
 - 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
