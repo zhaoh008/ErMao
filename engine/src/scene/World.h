@@ -57,7 +57,8 @@ public:
         Vec3        point;
         Vec3        normal;
     };
-    bool Raycast(const Ray& ray, float maxDistance, RaycastHit& out) const;
+    // ignore：跳过指定对象（射线起点位于角色自身 AABB 内时，避免 t=0 自命中抢占最近命中）。
+    bool Raycast(const Ray& ray, float maxDistance, RaycastHit& out, const GameObject* ignore = nullptr) const;
     // 收集所有带 MeshRenderer 的物体的世界 AABB（角色碰撞、相机弹簧臂用）
     void CollectMeshAABBs(std::vector<std::pair<GameObject*, AABB>>& out) const;
     bool GetObjectBounds(GameObject* object, AABB& out) const;
