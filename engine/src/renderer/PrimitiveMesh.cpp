@@ -136,7 +136,7 @@ MeshData Cylinder(float radius, float height, u32 segments) {
         md.uvs.push_back({std::cos(theta) * 0.5f + 0.5f, std::sin(theta) * 0.5f + 0.5f});
     }
     for (u32 i = 0; i < segments; ++i) {
-        md.indices.insert(md.indices.end(), {topCenter, topCenter + 1 + i, topCenter + 2 + i});
+        md.indices.insert(md.indices.end(), {topCenter, topCenter + 2 + i, topCenter + 1 + i});
     }
     // 底盖
     const u32 bottomCenter = static_cast<u32>(md.positions.size());
@@ -150,7 +150,7 @@ MeshData Cylinder(float radius, float height, u32 segments) {
         md.uvs.push_back({std::cos(theta) * 0.5f + 0.5f, std::sin(theta) * 0.5f + 0.5f});
     }
     for (u32 i = 0; i < segments; ++i) {
-        md.indices.insert(md.indices.end(), {bottomCenter, bottomCenter + 2 + i, bottomCenter + 1 + i});
+        md.indices.insert(md.indices.end(), {bottomCenter, bottomCenter + 1 + i, bottomCenter + 2 + i});
     }
     md.ComputeBounds();
     return md;
