@@ -423,6 +423,9 @@ bool Engine::Init() {
 }
 
 void Engine::LoadLevel(const std::string& kind) {
+    // World::Clear 会释放所有 GameObject；先断开编辑器的裸指针选中项，
+    // 避免同一帧后续的 DrawInspector/DrawGizmo 解引用悬垂指针。
+    m_editor.Select(nullptr);
     m_world.Clear();
     m_survivorsLevel = false;
     m_survivors3dLevel = false;

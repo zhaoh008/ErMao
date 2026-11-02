@@ -210,9 +210,14 @@ void Editor::Stop() {
 
 void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera,
                   const ViewportRenderer& renderViewport, float dt) {
-    if (m_selected && (m_selected->IsPendingDestroy() || world.FindById(m_selectedId) != m_selected)) {
-        m_selected = nullptr;
-        m_selectedId = 0;
+    // 先按 id 回查 World，再解引用；World 被关卡/场景替换后 m_selected
+    // 可能已经悬垂，不能先调用 m_selected 的成员函数。
+    if (m_selected) {
+        GameObject* selected = world.FindById(m_selectedId);
+        if (!selected || selected != m_selected || m_selected->IsPendingDestroy()) {
+            m_selected = nullptr;
+            m_selectedId = 0;
+        }
     }
 
     DrawDockspace(world, renderer, assets, editorCamera);
@@ -933,6 +938,8 @@ void Editor::LoadSceneAsset(World& world, const std::string& name, const std::st
         return;
     }
     if (world.LoadFromFile(sourcePath)) {
+        // LoadFromFile 会整体替换 World，旧的选中项已随 Clear 释放。
+        Select(nullptr);
         SetStatus("场景已加载: " + name);
         if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
@@ -1666,6 +1673,7 @@ void Editor::LoadScene(World& world) {
 }
 
 void Editor::NewScene(World& world) {
+    Select(nullptr); // world.Clear 会释放所有对象，先断开选中项
     world.Clear();
     GameObject* camera = world.CreateGameObject("主相机");
     camera->SetPosition(Vec3(0, 4, 12));
