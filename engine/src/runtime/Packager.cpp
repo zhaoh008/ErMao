@@ -71,15 +71,25 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
         return result;
     }
 
-    WriteText(FileSystem::Join(target, "run.bat"), "@echo off\r\nstart \"\" \"%~dp0ErMao.exe\"\r\n");
+    // 发布版：GUI 子系统 + 默认无日志，双击只出现游戏/编辑器窗口；
+    // 开发版：同一个 exe 加 --dev，复用 run-dev.bat 的控制台输出日志。
+    WriteText(FileSystem::Join(target, "run.bat"),
+              "@echo off\r\n"
+              "rem Release: no console window, no log file.\r\n"
+              "start \"\" \"%~dp0ErMao.exe\" %*\r\n");
+    WriteText(FileSystem::Join(target, "run-dev.bat"),
+              "@echo off\r\n"
+              "rem Development: keep this console open for the log output.\r\n"
+              "start \"\" /wait \"%~dp0ErMao.exe\" --dev %*\r\n");
     WriteText(FileSystem::Join(root, "GENERATED_DO_NOT_EDIT.txt"),
               "dist/ 是打包产物，不要手改。\r\n改源码请改工程目录，然后重新执行 文件 → 打包。\r\n");
     WriteText(FileSystem::Join(target, "README.txt"),
               "ErMao Engine - Windows package\r\n"
               "\r\n"
-              "1. 双击 run.bat（或直接运行 ErMao.exe）\r\n"
-              "2. 编辑器操作：右键拖动环视，WASD 移动，左键拾取，F 聚焦，F5 运行\r\n"
-              "3. 刷怪 Demo：进入 Play 后选择“开始游戏”，左键射击\r\n"
+              "1. 双击 run.bat（发布版：无控制台、无日志）\r\n"
+              "2. 排错时双击 run-dev.bat（开发版：控制台日志）\r\n"
+              "3. 编辑器操作：右键拖动环视，WASD 移动，左键拾取，F 聚焦，F5 运行\r\n"
+              "4. 刷怪 Demo：进入 Play 后选择“开始游戏”，左键射击\r\n"
               "\r\n"
               "assets/ 下是场景与模型，shaders/ 是运行时编译的 HLSL，删改前请先备份。\r\n");
 
@@ -174,11 +184,19 @@ PackageResult Packager::PackageGameWindows(const std::string& gameName, const st
     WriteText(FileSystem::Join(target, "game.cfg"),
               "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
 
-    WriteText(FileSystem::Join(target, "run.bat"), "@echo off\r\nstart \"\" \"%~dp0" + gameName + ".exe\"\r\n");
+    WriteText(FileSystem::Join(target, "run.bat"),
+              "@echo off\r\n"
+              "rem Release: no console window, no log file.\r\n"
+              "start \"\" \"%~dp0" + gameName + ".exe\" %*\r\n");
+    WriteText(FileSystem::Join(target, "run-dev.bat"),
+              "@echo off\r\n"
+              "rem Development: keep this console open for the log output.\r\n"
+              "start \"\" /wait \"%~dp0" + gameName + ".exe\" --dev %*\r\n");
     WriteText(FileSystem::Join(target, "README.txt"),
               gameName + " - Windows 游戏包\r\n"
               "\r\n"
-              "双击 run.bat 或 " + gameName + ".exe 启动。\r\n"
+              "双击 run.bat 启动（发布版：无控制台、无日志）。\r\n"
+              "排错时双击 run-dev.bat（开发版：控制台输出日志）。\r\n"
               "本包包含游戏本身（引擎 + 资源），不是只打包引擎。\r\n"
               "\r\n"
               "操作：WASD 移动，自动攻击，Esc 暂停。\r\n"

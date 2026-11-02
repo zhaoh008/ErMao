@@ -12,7 +12,7 @@ namespace erm {
 
 std::vector<LogEntry> Log::s_entries;
 std::mutex            Log::s_mutex;
-bool                  Log::s_echo = true;
+bool                  Log::s_echo = false; // 发布版不往控制台回显；--dev 启动时由 Engine::Run 打开
 std::string           Log::s_timeOrigin;
 double                Log::s_startTime = 0.0;
 

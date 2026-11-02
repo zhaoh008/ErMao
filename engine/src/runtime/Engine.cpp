@@ -19,6 +19,7 @@
 
 #include <windows.h>
 
+#include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <imgui.h>
@@ -29,6 +30,33 @@ namespace erm {
 namespace {
 constexpr float kFixedDt = 1.0f / 60.0f;
 constexpr int   kMaxSubSteps = 5;
+
+// 开发版控制台：优先复用父进程的控制台（从 cmd / run.bat 启动时不会再多弹一个窗），
+// 没有父控制台才新建。发布版不调用它，所以不会出现“CMD + 游戏窗口”两个窗。
+bool EnsureDevConsole() {
+    bool attached = (::GetConsoleWindow() != nullptr);
+    if (!attached) {
+        if (::AttachConsole(ATTACH_PARENT_PROCESS)) {
+            attached = true;
+        } else if (::AllocConsole()) {
+            attached = true;
+        }
+    }
+    if (!attached) return false;
+
+    FILE* stream = nullptr;
+    freopen_s(&stream, "CONOUT$", "w", stdout);
+    freopen_s(&stream, "CONOUT$", "w", stderr);
+    freopen_s(&stream, "CONIN$", "r", stdin);
+    // 给开发版窗口一个明确标题，便于和发布版/其他终端区分。
+    ::SetConsoleTitleW(L"ErMao Engine - 开发版日志");
+    ::SetConsoleOutputCP(CP_UTF8);
+
+    HANDLE out = ::GetStdHandle(STD_OUTPUT_HANDLE);
+    DWORD mode = 0;
+    if (::GetConsoleMode(out, &mode)) ::SetConsoleMode(out, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING);
+    return true;
+}
 
 // 3D 幸存者：第三人称俯视跟随。视口渲染和头顶血条投影必须用同一台相机。
 void AimSurvivors3DCamera(World& world, Camera& camera) {
@@ -43,6 +71,16 @@ void AimSurvivors3DCamera(World& world, Camera& camera) {
 } // namespace
 
 int Engine::Run(int argc, char** argv) {
+    // --dev 的日志开关要先于 game.cfg 的读取生效，否则最早的几行会漏掉。
+    for (int i = 1; i < argc; ++i) {
+        if (std::string(argv[i]) == "--dev") {
+            m_devMode = true;
+            break;
+        }
+    }
+    m_devConsole = m_devMode && EnsureDevConsole();
+    Log::SetConsoleEcho(m_devConsole);
+
     // 游戏包：exe 旁的 game.cfg 决定默认关卡与模式（命令行参数优先级更高）
     const std::string gameConfigPath = FileSystem::Join(FileSystem::ExecutableDir(), "game.cfg");
     if (FileSystem::Exists(gameConfigPath)) {
@@ -126,11 +164,33 @@ int Engine::Run(int argc, char** argv) {
         } else if (arg == "--smoke") {
             m_smoke = true;
             m_startPlay = true;
+        } else if (arg == "--dev") {
+            m_devMode = true;
+        } else if (arg == "--log") {
+            m_logFile = true;
+            m_logExplicit = true;
+        } else if (arg == "--nolog") {
+            m_logFile = false;
+            m_logExplicit = true;
         }
     }
 
+    // 发布版默认静默；开发版和自动化任务按需写日志。
+    const bool automation = m_autoFrames > 0 || !m_screenshotPath.empty() || m_testSerialize || m_smoke ||
+                            !m_importPath.empty() || !m_packageTarget.empty() || !m_packageGame.empty() ||
+                            m_audioTest || m_vulkanTest || !m_scriptPath.empty() || m_validateOnly;
+    if (!m_logExplicit) m_logFile = m_devMode || automation;
+
     if (!Init()) {
         Shutdown();
+        // 发布版没有控制台，启动失败时给一个可操作的提示；自动化任务不弹窗，避免 CI 卡住。
+        if (!m_devMode && !automation) {
+            ::MessageBoxW(nullptr,
+                          L"ErMao 启动失败。\n\n"
+                          L"排错：用 run.bat dev 启动（开发版控制台），\n"
+                          L"或加 --log 重新运行，然后查看 exe 旁边的 ErMao.log。",
+                          L"ErMao Engine", MB_OK | MB_ICONERROR);
+        }
         return 1;
     }
     MainLoop();
@@ -139,7 +199,9 @@ int Engine::Run(int argc, char** argv) {
 }
 
 bool Engine::Init() {
-    Log::Init("ErMao.log");
+    // 日志文件放在 exe 旁边（与 docs/03 的排错说明一致），发布版默认不产生。
+    Log::Init(m_logFile ? FileSystem::Join(FileSystem::ExecutableDir(), "ErMao.log") : std::string());
+    if (m_devMode) LogInfo("[日志] 开发版控制台: %s", m_devConsole ? "已连接（日志同时输出到控制台）" : "不可用（仅写日志文件）");
     LogInfo("ErMao Engine 启动（v0.2 / Dear ImGui）");
     Timer::Init();
     Input::BeginFrame();

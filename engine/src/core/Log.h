@@ -16,7 +16,7 @@ struct LogEntry {
     double      time; // 引擎启动后的秒数
 };
 
-// 全局日志：同时写控制台、环形缓冲（编辑器 Console 读取）与日志文件
+// 全局日志：环形缓冲（编辑器 Console 读取）常开；控制台与日志文件按启动模式（--dev / --log）打开
 class Log {
 public:
     static void Init(const std::string& logFile);

@@ -4,6 +4,10 @@ rem ErMao Engine build script. Usage: build.bat [Release|Debug]
 rem If dependencies are missing, run setup.bat first.
 set CONFIG=%1
 if "%CONFIG%"=="" set CONFIG=Release
+rem Accept the same names as run.bat: dev/debug -> Debug, release -> Release
+if /I "%CONFIG%"=="dev" set CONFIG=Debug
+if /I "%CONFIG%"=="debug" set CONFIG=Debug
+if /I "%CONFIG%"=="release" set CONFIG=Release
 set "ROOT=%~dp0"
 
 set "VSDIR="
@@ -49,4 +53,6 @@ if errorlevel 1 (
 )
 echo.
 echo Build OK: %ROOT%build\bin\ErMao.exe
+rem Remember which version build\bin\ErMao.exe currently is (run.bat checks this).
+echo %CONFIG%> "%ROOT%build\.ermao-config"
 endlocal

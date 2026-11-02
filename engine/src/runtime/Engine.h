@@ -71,6 +71,12 @@ private:
     float m_fpsTimer = 0.0f;
     int   m_fpsFrames = 0;
 
+    // 发布版 / 开发版：--dev 打开控制台日志，--log 只写日志文件，--nolog 两者都关
+    bool m_devMode = false;
+    bool m_devConsole = false;
+    bool m_logFile = false;
+    bool m_logExplicit = false;
+
     // 自动化
     std::string m_screenshotPath;
     int         m_autoFrames = 0;

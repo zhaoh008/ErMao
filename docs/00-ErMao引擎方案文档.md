@@ -96,7 +96,7 @@ Hazel 的编辑器是独立 exe + 共享 engine 静态库；Piccolo 是运行时
 D:\GameEngine\
 ├─ CMakeLists.txt                  # 顶层：ErMaoEngine(静态库) + ErMao(exe)
 ├─ build.bat                       # 一键：vcvars + cmake + msbuild
-├─ run.bat                         # 运行 build\bin\ErMao.exe
+├─ run.bat / run-dev.bat           # 发布版 / 开发版（控制台日志）启动 build\bin\ErMao.exe
 ├─ README.md
 ├─ docs\
 │   ├─ 00-ErMao引擎方案文档.md      # 本文档
