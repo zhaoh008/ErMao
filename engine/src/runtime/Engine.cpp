@@ -201,7 +201,7 @@ int Engine::Run(int argc, char** argv) {
     }
     MainLoop();
     Shutdown();
-    return 0;
+    return m_headlessFailed ? 1 : 0;
 }
 
 bool Engine::Init() {
@@ -380,6 +380,7 @@ bool Engine::Init() {
                                                    : Packager::PackageGameWindows("ErMaoSurvivors3D", "survivors3d");
         LogInfo("[打包自检] 2D 游戏包 success=%d %s", result2.success ? 1 : 0, result2.message.c_str());
         LogInfo("[打包自检] 3D 游戏包 success=%d %s", result3.success ? 1 : 0, result3.message.c_str());
+        if (!result2.success || !result3.success) m_headlessFailed = true;
         m_running = false;
     }
     if (!m_packageTarget.empty()) {
@@ -387,6 +388,7 @@ bool Engine::Init() {
         const PackageResult result = (m_packageTarget == "linux") ? Packager::PackageLinuxSource()
                                                                   : Packager::PackageWindows();
         LogInfo("[打包自检] success=%d %s", result.success ? 1 : 0, result.message.c_str());
+        if (!result.success) m_headlessFailed = true;
         m_running = false;
     }
     // 教学截图开关：阴影/调试视图/材质覆盖
@@ -407,8 +409,9 @@ bool Engine::Init() {
         JsonValue report;
         if (m_validateOnly) {
             report = ValidateWorld();
+            if (!report["ok"].AsBool()) m_headlessFailed = true;
         } else {
-            RunAgentScript(m_scriptPath, m_jsonOut);
+            if (!RunAgentScript(m_scriptPath, m_jsonOut)) m_headlessFailed = true;
             report = JsonValue::MakeObject();
             report.Set("script", JsonValue(m_scriptPath));
         }
