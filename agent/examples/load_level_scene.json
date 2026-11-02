@@ -1,0 +1,8 @@
+{
+  "commands": [
+    { "cmd": "scene.new" },
+    { "cmd": "scene.load", "path": "build/bin/assets/scenes/3d-level.ermaos.json" },
+    { "cmd": "camera.set", "position": [9, 6.5, 11], "yaw": 0.68, "pitch": -0.42 },
+    { "cmd": "screenshot", "path": "docs/screenshots/scene-load-3d.png" }
+  ]
+}

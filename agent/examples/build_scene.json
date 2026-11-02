@@ -1,0 +1,25 @@
+{
+  "commands": [
+    { "cmd": "scene.new" },
+
+    { "cmd": "object.create", "name": "地面", "position": [0, 0, 0], "scale": [40, 1, 40] },
+    { "cmd": "component.add", "object": "地面", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "地面", "component": "Mesh Renderer", "field": "mesh", "value": "plane" },
+    { "cmd": "component.set", "object": "地面", "component": "Mesh Renderer", "field": "texture", "value": "noise" },
+    { "cmd": "component.set", "object": "地面", "component": "Mesh Renderer", "field": "uvScale", "value": 24 },
+
+    { "cmd": "object.create", "name": "箱子", "position": [0, 1, 0] },
+    { "cmd": "component.add", "object": "箱子", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "箱子", "component": "Mesh Renderer", "field": "mesh", "value": "cube" },
+    { "cmd": "component.set", "object": "箱子", "component": "Mesh Renderer", "field": "albedo", "value": [0.85, 0.55, 0.2, 1] },
+
+    { "cmd": "object.create", "name": "太阳", "rotation": [-0.5, -0.6, 0, 0.62] },
+    { "cmd": "component.add", "object": "太阳", "component": "Directional Light" },
+    { "cmd": "component.set", "object": "太阳", "component": "Directional Light", "field": "intensity", "value": 2.2 },
+
+    { "cmd": "camera.set", "position": [8, 6, 10], "yaw": 0.675, "pitch": -0.43 },
+    { "cmd": "screenshot", "path": "docs/screenshots/agent-scene.png" },
+    { "cmd": "scene.save", "path": "build/bin/assets/scenes/agent-scene.ermaos.json" },
+    { "cmd": "validate" }
+  ]
+}

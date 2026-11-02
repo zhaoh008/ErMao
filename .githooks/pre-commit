@@ -1,0 +1,18 @@
+#!/bin/sh
+# 提交前：拒绝构建产物/日志入库，并检查文档引用
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+staged=$(git diff --cached --name-only)
+if echo "$staged" | grep -E '^(build|dist)/|\.log$|imgui\.ini$' >/dev/null 2>&1; then
+  echo "[pre-commit] 拒绝提交构建产物或日志："
+  echo "$staged" | grep -E '^(build|dist)/|\.log$|imgui\.ini$'
+  exit 1
+fi
+
+if command -v pwsh >/dev/null 2>&1; then
+  pwsh -NoProfile -File tools/docs-check.ps1 || {
+    echo "[pre-commit] 文档引用检查失败，已阻止提交"
+    exit 1
+  }
+fi
+exit 0

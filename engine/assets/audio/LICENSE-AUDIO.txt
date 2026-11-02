@@ -1,0 +1,16 @@
+音频素材来源与许可
+==================
+
+1) engine/assets/audio/{hit,pickup,levelup,death,click}.wav
+   来源：OpenGameArt - "The Essential Retro Video Game Sound Effects Collection [512 sounds]"
+   https://opengameart.org/content/512-sound-effects-8-bit-style
+   作者：SubspaceAudio
+   许可：CC0 1.0（可商用、可修改、无需署名）
+
+2) engine/assets/audio/{swing,magic,shoot}.wav
+   来源：OpenGameArt - "RPG Sound Pack"
+   https://opengameart.org/content/rpg-sound-pack
+   作者：artisticdude
+   许可：CC0 1.0
+
+说明：素材原始格式为 WAV（PCM 16bit），引擎用 XAudio2 直接播放，无需解码器。

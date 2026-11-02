@@ -1,0 +1,8 @@
+{
+  "commands": [
+    { "cmd": "level.build", "kind": "survivors" },
+    { "cmd": "scene.save", "path": "build/bin/assets/scenes/2d-level.ermaos.json" },
+    { "cmd": "level.build", "kind": "survivors3d" },
+    { "cmd": "scene.save", "path": "build/bin/assets/scenes/3d-level.ermaos.json" }
+  ]
+}

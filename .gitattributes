@@ -1,0 +1,18 @@
+# 统一行尾：源码 LF，Windows 脚本 CRLF，二进制不转换
+* text=auto
+*.cpp text eol=lf
+*.h text eol=lf
+*.hlsl text eol=lf
+*.md text eol=lf
+*.json text eol=lf
+*.obj text eol=lf
+*.txt text eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.wav binary
+*.spv binary
+*.aseprite binary
+*.lib binary
