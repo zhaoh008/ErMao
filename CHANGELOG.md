@@ -32,6 +32,15 @@
 
 ### Fixed
 
+- 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
+- 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
+- 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
+- OBJ 导入的多边形面（四边形/五边形等）按扇形三角化，不再只渲染每个面的第一个三角形
+- 修复非 ASCII（中文等）路径下纹理加载、截图保存与 WAV 音频加载失败：进入 WIC / 文件读取前统一使用
+  UTF-8→UTF-16 转换（`FileSystem::Utf8ToWide` / `ReadBinaryFile`）
+- Play/PIE 删除动画目标或第三人称主相机后，`Animator` / `ThirdPersonController` 仍解引用缓存裸指针导致 use-after-free；现在按对象 id 向 `World` 校验，失效后安全重解析
+- 程序化圆柱（`primitives::Cylinder`）上下端盖三角形绕序与侧面相反，主不透明通道背面剔除后顶盖不可见（第三人称油桶呈开口管状）
+- 新建场景未清除当前场景路径，Ctrl+S 会用空场景覆盖旧文件；从资源浏览器打开普通场景后路径未更新，保存会写回上一个文件
 - 无头接口不再把失败当成功：`package.game` 失败时返回 `ok:false` 与 `error`；`--script` / `--validate` / `--package` / `--package-game` 失败时进程以非 0 退出码结束，CI 可据此失败
 - 旋转 gizmo 改为绕物体**局部 X/Y/Z** 旋转；只命中朝向相机的前半环，并按环的屏幕切线累计角度，不再出现“斜拖一下同时转两轴 / 点错环”的问题
 - 正交（正视图/俯视图/2D）拾取射线从近平面像素位置出发，不再全部从画面中心发射
@@ -44,8 +53,6 @@
 - 编辑器内 2D 幸存者 HUD 提前 `EndFrame()`，导致同帧后续 UI 绘制时机错误
 - `World::Update/FixedUpdate` 遍历根节点改为快照：组件在 `OnUpdate` 里生成箭/宝石/特效会让 `m_roots` 扩容，
   导致 2D/3D 幸存者偶发 `0xC0000005` 崩溃
-- 修复非 ASCII（中文等）路径下纹理加载、截图保存与 WAV 音频加载失败：进入 WIC / 文件读取前统一使用
-  UTF-8→UTF-16 转换（`FileSystem::Utf8ToWide` / `ReadBinaryFile`）
 
 ## [0.8.7] - 2026-11-02
 
