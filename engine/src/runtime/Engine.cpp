@@ -411,7 +411,17 @@ bool Engine::Init() {
             if (!report["ok"].AsBool()) m_headlessFailed = true;
             if (!m_jsonOut.empty()) {
                 std::ofstream out(m_jsonOut, std::ios::binary);
-                out << report.Dump(2);
+                if (!out.is_open()) {
+                    LogError("[校验] 结果写入失败（无法打开）: %s", m_jsonOut.c_str());
+                    m_headlessFailed = true;
+                } else {
+                    out << report.Dump(2);
+                    out.flush();
+                    if (!out.good()) {
+                        LogError("[校验] 结果写入失败: %s", m_jsonOut.c_str());
+                        m_headlessFailed = true;
+                    }
+                }
             }
         } else {
             if (!RunAgentScript(m_scriptPath, m_jsonOut)) m_headlessFailed = true;
