@@ -130,6 +130,9 @@ void SpriteAnimatorComponent::Describe(TypeInfo& t) {
     t.Field("fps", FieldType::Float, &SpriteAnimatorComponent::fps, "帧率", 0.1f, 60.0f);
     t.Field("playing", FieldType::Bool, &SpriteAnimatorComponent::playing, "播放");
     t.Field("loop", FieldType::Bool, &SpriteAnimatorComponent::loop, "循环");
+    t.Field("frameMin", FieldType::Vec2, &SpriteAnimatorComponent::frameMin, "帧裁剪最小");
+    t.Field("frameMax", FieldType::Vec2, &SpriteAnimatorComponent::frameMax, "帧裁剪最大");
+    t.Field("columnsOverride", FieldType::Int, &SpriteAnimatorComponent::columnsOverride, "列数覆盖", 0.0f, 64.0f);
 }
 
 void SpriteRendererComponent::Describe(TypeInfo& t) {
