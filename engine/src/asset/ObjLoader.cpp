@@ -51,7 +51,6 @@ bool LoadObjMesh(const std::string& path, MeshData& out, std::string* error) {
     std::vector<Vec3> normals;
     std::vector<Vec2> uvs;
     std::vector<ObjIndex> cornerIndices;
-    std::vector<std::pair<u32, u32>> polygonRanges; // (起点, 顶点数)
 
     std::istringstream stream(text);
     std::string line;
@@ -72,12 +71,15 @@ bool LoadObjMesh(const std::string& path, MeshData& out, std::string* error) {
         } else if (line.size() > 2 && line[0] == 'f' && line[1] == ' ') {
             std::istringstream lineStream(line.substr(2));
             std::string token;
-            const u32 start = static_cast<u32>(cornerIndices.size());
             std::vector<ObjIndex> face;
             while (lineStream >> token) face.push_back(ParseIndexToken(token));
             if (face.size() < 3) continue;
-            for (auto& f : face) cornerIndices.push_back(f);
-            polygonRanges.emplace_back(start, static_cast<u32>(face.size()));
+            // OBJ 允许多边形面，而 Mesh 只接受三角形列表：从首顶点扇形三角化
+            for (size_t i = 1; i + 1 < face.size(); ++i) {
+                cornerIndices.push_back(face[0]);
+                cornerIndices.push_back(face[i]);
+                cornerIndices.push_back(face[i + 1]);
+            }
         }
     }
 
