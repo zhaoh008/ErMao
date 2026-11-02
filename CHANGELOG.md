@@ -32,6 +32,7 @@
 
 ### Fixed
 
+- 编辑器与 AI 导入损坏或不受支持的贴图（含缺少 TGA 编解码器的 `.tga`）时不再静默回退为 4x4 白图：`ImportTexture` 改用路径式 `GetTextureAsset`，解码失败返回“解码贴图失败”且不注册资产
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
 - 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
