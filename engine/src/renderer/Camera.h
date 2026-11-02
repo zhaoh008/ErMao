@@ -36,14 +36,27 @@ public:
     float nearZ = 0.1f;
     float farZ = 500.0f;
     float aspect = 16.0f / 9.0f;
-    float moveSpeed = 8.0f;
+    float moveSpeed = 8.0f; // 编辑器飞行速度（设置面板可调）
+
+    // 正交视图（正视图 / 俯视图）：orthoHeight 是屏幕上完整可见的世界高度。
+    // 编辑器用它来做 2D/正/俯视；游戏相机默认仍是透视。
+    bool  orthographic = false;
+    float orthoHeight = 12.8f;
+    Vec3  up{0.0f, 1.0f, 0.0f}; // 俯视图需要换一个 up，避免 90° 时 LookAt 退化
 
     Vec3 Forward() const { return Quat::FromEuler(yaw, pitch, 0.0f).RotateVector({0, 0, -1}); }
     Vec3 Right() const { return Quat::FromEuler(yaw, pitch, 0.0f).RotateVector({1, 0, 0}); }
     Vec3 Up() const { return Quat::FromEuler(yaw, pitch, 0.0f).RotateVector({0, 1, 0}); }
 
-    Mat4 View() const { return Mat4::LookAt(position, position + Forward(), Vec3(0, 1, 0)); }
-    Mat4 Projection() const { return Mat4::Perspective(fovY, aspect, nearZ, farZ); }
+    Mat4 View() const { return Mat4::LookAt(position, position + Forward(), up); }
+    Mat4 Projection() const {
+        if (orthographic) {
+            const float h = (std::max)(orthoHeight, 0.01f) * 0.5f;
+            const float w = h * (aspect > 1e-4f ? aspect : 1.0f);
+            return Mat4::Orthographic(-w, w, -h, h, nearZ, farZ);
+        }
+        return Mat4::Perspective(fovY, aspect, nearZ, farZ);
+    }
     Mat4 ViewProjection() const { return Projection() * View(); }
 
     Frustum GetFrustum() const { return Frustum::FromViewProj(ViewProjection()); }

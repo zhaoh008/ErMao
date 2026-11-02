@@ -1,10 +1,6 @@
 {
   "levels": [
-    { "id": "survivors",   "name": "2D 幸存者",   "desc": "像素风刷子游戏（正交相机 + 精灵批）" },
-    { "id": "survivors3d", "name": "3D 幸存者",   "desc": "3D 刷子游戏（外部 OBJ + 粒子特效）" },
-    { "id": "thirdperson", "name": "第三人称",   "desc": "角色控制 + 相机跟随" },
-    { "id": "arena",       "name": "刷怪竞技场", "desc": "波次刷怪 Demo（碰撞/血条/菜单）" },
-    { "id": "skinning",    "name": "蒙皮演示",   "desc": "骨骼 + LBS 蒙皮" },
-    { "id": "cull",        "name": "GPU 剔除",   "desc": "6400 实例的视锥剔除压测" }
+    { "id": "survivors",   "name": "2D 幸存者 Demo", "desc": "像素风刷子游戏（正交相机 + 精灵批）" },
+    { "id": "survivors3d", "name": "3D 幸存者 Demo", "desc": "3D 刷子游戏（外部 OBJ + 粒子特效）" }
   ]
 }

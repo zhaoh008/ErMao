@@ -5,7 +5,6 @@
 #include "core/JobSystem.h"
 #include "core/Log.h"
 #include "editor/ImGuiLayer.h"
-#include "game/Levels.h"
 #include "game/ThirdPersonController.h"
 #include "physics/PhysicsWorld.h"
 #include "platform/FileDialog.h"
@@ -60,7 +59,7 @@ void BuildDefaultLayout(ImGuiID dockspaceId) {
 
 void Editor::Init(ImGuiLayer* imguiLayer) {
     m_imgui = imguiLayer;
-    m_scenePath = FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "scenes"), "thirdperson.ermao.json");
+    // 路径由 Engine 按当前关卡设置（m_scenePath），这里不再写死。
     LogInfo("编辑器初始化（Dear ImGui）");
 }
 
@@ -85,6 +84,95 @@ void Editor::SetStatus(const std::string& text, bool error) {
 void Editor::Select(GameObject* object) {
     m_selected = object;
     m_selectedId = object ? object->Id() : 0;
+}
+
+namespace {
+const char* ViewPresetName(Editor::ViewPreset preset) {
+    switch (preset) {
+        case Editor::ViewPreset::Front: return "正视图";
+        case Editor::ViewPreset::Top: return "俯视图";
+        default: return "透视";
+    }
+}
+} // namespace
+
+void Editor::SetViewPreset(Camera& editorCamera, ViewPreset preset) {
+    if (m_playing) return;
+    if (m_is2DLevel && preset != ViewPreset::Front) {
+        SetStatus("2D 关卡固定为正视图（透视/俯视对精灵关卡不适用）", true);
+        return;
+    }
+    if (preset == m_viewPreset) return;
+
+    // 离开透视前保存自由视角，切回来时恢复，不丢用户刚才的观察位置。
+    if (preset == ViewPreset::Perspective) {
+        m_viewPreset = ViewPreset::Perspective;
+        if (m_savedPerspectiveValid) editorCamera = m_savedPerspective;
+        editorCamera.orthographic = false;
+        editorCamera.up = Vec3(0, 1, 0);
+        SetStatus("视角: 透视");
+        return;
+    }
+    if (m_viewPreset == ViewPreset::Perspective) {
+        m_savedPerspective = editorCamera;
+        m_savedPerspectiveValid = true;
+    }
+
+    // 选中物体时围绕它切换；否则围绕视线前方最近的落点，避免视角跳得太远。
+    Vec3 focus = m_selected ? m_selected->WorldPosition() : Vec3(0, 0, 0);
+    if (!m_selected) {
+        const Vec3  forward = editorCamera.Forward();
+        float       distanceToGround = 10.0f;
+        if (forward.y < -1e-4f) {
+            distanceToGround = Clamp((0.0f - editorCamera.position.y) / forward.y, 2.0f, 60.0f);
+        }
+        focus = editorCamera.position + forward * distanceToGround;
+        if (m_is2DLevel) focus = Vec3(0, 0, 0);
+    }
+    const float distance = Clamp(Length(editorCamera.position - focus), 10.0f, 80.0f);
+    const float height = editorCamera.orthographic
+                             ? editorCamera.orthoHeight
+                             : Clamp(distance * 0.9f, 4.0f, 80.0f);
+    m_viewPreset = preset;
+    editorCamera.orthographic = true;
+    editorCamera.orthoHeight = height;
+    if (preset == ViewPreset::Front) {
+        editorCamera.position = focus + Vec3(0, 0, distance);
+        editorCamera.yaw = 0.0f;
+        editorCamera.pitch = 0.0f;
+        editorCamera.up = Vec3(0, 1, 0);
+    } else {
+        editorCamera.position = focus + Vec3(0, distance, 0);
+        editorCamera.yaw = 0.0f;
+        editorCamera.pitch = -kHalfPi;
+        editorCamera.up = Vec3(0, 0, -1);
+    }
+    SetStatus(std::string("视角: ") + ViewPresetName(preset));
+}
+
+void Editor::Enter2DEditorView(Camera& editorCamera) {
+    m_is2DLevel = true;
+    m_viewPreset = ViewPreset::Front;
+    m_savedPerspectiveValid = false;
+    editorCamera.orthographic = true;
+    editorCamera.up = Vec3(0, 1, 0);
+    editorCamera.yaw = 0.0f;
+    editorCamera.pitch = 0.0f;
+    editorCamera.position = Vec3(0, 0, 20);
+    editorCamera.orthoHeight = 13.0f;
+}
+
+void Editor::Exit2DEditorView(Camera& editorCamera) {
+    if (!m_is2DLevel) return;
+    m_is2DLevel = false;
+    m_viewPreset = ViewPreset::Perspective;
+    m_savedPerspectiveValid = false;
+    editorCamera.orthographic = false;
+    editorCamera.up = Vec3(0, 1, 0);
+    editorCamera.position = Vec3(10, 7, 16);
+    editorCamera.yaw = 0.55f;
+    editorCamera.pitch = -0.32f;
+    editorCamera.orthoHeight = 12.8f;
 }
 
 void Editor::Play() {
@@ -135,7 +223,7 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
     if (m_showAssets) DrawAssets(world, assets, renderer, editorCamera);
     if (m_showConsole) DrawConsole();
     if (m_showStats) DrawStats(world, renderer);
-    if (m_showSettings) DrawSettings(world, renderer);
+    if (m_showSettings) DrawSettings(world, renderer, editorCamera);
     DrawStatusBar();
 
     HandleShortcuts(world, editorCamera);
@@ -172,7 +260,7 @@ void Editor::DrawDockspace(World& world, Renderer& renderer, AssetManager& asset
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(8, 5));
     ImGui::BeginChild("##toolbar", ImVec2(0, 40.0f), false,
                       ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-    DrawToolbar(world, renderer);
+    DrawToolbar(world, renderer, editorCamera);
     ImGui::EndChild();
     ImGui::PopStyleVar();
 
@@ -195,10 +283,14 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
 
     if (ImGui::BeginMenu("文件")) {
         if (ImGui::MenuItem("新建场景", "Ctrl+N")) NewScene(world);
-        if (ImGui::MenuItem("加载演示关卡")) {
-            game::BuildThirdPersonLevel(world);
-            Select(nullptr);
-            SetStatus("已加载演示关卡");
+        if (ImGui::MenuItem("加载 2D 演示关卡")) {
+            if (m_levelLoader) {
+                m_levelLoader("survivors");
+                Select(nullptr);
+                SetStatus("已加载 2D 演示关卡");
+            } else {
+                SetStatus("关卡加载器未初始化", true);
+            }
         }
         ImGui::Separator();
         if (ImGui::MenuItem("打开场景...", "Ctrl+O")) LoadScene(world);
@@ -226,13 +318,10 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
 
     if (ImGui::BeginMenu("关卡")) {
         struct LevelItem { const char* id; const char* label; };
+        // 只保留两个 demo 关卡：2D 幸存者 / 3D 幸存者。
         const LevelItem levels[] = {
-            {"survivors", "2D 幸存者（像素风）"},
-            {"survivors3d", "3D 幸存者（外部模型）"},
-            {"thirdperson", "第三人称"},
-            {"arena", "刷怪竞技场"},
-            {"skinning", "蒙皮演示"},
-            {"cull", "GPU 剔除压测"},
+            {"survivors", "2D 幸存者 Demo"},
+            {"survivors3d", "3D 幸存者 Demo"},
         };
         for (const LevelItem& level : levels) {
             if (ImGui::MenuItem(level.label)) {
@@ -273,6 +362,23 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
         ImGui::MenuItem("统计", nullptr, &m_showStats);
         ImGui::MenuItem("设置", nullptr, &m_showSettings);
         ImGui::Separator();
+        if (ImGui::BeginMenu("视角")) {
+            if (ImGui::MenuItem("透视图", nullptr, m_viewPreset == ViewPreset::Perspective,
+                                !m_playing && !m_is2DLevel)) {
+                SetViewPreset(editorCamera, ViewPreset::Perspective);
+            }
+            if (ImGui::MenuItem("正视图", nullptr, m_viewPreset == ViewPreset::Front,
+                                !m_playing && !m_is2DLevel)) {
+                SetViewPreset(editorCamera, ViewPreset::Front);
+            }
+            if (ImGui::MenuItem("俯视图", nullptr, m_viewPreset == ViewPreset::Top,
+                                !m_playing && !m_is2DLevel)) {
+                SetViewPreset(editorCamera, ViewPreset::Top);
+            }
+            ImGui::Separator();
+            ImGui::TextDisabled("正/俯视为正交相机，右键拖动平移、滚轮缩放");
+            ImGui::EndMenu();
+        }
         ImGui::MenuItem("线框", "F2", &renderer.Wireframe());
         ImGui::MenuItem("阴影", "F4", &renderer.ShadowsEnabled());
         if (ImGui::BeginMenu("调试视图")) {
@@ -296,8 +402,9 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
 
     if (ImGui::BeginPopup("##help")) {
         ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "视口 / 编辑器");
-        ImGui::BulletText("右键拖动：环视    WASD/QE：移动    Shift：加速");
-        ImGui::BulletText("左键：拾取物体    滚轮：无");
+        ImGui::BulletText("透视：右键拖动环视 / WASD 移动 / 滚轮推拉 / Shift 加速");
+        ImGui::BulletText("正视图·俯视图：右键拖动平移 / WASD 平移 / 滚轮缩放");
+        ImGui::BulletText("V 切换透视 → 正视 → 俯视    左键：拾取物体");
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "运行模式");
         ImGui::BulletText("WASD 移动 / Shift 奔跑 / 空格 跳跃 / 右键拖动转视角 / 滚轮缩放");
@@ -317,7 +424,7 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
         ImGui::TextWrapped("GAMES104 教学引擎：分层架构、前向 PBR、阴影、代码优先关卡、"
                            "反射驱动编辑器。");
         ImGui::Separator();
-        ImGui::TextDisabled("关卡: game/ThirdPersonLevel.cpp   UI: editor/EditorUI.cpp");
+        ImGui::TextDisabled("关卡: game/Survivors.cpp / Survivors3D.cpp   UI: editor/EditorUI.cpp");
         ImGui::TextDisabled("文档: 文档/README.md");
         if (ImGui::Button("关闭")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
@@ -331,7 +438,7 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
     if (m_showDemo) ImGui::ShowDemoWindow(&m_showDemo);
 }
 
-void Editor::DrawToolbar(World& world, Renderer& renderer) {
+void Editor::DrawToolbar(World& world, Renderer& renderer, Camera& editorCamera) {
     if (ImGui::Button(m_playing ? "停止" : "运行", ImVec2(64, 26))) {
         if (m_playing) {
             ExitPlayMode(world);
@@ -342,9 +449,13 @@ void Editor::DrawToolbar(World& world, Renderer& renderer) {
     ImGui::SameLine();
     ImGui::BeginDisabled(!m_playing);
     if (ImGui::Button(m_paused ? "继续" : "暂停", ImVec2(64, 26))) Pause();
+    ImGui::EndDisabled();
+
+    // Gizmo 是编辑期工具：运行时禁用，编辑时可用（之前写反了，导致“旋转 E”按钮点不动）。
     ImGui::SameLine();
     ImGui::Separator();
     ImGui::SameLine();
+    ImGui::BeginDisabled(m_playing);
     {
         const char* gizmoNames[3] = {"移动 W", "旋转 E", "缩放 R"};
         for (int gi = 0; gi < 3; ++gi) {
@@ -356,6 +467,27 @@ void Editor::DrawToolbar(World& world, Renderer& renderer) {
         }
     }
     ImGui::EndDisabled();
+
+    ImGui::SameLine(0, 14);
+    ImGui::TextDisabled("视角");
+    ImGui::SameLine();
+    {
+        const struct { const char* label; ViewPreset preset; } views[] = {
+            {"透视", ViewPreset::Perspective},
+            {"正视", ViewPreset::Front},
+            {"俯视", ViewPreset::Top},
+        };
+        for (int vi = 0; vi < 3; ++vi) {
+            const bool active = (m_viewPreset == views[vi].preset);
+            const bool disabled = m_playing || (m_is2DLevel && views[vi].preset != ViewPreset::Front);
+            ImGui::BeginDisabled(disabled);
+            if (active) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.82f, 0.9f));
+            if (ImGui::Button(views[vi].label, ImVec2(48, 26))) SetViewPreset(editorCamera, views[vi].preset);
+            if (active) ImGui::PopStyleColor();
+            ImGui::EndDisabled();
+            if (vi < 2) ImGui::SameLine();
+        }
+    }
 
     ImGui::SameLine(0, 18);
     if (ImGui::Button("保存", ImVec2(64, 26))) SaveScene(world, false);
@@ -401,27 +533,61 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
             m_viewportMinY = imageMin.y;
             m_viewportHovered = ImGui::IsItemHovered();
 
-            // ---- 编辑器相机：右键旋转 + WASD 平移
-            if (!m_playing && m_viewportHovered) {
-                if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
-                    const ImVec2 delta = ImGui::GetIO().MouseDelta;
-                    editorCamera.yaw -= delta.x * 0.0032f;
-                    editorCamera.pitch -= delta.y * 0.0032f;
-                    editorCamera.pitch = Clamp(editorCamera.pitch, -kHalfPi + 0.02f, kHalfPi - 0.02f);
-                }
-                const float speed = (Input::IsKeyDown(VK_SHIFT) ? 22.0f : 8.0f) * ImGui::GetIO().DeltaTime;
-                const Vec3 forward = editorCamera.Forward();
+            // ---- 编辑器相机
+            // 透视：右键环视 + WASD 飞行 + 滚轮推拉。
+            // 正交（正视图/俯视图/2D 关卡）：右键拖动平移 + WASD 平移 + 滚轮缩放。
+            if (!m_playing && m_viewportHovered && !ImGui::GetIO().WantTextInput) {
+                ImGuiIO& io = ImGui::GetIO();
                 const Vec3 right = editorCamera.Right();
-                Vec3 move{0, 0, 0};
-                if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
-                    if (ImGui::IsKeyDown(ImGuiKey_W)) move += forward;
-                    if (ImGui::IsKeyDown(ImGuiKey_S)) move -= forward;
+                const Vec3 up = editorCamera.Up();
+                const float speed = editorCamera.moveSpeed * (Input::IsKeyDown(VK_SHIFT) ? 4.0f : 1.0f) * io.DeltaTime;
+
+                if (editorCamera.orthographic) {
+                    if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+                        const float worldPerPixel =
+                            editorCamera.orthoHeight / (std::max)(1.0f, static_cast<float>(m_viewportHeight));
+                        editorCamera.position -= right * (io.MouseDelta.x * worldPerPixel);
+                        editorCamera.position += up * (io.MouseDelta.y * worldPerPixel);
+                    }
+                    Vec3 move{0, 0, 0};
+                    if (ImGui::IsKeyDown(ImGuiKey_W)) move += up;
+                    if (ImGui::IsKeyDown(ImGuiKey_S)) move -= up;
                     if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
                     if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
-                    if (ImGui::IsKeyDown(ImGuiKey_E)) move += Vec3(0, 1, 0);
-                    if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= Vec3(0, 1, 0);
+                    if (LengthSq(move) > 0.0f) editorCamera.position += Normalize(move) * speed;
+                    if (io.MouseWheel != 0.0f) {
+                        editorCamera.orthoHeight =
+                            Clamp(editorCamera.orthoHeight * std::pow(0.85f, io.MouseWheel), 0.5f, 200.0f);
+                    }
+                } else {
+                    if (ImGui::IsMouseDragging(ImGuiMouseButton_Right)) {
+                        editorCamera.yaw -= io.MouseDelta.x * 0.0032f;
+                        editorCamera.pitch -= io.MouseDelta.y * 0.0032f;
+                        editorCamera.pitch = Clamp(editorCamera.pitch, -kHalfPi + 0.02f, kHalfPi - 0.02f);
+                    }
+                    if (io.MouseWheel != 0.0f) {
+                        editorCamera.position += editorCamera.Forward() * (io.MouseWheel * 1.5f);
+                    }
+                    Vec3 move{0, 0, 0};
+                    if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                        if (ImGui::IsKeyDown(ImGuiKey_W)) move += editorCamera.Forward();
+                        if (ImGui::IsKeyDown(ImGuiKey_S)) move -= editorCamera.Forward();
+                        if (ImGui::IsKeyDown(ImGuiKey_D)) move += right;
+                        if (ImGui::IsKeyDown(ImGuiKey_A)) move -= right;
+                        if (ImGui::IsKeyDown(ImGuiKey_E)) move += Vec3(0, 1, 0);
+                        if (ImGui::IsKeyDown(ImGuiKey_Q)) move -= Vec3(0, 1, 0);
+                    }
+                    if (LengthSq(move) > 0.0f) editorCamera.position += Normalize(move) * speed;
                 }
-                if (LengthSq(move) > 0.0f) editorCamera.position += Normalize(move) * speed;
+
+                // V：透视 → 正视 → 俯视（2D 关卡固定正视，不参与循环）
+                if (!m_is2DLevel && ImGui::IsKeyPressed(ImGuiKey_V)) {
+                    const ViewPreset next = m_viewPreset == ViewPreset::Perspective
+                                                ? ViewPreset::Front
+                                                : (m_viewPreset == ViewPreset::Front ? ViewPreset::Top
+                                                                                     : ViewPreset::Perspective);
+                    SetViewPreset(editorCamera, next);
+                }
             }
 
             // ---- Gizmo 模式切换：W 移动 / E 旋转 / R 缩放
@@ -446,17 +612,24 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
                            ImVec2(static_cast<float>(m_viewportWidth), static_cast<float>(m_viewportHeight)));
             }
 
-            // ---- 左上角 HUD
-            ImGui::SetCursorPos(ImVec2(12, 30));
-            ImGui::BeginGroup();
-            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "%s", m_playing ? "游戏视图" : "编辑器视图");
-            ImGui::Text("相机 (%.1f, %.1f, %.1f)", sceneCamera->position.x, sceneCamera->position.y,
-                        sceneCamera->position.z);
-            ImGui::Text("视口 %ux%u", m_viewportWidth, m_viewportHeight);
-            if (m_playing) {
-                ImGui::TextColored(ImVec4(0.5f, 0.85f, 0.6f, 1), "WASD 移动 / Shift 奔跑 / 空格 跳跃 / 右键拖动转视角");
+            // ---- 左上角 HUD（运行时让位给游戏自己的 HUD）
+            if (!m_playing) {
+                ImGui::SetCursorPos(ImVec2(12, 30));
+                ImGui::BeginGroup();
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "编辑器视图");
+                ImGui::Text("相机 (%.1f, %.1f, %.1f)", sceneCamera->position.x, sceneCamera->position.y,
+                            sceneCamera->position.z);
+                ImGui::Text("视口 %ux%u", m_viewportWidth, m_viewportHeight);
+                ImGui::Text("视角: %s%s", ViewPresetName(m_viewPreset),
+                            editorCamera.orthographic ? " (正交)" : " (透视)");
+                ImGui::Text("镜头速度: %.1f m/s（设置面板可调）", editorCamera.moveSpeed);
+                if (editorCamera.orthographic) {
+                    ImGui::TextDisabled("右键拖动平移 / WASD 平移 / 滚轮缩放");
+                } else {
+                    ImGui::TextDisabled("右键拖动环视 / WASD 移动 / 滚轮推拉 / V 切换视角");
+                }
+                ImGui::EndGroup();
             }
-            ImGui::EndGroup();
         }
     }
     ImGui::End();
@@ -1027,10 +1200,29 @@ void Editor::DrawStats(World& world, Renderer& renderer) {
     ImGui::End();
 }
 
-void Editor::DrawSettings(World& world, Renderer& renderer) {
+void Editor::DrawSettings(World& world, Renderer& renderer, Camera& editorCamera) {
+    const bool focusNow = m_focusSettings;
+    m_focusSettings = false;
+    if (focusNow) ImGui::SetNextWindowFocus();
     if (!ImGui::Begin("设置", &m_showSettings)) {
         ImGui::End();
         return;
+    }
+    if (focusNow) ImGui::SetWindowFocus();
+
+    if (ImGui::CollapsingHeader("编辑器 / 镜头", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderFloat("镜头速度", &editorCamera.moveSpeed, 1.0f, 40.0f, "%.1f m/s");
+        ImGui::TextDisabled("Shift 加速 4 倍；正交视图下是平移速度。");
+        ImGui::Text("当前视角: %s", ViewPresetName(m_viewPreset));
+        ImGui::BeginDisabled(m_playing || m_is2DLevel);
+        if (ImGui::Button("正视图")) SetViewPreset(editorCamera, ViewPreset::Front);
+        ImGui::SameLine();
+        if (ImGui::Button("俯视图")) SetViewPreset(editorCamera, ViewPreset::Top);
+        ImGui::SameLine();
+        if (ImGui::Button("透视图")) SetViewPreset(editorCamera, ViewPreset::Perspective);
+        ImGui::EndDisabled();
+        if (ImGui::Button("聚焦选中物体 (F)")) FocusSelected(world, editorCamera);
+        ImGui::Separator();
     }
 
     if (ImGui::CollapsingHeader("渲染", ImGuiTreeNodeFlags_DefaultOpen)) {
@@ -1153,35 +1345,52 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
     const bool   activeDrag = m_gizmoAxis >= 0;
 
     if (m_gizmoMode == 1) {
-        // ---------------- 旋转：三个环 ----------------
+        // ---------------- 旋转：三个局部坐标环 ----------------
+        // 环跟随物体自身的 X/Y/Z（和检视器里的旋转字段语义一致）。拖动时
+        // 冻结起始朝向，只累计“绕该环”的角度，避免斜着拖一下同时改变三个角。
+        const Quat  referenceRotation = activeDrag ? m_gizmoStartRotation : m_selected->Rotation();
+        const Mat4  parentWorld = m_selected->Parent() ? m_selected->Parent()->WorldMatrix() : Mat4::Identity();
+        const Vec3  unitAxes[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
+        Vec3        ringAxes[3];
+        for (int i = 0; i < 3; ++i) {
+            ringAxes[i] = Normalize(parentWorld.TransformVector(referenceRotation.RotateVector(unitAxes[i])));
+        }
+        const Vec3 toCamera = editorCamera.position - origin;
+
+        auto ringBasis = [](const Vec3& n, Vec3& u, Vec3& v) {
+            u = Normalize(Cross(n, std::fabs(n.y) > 0.9f ? Vec3(1, 0, 0) : Vec3(0, 1, 0)));
+            v = Cross(n, u);
+        };
+
         int    hovered = -1;
+        int    hoveredSample = 0;
         float  best = 9.0f;
         for (int i = 0; i < 3; ++i) {
-            // 在垂直于轴的平面里取两个基向量
-            const Vec3 n = axes[i];
-            const Vec3 u = Normalize(Cross(n, std::fabs(n.y) > 0.9f ? Vec3(1, 0, 0) : Vec3(0, 1, 0)));
-            const Vec3 v = Cross(n, u);
+            const Vec3 n = ringAxes[i];
+            Vec3       u, v;
+            ringBasis(n, u, v);
 
-            ImVec2 points[33];
-            bool   valid[33] = {false};
-            int    validCount = 0;
-            for (int k = 0; k <= 32; ++k) {
-                const float angle = kTwoPi * static_cast<float>(k) / 32.0f;
+            constexpr int kSamples = 48;
+            ImVec2        points[kSamples + 1];
+            bool          valid[kSamples + 1] = {false};
+            bool          front[kSamples + 1] = {false};
+            int           validCount = 0;
+            for (int k = 0; k <= kSamples; ++k) {
+                const float angle = kTwoPi * static_cast<float>(k) / static_cast<float>(kSamples);
                 const Vec3  p = origin + (u * std::cos(angle) + v * std::sin(angle)) * axisLength;
                 if (project(p, points[k])) {
                     valid[k] = true;
+                    front[k] = Dot(p - origin, toCamera) >= 0.0f;
                     ++validCount;
                 }
             }
             if (validCount < 8) continue;
 
-            // 命中：鼠标到线段的最短距离
-            ImVec2 prev = points[0];
-            for (int k = 1; k <= 32; ++k) {
-                if (!valid[k] || !valid[k - 1]) { prev = points[k]; continue; }
-                const ImVec2 a = prev;
+            // 只命中朝向相机的前半环：后半环画得淡一些，避免“点到的和看到的不一致”。
+            for (int k = 1; k <= kSamples; ++k) {
+                if (!valid[k] || !valid[k - 1] || !front[k] || !front[k - 1]) continue;
+                const ImVec2 a = points[k - 1];
                 const ImVec2 b = points[k];
-                prev = b;
                 const ImVec2 ab(b.x - a.x, b.y - a.y);
                 const float  len2 = ab.x * ab.x + ab.y * ab.y;
                 if (len2 < 1.0f) continue;
@@ -1193,34 +1402,82 @@ void Editor::DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewpor
                 if (dist < best) {
                     best = dist;
                     hovered = i;
+                    hoveredSample = k;
                 }
             }
 
-            // 绘制环
-            const bool  active = (i == hovered) || (i == m_gizmoAxis);
+            // 绘制环：前半环实色，后半环淡色
+            const bool active = (i == hovered) || (i == m_gizmoAxis);
             ImVec2 last;
             bool   hasLast = false;
-            for (int k = 0; k <= 32; ++k) {
+            for (int k = 0; k <= kSamples; ++k) {
                 if (!valid[k]) { hasLast = false; continue; }
-                if (hasLast) draw->AddLine(last, points[k], colors[i], active ? 3.5f : 2.0f);
+                if (hasLast) {
+                    const bool  isFront = front[k] && front[k - 1];
+                    const u8    alpha = isFront ? 255 : 64;
+                    const ImU32 color = (colors[i] & 0x00FFFFFFu) | (static_cast<ImU32>(alpha) << 24);
+                    draw->AddLine(last, points[k], color, (active && isFront) ? 3.5f : (isFront ? 2.2f : 1.2f));
+                }
                 last = points[k];
                 hasLast = true;
             }
         }
 
         if (!activeDrag && hovered >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            Vec3 u, v;
+            ringBasis(ringAxes[hovered], u, v);
             m_gizmoAxis = hovered;
             m_gizmoStartMouseX = mouse.x;
             m_gizmoStartMouseY = mouse.y;
             m_gizmoStartRotation = m_selected->Rotation();
+            m_rotateGrabTheta = kTwoPi * static_cast<float>(hoveredSample) / 48.0f;
+            m_rotateAccum = 0.0f;
+            m_rotateLastMouseX = mouse.x;
+            m_rotateLastMouseY = mouse.y;
+            m_rotateScreenRadius = (std::max)(std::sqrt((screenOrigin.x - mouse.x) * (screenOrigin.x - mouse.x) +
+                                                       (screenOrigin.y - mouse.y) * (screenOrigin.y - mouse.y)),
+                                              14.0f);
         }
+
         if (activeDrag) {
-            if (ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
-                const float delta = (mouse.x - m_gizmoStartMouseX) + (mouse.y - m_gizmoStartMouseY);
-                const float angle = delta * 0.01f;
-                const Quat  rotation = Quat::FromAxisAngle(axes[m_gizmoAxis], angle) * m_gizmoStartRotation;
+            if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && m_gizmoAxis >= 0) {
+                const int  axis = m_gizmoAxis;
+                Vec3       u, v;
+                ringBasis(ringAxes[axis], u, v);
+
+                const float theta = m_rotateGrabTheta + m_rotateAccum;
+                const Vec3  point = origin + (u * std::cos(theta) + v * std::sin(theta)) * axisLength;
+                ImVec2      p0, p1, p2;
+                Vec2        tangent(1, 0);
+                if (project(point, p0) && project(origin + (u * std::cos(theta + 0.01f) + v * std::sin(theta + 0.01f)) * axisLength, p1) &&
+                    project(origin + (u * std::cos(theta - 0.01f) + v * std::sin(theta - 0.01f)) * axisLength, p2)) {
+                    const ImVec2 t(p1.x - p2.x, p1.y - p2.y);
+                    const float  len = std::sqrt(t.x * t.x + t.y * t.y);
+                    if (len > 1e-3f) tangent = Vec2(t.x / len, t.y / len);
+                }
+                const float deltaX = mouse.x - m_rotateLastMouseX;
+                const float deltaY = mouse.y - m_rotateLastMouseY;
+                const float denom = (std::max)(m_rotateScreenRadius, 14.0f);
+                const float deltaAngle = Clamp((deltaX * tangent.x + deltaY * tangent.y) / denom, -0.35f, 0.35f);
+                m_rotateAccum += deltaAngle;
+                m_rotateLastMouseX = mouse.x;
+                m_rotateLastMouseY = mouse.y;
+
+                const Quat rotation =
+                    (m_gizmoStartRotation * Quat::FromAxisAngle(unitAxes[axis], m_rotateAccum)).Normalized();
                 m_selected->SetRotation(rotation);
+                m_rotateScreenRadius = (std::max)(m_rotateScreenRadius, 14.0f);
+
+                const char* axisName = axis == 0 ? "X" : (axis == 1 ? "Y" : "Z");
+                char        label[64];
+                std::snprintf(label, sizeof(label), "绕 %s: %.0f°", axisName, ToDegrees(m_rotateAccum));
+                draw->AddText(ImVec2(mouse.x + 16.0f, mouse.y + 8.0f), IM_COL32(245, 230, 180, 255), label);
             } else {
+                const int  axis = m_gizmoAxis;
+                const char* axisName = axis == 0 ? "X" : (axis == 1 ? "Y" : "Z");
+                char        label[96];
+                std::snprintf(label, sizeof(label), "旋转 %s: %.1f°", axisName, ToDegrees(m_rotateAccum));
+                SetStatus(label);
                 m_gizmoAxis = -1;
             }
         }
@@ -1312,8 +1569,14 @@ void Editor::FocusSelected(World& world, Camera& editorCamera) {
     }
     const Vec3  center = bounds.Center();
     const float radius = (std::max)(Length(bounds.Extents()), 0.5f);
-    const float distance = radius / std::tan(editorCamera.fovY * 0.5f) * 1.7f;
-    editorCamera.position = center - editorCamera.Forward() * distance;
+    if (editorCamera.orthographic) {
+        editorCamera.orthoHeight = (std::max)(radius * 2.6f, 1.0f);
+        const float distance = (std::max)(Length(editorCamera.position - center), 10.0f);
+        editorCamera.position = center - editorCamera.Forward() * distance;
+    } else {
+        const float distance = radius / std::tan(editorCamera.fovY * 0.5f) * 1.7f;
+        editorCamera.position = center - editorCamera.Forward() * distance;
+    }
 }
 void Editor::PickObject(World& world, Camera& camera, const ImVec2& viewportPos, const ImVec2& viewportSize) {
     if (viewportSize.x <= 0 || viewportSize.y <= 0) return;

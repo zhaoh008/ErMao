@@ -346,10 +346,9 @@ void AssetManager::RegisterLevels() {
         }
     }
     if (!registered) {
-        Register("关卡 · 2D 幸存者", AssetType::Scene, "level://survivors", true);
-        Register("关卡 · 3D 幸存者", AssetType::Scene, "level://survivors3d", true);
-        Register("关卡 · 第三人称", AssetType::Scene, "level://thirdperson", true);
-        Register("关卡 · 刷怪竞技场", AssetType::Scene, "level://arena", true);
+        // 只保留两个 demo 关卡；其余示例关卡代码仍然存在，但不再出现在菜单里。
+        Register("关卡 · 2D 幸存者 Demo", AssetType::Scene, "level://survivors", true);
+        Register("关卡 · 3D 幸存者 Demo", AssetType::Scene, "level://survivors3d", true);
     }
     LogInfo("关卡资源已注册（资源管理器 → 场景）");
 }
