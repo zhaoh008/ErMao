@@ -11,6 +11,7 @@
 #include "core/Math.h"
 #include "core/Types.h"
 #include "editor/ImGuiLayer.h"
+#include "renderer/Camera.h"
 
 #include <functional>
 
@@ -22,7 +23,6 @@ class World;
 class Renderer;
 class AssetManager;
 class GameObject;
-class Camera;
 struct FieldDesc;
 
 class Editor {
@@ -38,6 +38,11 @@ public:
     using SceneLoadedCallback = std::function<void(const std::string&)>;
     void SetSceneLoadedCallback(SceneLoadedCallback callback) { m_sceneLoaded = std::move(callback); }
     void LoadSceneAsset(World& world, const std::string& name, const std::string& sourcePath);
+    void SetScenePath(const std::string& path) { m_scenePath = path; }
+    void ShowSettings(bool show) {
+        m_showSettings = show;
+        if (show) m_focusSettings = true;
+    }
     void Shutdown();
     // 忽略 imgui.ini，本次启动强制铺一次默认 Dock 布局
     void ForceDefaultLayout() { m_forceDefaultLayout = true; }
@@ -54,6 +59,15 @@ public:
     bool WantsExit() const { return m_wantsExit; }
     void ClearExitRequest() { m_wantsExit = false; }
 
+    // ---- 编辑器视角：透视 / 正视图 / 俯视图 ----
+    enum class ViewPreset { Perspective, Front, Top };
+    void      SetViewPreset(Camera& editorCamera, ViewPreset preset);
+    ViewPreset CurrentView() const { return m_viewPreset; }
+    // 2D 关卡固定为正交正视图（编辑 2D 精灵时 gizmo / 拾取与画面严格对齐）
+    void Enter2DEditorView(Camera& editorCamera);
+    void Exit2DEditorView(Camera& editorCamera);
+    bool Is2DEditorView() const { return m_is2DLevel; }
+
     GameObject* Selected() const { return m_selected; }
     void        Select(GameObject* object);
 
@@ -67,7 +81,7 @@ public:
 
 private:
     void DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera);
-    void DrawToolbar(World& world, Renderer& renderer);
+    void DrawToolbar(World& world, Renderer& renderer, Camera& editorCamera);
     void DrawDockspace(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera);
     void DrawViewport(World& world, Renderer& renderer, Camera& editorCamera, const ViewportRenderer& renderViewport);
     void DrawOutliner(World& world);
@@ -75,7 +89,7 @@ private:
     void DrawAssets(World& world, AssetManager& assets, Renderer& renderer, Camera& editorCamera);
     void DrawConsole();
     void DrawStats(World& world, Renderer& renderer);
-    void DrawSettings(World& world, Renderer& renderer);
+    void DrawSettings(World& world, Renderer& renderer, Camera& editorCamera);
     void DrawStatusBar();
 
     void DrawOutlinerNode(World& world, GameObject* object);
@@ -117,8 +131,9 @@ private:
     bool m_showConsole = true;
     bool m_showStats = true;
     bool m_showSettings = false;
+    bool m_focusSettings = false;
 
-    std::string m_scenePath = "assets/scenes/thirdperson.ermao.json";
+    std::string m_scenePath = "assets/scenes/survivors.ermao.json";
     std::string m_snapshot;
     std::string m_statusMessage = "就绪";
     bool        m_statusIsError = false;
@@ -158,6 +173,18 @@ private:
     float  m_gizmoWorldPerPixel = 0.01f;
     Vec3   m_gizmoStartScale{1.0f, 1.0f, 1.0f};
     Quat   m_gizmoStartRotation{0, 0, 0, 1};
+    // 旋转拖动：沿环的屏幕切线做增量，避免“左右晃一下同时绕两轴”的错觉
+    float  m_rotateGrabTheta = 0.0f;
+    float  m_rotateAccum = 0.0f;
+    float  m_rotateScreenRadius = 1.0f;
+    float  m_rotateLastMouseX = 0.0f;
+    float  m_rotateLastMouseY = 0.0f;
+
+    // 视角状态
+    ViewPreset m_viewPreset = ViewPreset::Perspective;
+    bool       m_is2DLevel = false;
+    bool       m_savedPerspectiveValid = false;
+    Camera     m_savedPerspective;
 
     // 视口信息
     u32   m_viewportWidth = 0;

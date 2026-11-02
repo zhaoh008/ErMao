@@ -17,8 +17,10 @@ Ray Camera::ScreenToRay(const Vec2& screen, const Vec2& screenSize) const {
     p0 = p0 / p0.w;
     p1 = p1 / p1.w;
 
+    // 正交相机每个像素的射线方向相同但起点不同：必须从近平面上的 p0 出发，
+    // 否则拾取会全部偏到画面中心（2D / 正交视图下尤其明显）。
     Ray ray;
-    ray.origin = position;
+    ray.origin = p0.xyz();
     ray.direction = Normalize(p1.xyz() - p0.xyz());
     return ray;
 }
@@ -38,6 +40,8 @@ void Camera::SetFromMatrix(const Mat4& world) {
     const Vec3 forward = Normalize(world.TransformVector(Vec3(0, 0, -1)));
     pitch = std::asin(Clamp(forward.y, -1.0f, 1.0f));
     yaw = std::atan2(-forward.x, -forward.z);
+    up = Vec3(0, 1, 0);
+    orthographic = false;
 }
 
 void Camera::UpdateFly(float dt, bool mouseCaptured, const Vec2& mouseDelta) {

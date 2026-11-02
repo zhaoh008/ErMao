@@ -279,7 +279,11 @@ void World::BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const
             draw.uv = sprite->uv;
             draw.color = sprite->color;
             draw.flipX = sprite->flipX;
-            draw.rotation = sprite->rotation;
+            // 2D 精灵同时响应 SpriteRenderer 自己的 rotation 和 Transform 的 Z 旋转，
+            // 这样编辑器里用旋转 gizmo 转精灵能直接看到结果。
+            float yaw = 0.0f, pitch = 0.0f, roll = 0.0f;
+            object->Rotation().ToEuler(yaw, pitch, roll);
+            draw.rotation = sprite->rotation + roll;
             spriteEntries.push_back({draw, sprite->layer});
         });
     }

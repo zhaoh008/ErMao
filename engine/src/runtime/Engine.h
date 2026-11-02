@@ -32,6 +32,8 @@ private:
     void LoadLevel(const std::string& kind);
     // 只恢复 2D/3D/玩法模式，不重建世界（读档后调用）
     void ApplyLevelMode(const std::string& kind);
+    // 切换关卡后同步编辑器相机：2D 关卡固定正交正视图，3D 关卡恢复透视
+    void SetupEditorViewForLevel();
 
     // ---- AI 优先：无头脚本接口 ----
     // 输入 {"commands":[{cmd:...}, ...]}，返回逐条结果（JSON）
@@ -61,6 +63,7 @@ private:
     bool        m_is2D = false;
     bool        m_waveLevel = false;
     bool        m_demoMode = false;
+    bool        m_playSessionStarted = false; // 本次 Play 是否已自动开局（Run=直接开打）
 
     bool  m_running = true;
     bool  m_vsync = true;
@@ -96,8 +99,11 @@ private:
     int         m_debugView = -1;       // -1 = 不改；0/1/2/3 = 调试视图
     float       m_overrideRoughness = -1.0f;
     float       m_overrideMetallic = -1.0f;
-    std::string m_levelName = "arena";
-    std::string m_scenePath = "assets/scenes/thirdperson.ermao.json";
+    std::string m_levelName = "survivors";
+    std::string m_scenePath = "assets/scenes/survivors.ermao.json";
+    std::string m_editorView;        // --editor-view perspective|front|top（自动截图用）
+    std::string m_editorSelect;      // --editor-select <名字>（自动截图用）
+    bool        m_editorSettings = false; // --editor-settings（自动截图用）
 };
 
 } // namespace erm

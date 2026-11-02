@@ -88,8 +88,9 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
               "\r\n"
               "1. 双击 run.bat（发布版：无控制台、无日志）\r\n"
               "2. 排错时双击 run-dev.bat（开发版：控制台日志）\r\n"
-              "3. 编辑器操作：右键拖动环视，WASD 移动，左键拾取，F 聚焦，F5 运行\r\n"
-              "4. 刷怪 Demo：进入 Play 后选择“开始游戏”，左键射击\r\n"
+              "3. 默认进入 2D 幸存者 Demo；「关卡」菜单可切换到 3D 幸存者 Demo\r\n"
+              "4. 编辑器：左键拾取，WASD/QE 移动，F 聚焦，F5 直接开局\r\n"
+              "5. 视角：V 切换 透视 / 正视图 / 俯视；设置面板可调镜头速度\r\n"
               "\r\n"
               "assets/ 下是场景与模型，shaders/ 是运行时编译的 HLSL，删改前请先备份。\r\n");
 

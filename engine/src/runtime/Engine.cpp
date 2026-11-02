@@ -116,6 +116,12 @@ int Engine::Run(int argc, char** argv) {
             m_showEditor = false;
         } else if (arg == "--level" && i + 1 < argc) {
             m_levelName = argv[++i];
+        } else if (arg == "--editor-view" && i + 1 < argc) {
+            m_editorView = argv[++i];
+        } else if (arg == "--editor-select" && i + 1 < argc) {
+            m_editorSelect = argv[++i];
+        } else if (arg == "--editor-settings") {
+            m_editorSettings = true;
         } else if (arg == "--test-serialize") {
             m_testSerialize = true;
         } else if (arg == "--package-game" && i + 1 < argc) {
@@ -322,12 +328,39 @@ bool Engine::Init() {
     if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext(), !autoRun)) return false;
     if (autoRun) m_editor.ForceDefaultLayout();
     m_editor.Init(&m_imgui);
+    m_editor.SetScenePath(m_scenePath);
     m_editor.SetLevelLoader([this](const std::string& kind) { LoadLevel(kind); });
     m_editor.SetSceneLoadedCallback([this](const std::string& kind) { ApplyLevelMode(kind); });
+    SetupEditorViewForLevel();
+    if (!m_editorView.empty() && !m_is2D) {
+        if (m_editorView == "front") {
+            m_editor.SetViewPreset(m_editorCamera, Editor::ViewPreset::Front);
+        } else if (m_editorView == "top") {
+            m_editor.SetViewPreset(m_editorCamera, Editor::ViewPreset::Top);
+        } else {
+            m_editor.SetViewPreset(m_editorCamera, Editor::ViewPreset::Perspective);
+        }
+    }
+    if (m_editorSettings) m_editor.ShowSettings(true);
+    if (!m_editorSelect.empty()) {
+        GameObject* object = m_world.FindByName(m_editorSelect);
+        if (!object) {
+            // 命令行里的中文参数在 Windows 上会被 ANSI 代码页弄乱；自动化截图时
+            // 允许用“根节点序号”选择（世界大纲的顺序）。
+            char*       end = nullptr;
+            const long  index = std::strtol(m_editorSelect.c_str(), &end, 10);
+            if (end != m_editorSelect.c_str() && index >= 0 &&
+                index < static_cast<long>(m_world.RootObjects().size())) {
+                object = m_world.RootObjects()[static_cast<size_t>(index)];
+            }
+        }
+        if (object) {
+            m_editor.Select(object);
+        } else {
+            LogWarn("[自动化] 未找到选中对象: %s", m_editorSelect.c_str());
+        }
+    }
     if (m_startPlay) m_editor.Play();
-    if (m_waveLevel && !m_showEditor) m_waveGame.Reset(m_world);
-    if (m_survivorsLevel && (m_demoMode || m_smoke)) m_survivors.Reset(m_world);
-    if (m_survivors3dLevel && (m_demoMode || m_smoke)) m_survivors3d.Reset(m_world);
     if (m_demoMode) CombatComponent::SetAutoFire(true);
     if (m_smoke) {
         GameObject* player = m_world.FindByName("玩家");
@@ -418,6 +451,10 @@ void Engine::LoadLevel(const std::string& kind) {
         game::BuildThirdPersonLevel(m_world);
     }
     m_world.SetLevelKind(kind);
+    m_scenePath = FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "scenes"), kind + ".ermao.json");
+    m_editor.SetScenePath(m_scenePath);
+    SetupEditorViewForLevel();
+    m_playSessionStarted = false;
     LogInfo("[关卡] 已切换: %s（%zu 个对象）", kind.c_str(), m_world.ObjectCount());
 }
 
@@ -430,7 +467,17 @@ void Engine::ApplyLevelMode(const std::string& kind) {
     if (m_survivors3dLevel) m_survivors3d.ReturnToMenu();
     if (m_waveLevel) m_waveGame.ReturnToMenu();
     if (!kind.empty()) m_levelName = kind;
+    SetupEditorViewForLevel();
+    m_playSessionStarted = false;
     LogInfo("[关卡] 场景模式: %s", kind.empty() ? "普通场景" : kind.c_str());
+}
+
+void Engine::SetupEditorViewForLevel() {
+    if (m_is2D) {
+        m_editor.Enter2DEditorView(m_editorCamera);
+    } else {
+        m_editor.Exit2DEditorView(m_editorCamera);
+    }
 }
 void Engine::Shutdown() {
     AudioSystem::Get().Shutdown();
@@ -473,12 +520,18 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
     if (m_is2D) {
-        // 2D：正交相机跟随玩家（超出关卡边界时夹住）
-        Camera2D camera2D;
-        camera2D.halfHeight = 6.4f;
-        if (GameObject* player = m_world.FindByName("玩家")) {
-            const Vec3 position = player->Position();
-            camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+        // 2D：运行时跟随玩家；编辑时用编辑器正交相机（位置/缩放与 gizmo 严格一致）
+        const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
+        Camera2D   camera2D;
+        if (!m_showEditor || playing) {
+            camera2D.halfHeight = 6.4f;
+            if (GameObject* player = m_world.FindByName("玩家")) {
+                const Vec3 position = player->Position();
+                camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+            }
+        } else {
+            camera2D.position = Vec2(camera.position.x, camera.position.y);
+            camera2D.halfHeight = (std::max)(camera.orthoHeight, 0.1f) * 0.5f;
         }
         m_scene.is2D = true;
         m_scene.camera2D = camera2D;
@@ -542,6 +595,25 @@ void Engine::MainLoop() {
                 LogInfo("[冒烟] 帧 %d 玩家位置 (%.2f, %.2f, %.2f)", m_frameIndex, p.x, p.y, p.z);
             }
         }
+        // 2.5) 点击“运行 / F5”即直接开局：幸存者 Demo 不再要求先点一次“开始游戏”。
+        //      无编辑器的游戏包（game.cfg play=1）同样走这里。
+        {
+            const bool sessionPlaying = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
+            if (sessionPlaying && !m_playSessionStarted) {
+                m_playSessionStarted = true;
+                m_accumulator = 0.0f;
+                if (m_survivorsLevel) {
+                    m_survivors.Reset(m_world);
+                } else if (m_survivors3dLevel) {
+                    m_survivors3d.Reset(m_world);
+                } else if (m_waveLevel) {
+                    m_waveGame.Reset(m_world);
+                }
+            } else if (!sessionPlaying) {
+                m_playSessionStarted = false;
+            }
+        }
+
         UpdateGameplay(dt);
 
         // 3) 热键：文本输入时不要抢键盘（审核 P2-17/P2-19）
@@ -562,7 +634,10 @@ void Engine::MainLoop() {
                 viewCamera = *gameCamera;
             }
         }
-        bool gameplayInput = playing && (!m_showEditor || m_editor.ViewportHovered());
+        // PIE 里点击“运行”后鼠标通常还在工具栏上；玩法输入不应因此被禁用。
+        // 只在暂停或正在输入文字时关闭，避免 WASD 抢输入框。
+        const bool paused = m_showEditor && m_editor.IsPaused();
+        bool gameplayInput = playing && !paused && !ImGui::GetIO().WantTextInput;
         // 编辑器模式下也在这里把 UI 用的相机对齐到游戏视口（血条投影要一致）
         if (m_survivors3dLevel && playing) AimSurvivors3DCamera(m_world, viewCamera);
         if (m_waveLevel) {

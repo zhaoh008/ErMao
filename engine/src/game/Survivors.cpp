@@ -681,6 +681,12 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     animator->fps = 6.0f;
     animator->frameMin = Vec2(0.410f, 0.380f); // 裁掉 100x100 帧里的透明留白
     animator->frameMax = Vec2(0.580f, 0.600f);
+    // 编辑模式不跑 OnUpdate，先把第一帧 UV 应用上；否则整张 600x100 序列图
+    // 会被当一帧压扁，透明留白让玩家在编辑器里看起来“消失”了。
+    if (auto* sprite = player->GetComponent<SpriteRendererComponent>()) {
+        assets.GetTextureAsset(sprite->texture); // 先加载，OnUpdate 才能按宽高算列数
+    }
+    animator->OnUpdate(0.0f);
     auto* playerComponent = player->AddComponent<SurvivorsPlayerComponent>();
     playerComponent->arenaHalf = Vec2(27.0f, 14.5f);
 

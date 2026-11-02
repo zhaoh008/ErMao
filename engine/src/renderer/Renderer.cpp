@@ -428,20 +428,35 @@ void Renderer::SpritePass(ID3D11DeviceContext* ctx, const RenderScene& scene, fl
 
         const float hw = sprite.dest.z * 0.5f;
         const float hh = sprite.dest.w * 0.5f;
-        const float x0 = sprite.dest.x - hw;
-        const float x1 = sprite.dest.x + hw;
-        const float y0 = sprite.dest.y - hh;
-        const float y1 = sprite.dest.y + hh;
+        const float cx = sprite.dest.x;
+        const float cy = sprite.dest.y;
+        const float x0 = cx - hw;
+        const float x1 = cx + hw;
+        const float y0 = cy - hh;
+        const float y1 = cy + hh;
 
         float u0 = sprite.uv.x, v0 = sprite.uv.y, u1 = sprite.uv.z, v1 = sprite.uv.w;
         if (sprite.flipX) std::swap(u0, u1);
 
-        m_spriteVertices.push_back({Vec2(x0, y0), Vec2(u0, v1), sprite.color});
-        m_spriteVertices.push_back({Vec2(x1, y0), Vec2(u1, v1), sprite.color});
-        m_spriteVertices.push_back({Vec2(x1, y1), Vec2(u1, v0), sprite.color});
-        m_spriteVertices.push_back({Vec2(x0, y0), Vec2(u0, v1), sprite.color});
-        m_spriteVertices.push_back({Vec2(x1, y1), Vec2(u1, v0), sprite.color});
-        m_spriteVertices.push_back({Vec2(x0, y1), Vec2(u0, v0), sprite.color});
+        // 绕精灵中心旋转（2D 箭矢朝向、编辑器里旋转精灵都靠它）
+        const float c = std::cos(sprite.rotation);
+        const float s = std::sin(sprite.rotation);
+        auto rotate = [&](float x, float y) {
+            const float dx = x - cx;
+            const float dy = y - cy;
+            return Vec2(cx + dx * c - dy * s, cy + dx * s + dy * c);
+        };
+        const Vec2 p00 = rotate(x0, y0);
+        const Vec2 p10 = rotate(x1, y0);
+        const Vec2 p11 = rotate(x1, y1);
+        const Vec2 p01 = rotate(x0, y1);
+
+        m_spriteVertices.push_back({p00, Vec2(u0, v1), sprite.color});
+        m_spriteVertices.push_back({p10, Vec2(u1, v1), sprite.color});
+        m_spriteVertices.push_back({p11, Vec2(u1, v0), sprite.color});
+        m_spriteVertices.push_back({p00, Vec2(u0, v1), sprite.color});
+        m_spriteVertices.push_back({p11, Vec2(u1, v0), sprite.color});
+        m_spriteVertices.push_back({p01, Vec2(u0, v0), sprite.color});
         runs.back().count += 6;
     }
     if (m_spriteVertices.empty()) return;
