@@ -39,6 +39,8 @@
 - 编辑器内 2D 幸存者 HUD 提前 `EndFrame()`，导致同帧后续 UI 绘制时机错误
 - `World::Update/FixedUpdate` 遍历根节点改为快照：组件在 `OnUpdate` 里生成箭/宝石/特效会让 `m_roots` 扩容，
   导致 2D/3D 幸存者偶发 `0xC0000005` 崩溃
+- 修复非 ASCII（中文等）路径下纹理加载、截图保存与 WAV 音频加载失败：进入 WIC / 文件读取前统一使用
+  UTF-8→UTF-16 转换（`FileSystem::Utf8ToWide` / `ReadBinaryFile`）
 
 ## [0.8.7] - 2026-11-02
 
