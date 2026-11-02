@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import urllib.parse
 from pathlib import Path
 
 from PIL import Image
@@ -666,7 +667,8 @@ def main() -> int:
 
         # 把 markdown 之间的 .md 链接改成锚点，保证点击能跳章
         def link_repl(m):
-            target = (path.parent / m.group(1)).resolve()
+            href = urllib.parse.unquote(m.group(1))
+            target = (path.parent / href).resolve()
             doc_id = doc_ids.get(target)
             return f'href="#{doc_id}"' if doc_id else m.group(0)
 

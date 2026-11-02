@@ -62,7 +62,7 @@
 | [18-19](L18-网络基础.md) | 网络基础与同步（设计） | — | ✗ 设计 |
 | [20](L20-数据布局与JobSystem.md) | SoA、并行分块与 Amdahl | `core/JobSystem` | ✅ |
 | [21](L21-GI与光照探针.md) | 全局光照近似（设计） | `World::ambient*` | ◐ 近似 |
-| [22](L22-GPU Driven.md) | GPU Driven：compute 剔除 + 间接绘制 | `shaders/Cull.hlsl` `Renderer::GpuCulledDraw` | ✅ |
+| [22](L22-GPU%20Driven.md) | GPU Driven：compute 剔除 + 间接绘制 | `shaders/Cull.hlsl` `Renderer::GpuCulledDraw` | ✅ |
 | [23](L23-2D渲染与像素游戏.md) | 2D 渲染与像素风幸存者游戏 | `Camera2D` `SpritePass` `game/Survivors` | ✅ |
 | [24](L24-3D幸存者与外部模型.md) | 3D 幸存者：外部 OBJ、材质、粒子特效 | `ObjLoader` `GetMeshAsset` `Survivors3D` | ✅ |
 | [25](L25-音频PCM与混音.md) | 音频：WAV/PCM 与混音 | `platform/Audio` `AudioSystem` | ✅ |
