@@ -926,6 +926,7 @@ void Editor::LoadSceneAsset(World& world, const std::string& name, const std::st
         return;
     }
     if (world.LoadFromFile(sourcePath)) {
+        m_scenePath = sourcePath;
         SetStatus("场景已加载: " + name);
         if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
@@ -1659,6 +1660,7 @@ void Editor::LoadScene(World& world) {
 }
 
 void Editor::NewScene(World& world) {
+    m_scenePath.clear();
     world.Clear();
     GameObject* camera = world.CreateGameObject("主相机");
     camera->SetPosition(Vec3(0, 4, 12));
