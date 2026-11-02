@@ -316,8 +316,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 关卡
     if (cmd == "level.build") {
         const std::string kind = command["kind"].AsString();
-        // 关卡切换后同步 2D 标记，避免无头截图沿用上一关的 2D/3D 状态。
+        // 关卡切换后同步全部模式状态（与 Engine::LoadLevel 一致），避免无头截图
+        // 或后续命令沿用上一关的 2D 标记与玩法导演。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
         m_is2D = (kind == "survivors");
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         m_world.Clear();
         if (kind == "survivors3d") {
             BuildSurvivors3DLevel(m_world, m_assets);
