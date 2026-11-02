@@ -406,18 +406,15 @@ bool Engine::Init() {
         }
     }
     if (!m_scriptPath.empty() || m_validateOnly) {
-        JsonValue report;
         if (m_validateOnly) {
-            report = ValidateWorld();
+            const JsonValue report = ValidateWorld();
             if (!report["ok"].AsBool()) m_headlessFailed = true;
+            if (!m_jsonOut.empty()) {
+                std::ofstream out(m_jsonOut, std::ios::binary);
+                out << report.Dump(2);
+            }
         } else {
             if (!RunAgentScript(m_scriptPath, m_jsonOut)) m_headlessFailed = true;
-            report = JsonValue::MakeObject();
-            report.Set("script", JsonValue(m_scriptPath));
-        }
-        if (!m_jsonOut.empty()) {
-            std::ofstream out(m_jsonOut, std::ios::binary);
-            out << report.Dump(2);
         }
         m_running = false;
     }
