@@ -18,7 +18,7 @@
     { "cmd": "component.set", "object": "太阳", "component": "Directional Light", "field": "intensity", "value": 2.2 },
 
     { "cmd": "camera.set", "position": [8, 6, 10], "yaw": 0.675, "pitch": -0.43 },
-    { "cmd": "screenshot", "path": "docs/screenshots/agent-scene.png" },
+    { "cmd": "screenshot", "path": "文档/screenshots/agent-scene.png" },
     { "cmd": "scene.save", "path": "build/bin/assets/scenes/agent-scene.ermaos.json" },
     { "cmd": "validate" }
   ]

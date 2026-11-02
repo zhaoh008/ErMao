@@ -21,7 +21,7 @@
     { "cmd": "component.set", "object": "太阳", "component": "Directional Light", "field": "intensity", "value": 2.4 },
 
     { "cmd": "camera.set", "position": [9, 6.5, 11], "yaw": 0.68, "pitch": -0.42 },
-    { "cmd": "screenshot", "path": "docs/screenshots/agent-dcc.png" },
+    { "cmd": "screenshot", "path": "文档/screenshots/agent-dcc.png" },
     { "cmd": "scene.save", "path": "build/bin/assets/scenes/ai-dcc-scene.ermaos.json" },
     { "cmd": "validate" }
   ]

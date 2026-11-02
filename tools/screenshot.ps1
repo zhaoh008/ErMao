@@ -1,7 +1,7 @@
 # 截取 ErMao 窗口并保存为 PNG
-# 用法: powershell -File tools\screenshot.ps1 -Out docs\screenshots\shot.png [-Wait 3]
+# 用法: powershell -File tools\screenshot.ps1 -Out 文档\screenshots\shot.png [-Wait 3]
 param(
-    [string]$Out = "docs\screenshots\shot.png",
+    [string]$Out = "文档\screenshots\shot.png",
     [int]$Wait = 3,
     [string]$ProcessName = "ErMao",
     [switch]$KeepRunning

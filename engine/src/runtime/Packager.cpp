@@ -116,7 +116,7 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
         return result;
     }
     CopyTree(FileSystem::Join(project, "third_party"), FileSystem::Join(target, "third_party"));
-    CopyTree(FileSystem::Join(project, "docs"), FileSystem::Join(target, "docs"));
+    CopyTree(FileSystem::Join(project, "文档"), FileSystem::Join(target, "文档"));
     FileSystem::CopyFileTo(FileSystem::Join(project, "CMakeLists.txt"), FileSystem::Join(target, "CMakeLists.txt"));
 
     WriteText(FileSystem::Join(target, "build.sh"),
@@ -231,7 +231,7 @@ PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, cons
         return result;
     }
     CopyTree(FileSystem::Join(project, "third_party"), FileSystem::Join(target, "third_party"));
-    CopyTree(FileSystem::Join(project, "docs"), FileSystem::Join(target, "docs"));
+    CopyTree(FileSystem::Join(project, "文档"), FileSystem::Join(target, "文档"));
     FileSystem::CopyFileTo(FileSystem::Join(project, "CMakeLists.txt"), FileSystem::Join(target, "CMakeLists.txt"));
     WriteText(FileSystem::Join(target, "game.cfg"),
               "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
