@@ -56,8 +56,10 @@ public:
 private:
     void UpdateCamera();
     void ResolveCollisions();
+    void ResolveCamera();
 
     GameObject* m_cameraObject = nullptr;
+    u64         m_cameraObjectId = 0; // 缓存指针失效校验（World::FindById）
     float       m_verticalVelocity = 0.0f;
     bool        m_simulatedJumpPrev = false;
 };

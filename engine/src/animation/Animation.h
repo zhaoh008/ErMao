@@ -58,6 +58,7 @@ private:
 
     AnimationClip m_clip;
     class GameObject* m_targetObject = nullptr;
+    u64               m_targetObjectId = 0; // 缓存指针失效校验（World::FindById）
 };
 
 } // namespace erm
