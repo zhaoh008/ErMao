@@ -88,7 +88,7 @@ bool Texture::CreateFromFile(ID3D11Device* device, const std::string& path, bool
     auto factory = GetWICFactory();
     if (!factory) { LogError("WIC 工厂创建失败"); return false; }
 
-    const std::wstring wpath(path.begin(), path.end());
+    const std::wstring wpath = FileSystem::Utf8ToWide(path);
     ComPtr<IWICBitmapDecoder> decoder;
     HRESULT hr = factory->CreateDecoderFromFilename(wpath.c_str(), nullptr, GENERIC_READ,
                                                     WICDecodeMetadataCacheOnLoad, &decoder);

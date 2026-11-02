@@ -8,7 +8,6 @@
 
 #include <algorithm>
 #include <cstring>
-#include <fstream>
 
 namespace erm {
 
@@ -109,12 +108,11 @@ const AudioSystem::Sound* AudioSystem::Load(const std::string& name) {
     if (it != m_sounds.end()) return &it->second;
 
     const std::string path = FileSystem::AssetPath("audio/" + name + ".wav");
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
+    std::vector<u8> bytes;
+    if (!FileSystem::ReadBinaryFile(path, bytes)) {
         LogWarn("音频文件不存在: %s", path.c_str());
         return nullptr;
     }
-    std::vector<u8> bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
 
     Sound sound;
     if (!ParseWav(bytes, sound)) {

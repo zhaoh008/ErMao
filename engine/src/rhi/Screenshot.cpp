@@ -1,5 +1,6 @@
 // ErMao Engine - 截图实现
 #include "rhi/Screenshot.h"
+#include "core/FileSystem.h"
 #include "core/Log.h"
 
 #include <wincodec.h>
@@ -62,7 +63,7 @@ bool SaveBackbufferToPng(ID3D11Device* device, ID3D11DeviceContext* context, IDX
         return false;
     }
 
-    const std::wstring wpath(path.begin(), path.end());
+    const std::wstring wpath = FileSystem::Utf8ToWide(path);
     ComPtr<IWICStream> stream;
     factory->CreateStream(&stream);
     if (FAILED(stream->InitializeFromFilename(wpath.c_str(), GENERIC_WRITE))) {
