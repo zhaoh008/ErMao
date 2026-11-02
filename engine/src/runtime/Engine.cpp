@@ -547,9 +547,9 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     m_renderer.RenderToViewport(viewCamera, m_scene, m_time, width, height, m_renderer.Wireframe());
 }
 
-void Engine::CaptureScreenshot(const std::string& path) {
+bool Engine::CaptureScreenshot(const std::string& path) {
     // 在 Present 之前读后备缓冲（审核 P2-1）
-    SaveBackbufferToPng(m_device.GetDevice(), m_device.GetContext(), m_device.GetSwapChain(), path);
+    return SaveBackbufferToPng(m_device.GetDevice(), m_device.GetContext(), m_device.GetSwapChain(), path);
 }
 
 void Engine::MainLoop() {
@@ -774,7 +774,10 @@ void Engine::MainLoop() {
         // 6) 自动截图 + 退出
         ++m_frameIndex;
         if (m_autoFrames > 0 && m_frameIndex >= m_autoFrames) {
-            if (!m_screenshotPath.empty()) CaptureScreenshot(m_screenshotPath);
+            if (!m_screenshotPath.empty() && !CaptureScreenshot(m_screenshotPath)) {
+                LogError("自动截图失败: %s", m_screenshotPath.c_str());
+                m_headlessFailed = true;
+            }
             const auto& stats = m_renderer.GetStats();
             LogInfo("自动截图完成：第 %d 帧 | 绘制 %u | 实例 %u | 三角 %u | GPU %.2fms | GPU可见 %u", m_frameIndex,
                     stats.drawCalls, stats.instances, stats.triangles, stats.gpuFrameMs,

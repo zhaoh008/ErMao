@@ -358,7 +358,7 @@ bool Engine::RenderAgentScreenshot(const std::string& path) {
     m_renderer.Debug().Begin();
     m_world.BuildRenderScene(m_scene, m_editorCamera);
     m_renderer.Render(m_editorCamera, m_scene, m_time, false);
-    CaptureScreenshot(path);
+    if (!CaptureScreenshot(path)) return false;
     return FileSystem::Exists(path);
 }
 
