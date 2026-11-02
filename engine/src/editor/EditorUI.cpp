@@ -518,6 +518,13 @@ void Editor::DrawViewport(World& world, Renderer& renderer, Camera& editorCamera
             m_viewportWidth = static_cast<u32>(avail.x);
             m_viewportHeight = static_cast<u32>(avail.y);
 
+            // 视口宽高比通常不等于窗口宽高比（默认 Dock 尤其如此）。渲染用的
+            // 局部 viewCamera 会按视口设置 aspect，gizmo/拾取用的 editorCamera
+            // 也必须同步到同一宽高比，否则投影与画面偏移。
+            if (m_viewportWidth > 0 && m_viewportHeight > 0) {
+                editorCamera.SetViewport(m_viewportWidth, m_viewportHeight);
+            }
+
             // 运行时用游戏相机；编辑时用编辑器相机
             Camera* sceneCamera = &editorCamera;
             if (m_playing) {

@@ -669,6 +669,15 @@ void Engine::MainLoop() {
                               RenderViewportScene(camera, width, height);
                           },
                           dt);
+            // 3D 血条/伤害数字与视口渲染必须共用同一宽高比。viewCamera 是在
+            // Editor::Draw 之前拷贝的，默认 Dock 的视口又不是窗口 16:9，因此
+            // 这里按视口尺寸再对齐一次（2D 反馈用 RenderViewportScene 写入的
+            // m_scene.camera2D，不在此列）。
+            const u32 viewportWidth = m_editor.ViewportWidthPx();
+            const u32 viewportHeight = m_editor.ViewportHeightPx();
+            if (viewportWidth > 0 && viewportHeight > 0) {
+                viewCamera.aspect = static_cast<float>(viewportWidth) / static_cast<float>(viewportHeight);
+            }
             if (m_editor.WantsExit()) {
                 m_running = false;
                 m_editor.ClearExitRequest();
