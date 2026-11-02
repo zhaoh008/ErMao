@@ -31,28 +31,24 @@ ROOT_COPY = ROOT / "ErMao-学习文档.html"
 
 # ---------------------------------------------------------------- 文档顺序
 GUIDE = [
-    ("../README.md", "总览"),
-    ("00-ErMao引擎方案文档.md", "方案文档"),
-    ("01-GAMES104-课程映射.md", "课程映射"),
-    ("02-分章讲解.md", "分章讲解"),
-    ("03-构建与运行.md", "构建与运行"),
-    ("04-UI与ImGui编辑器.md", "UI 与编辑器"),
-    ("05-第三人称关卡.md", "第三人称关卡"),
-    ("06-审核修复记录.md", "审核修复记录"),
-    ("07-v0.3-新功能.md", "v0.3 新功能"),
-    ("08-学习指南.md", "学习指南"),
-    ("09-打包与发布.md", "打包与发布"),
-    ("10-AI开发指南.md", "AI 开发指南"),
-    ("11-Git工作流.md", "Git 工作流"),
-    ("12-其他电脑运行.md", "新电脑运行"),
-    ("13-CLion配置.md", "CLion 配置"),
-    ("14-从入口到功能的调用栈.md", "调用栈地图"),
-    ("assets-credits.md", "素材来源"),
-    ("lectures/参考资料.md", "参考资料总表"),
-    ("blog/00-系列规划.md", "博客系列规划"),
-    ("blog/审稿清单.md", "博客审稿清单"),
+    ("../README.md", "总览", "总纲"),
+    ("README.md", "文档大纲", "总纲"),
+    ("00-代码总纲.md", "代码总纲", "总纲"),
+    ("版本/版本记录.md", "版本记录", "版本文档"),
+    ("版本/构建与运行.md", "构建与运行", "版本文档"),
+    ("版本/发布与工程.md", "发布与工程", "版本文档"),
+    ("版本/修复记录.md", "修复记录", "版本文档"),
+    ("教学/README.md", "教学大纲", "教学文档"),
+    ("教学/引擎架构.md", "引擎架构", "教学文档"),
+    ("教学/课程映射.md", "课程映射", "教学文档"),
+    ("教学/分章讲解.md", "分章讲解", "教学文档"),
+    ("教学/学习指南.md", "学习指南", "教学文档"),
+    ("教学/编辑器与关卡.md", "编辑器与关卡", "教学文档"),
+    ("教学/AI开发指南.md", "AI 开发指南", "教学文档"),
+    ("教学/讲义/术语表.md", "术语表", "教学文档"),
+    ("教学/讲义/参考资料.md", "参考资料总表", "教学文档"),
 ]
-LECTURES = sorted([p.name for p in (DOCS / "lectures").glob("L*.md")])
+LECTURES = sorted([p.name for p in (DOCS / "教学" / "讲义").glob("L*.md")])
 
 
 def doc_title(md: str, fallback: str) -> str:
@@ -99,6 +95,204 @@ def image_data_uri(path: Path, max_width: int = 1180) -> str:
     uri = f"data:{mime};base64,{data}"
     _image_cache[key] = uri
     return uri
+
+
+# ---------------------------------------------------------------- Mermaid 时序图（离线渲染）
+# 只实现 sequenceDiagram 的常用子集，生成的 SVG 使用页面 CSS 变量，跟随深浅主题。
+_SEQ_PART_RE = re.compile(r"^(?:participant|actor)\s+([A-Za-z_]\w*)(?:\s+as\s+(.+))?$", re.I)
+_SEQ_ARROW_RE = re.compile(
+    r"^([A-Za-z_]\w*)\s*(-->>|->>|-->|->|--\)|-\)|--x|-x)\s*([A-Za-z_]\w*)\s*:\s*(.+)$")
+_SEQ_NOTE_RE = re.compile(
+    r"^[Nn]ote\s+(over|left of|right of)\s+([A-Za-z_]\w*(?:\s*,\s*[A-Za-z_]\w*)*)\s*:\s*(.+)$")
+_SEQ_FRAME_RE = re.compile(r"^(loop|alt|opt|par|rect|critical|break)\b\s*(.*)$", re.I)
+_SEQ_ELSE_RE = re.compile(r"^else\b\s*(.*)$", re.I)
+_SEQ_END_RE = re.compile(r"^end$", re.I)
+
+
+def _seq_text_width(text: str, size: float = 13.0) -> float:
+    width = 0.0
+    for ch in text:
+        if ord(ch) > 0x2E7F:
+            width += size
+        elif ch in "iIl.,:;'|!`":
+            width += size * 0.34
+        else:
+            width += size * 0.58
+    return width
+
+
+def render_sequence_diagram(lines: list[str], uid: str) -> str | None:
+    """把 Mermaid sequenceDiagram 的常用子集渲染成内联 SVG。
+
+    支持 participant/actor、->> / -->> / -> / --> / -) / --)、
+    Note over/left of/right of、loop/alt/opt/par + else + end。
+    解析失败返回 None，调用方回退成代码块。
+    """
+    participants: list[str] = []
+    labels: dict[str, str] = {}
+    messages: list[dict] = []
+    notes: list[dict] = []
+    frames: list[dict] = []
+    stack: list[dict] = []
+    cursor = 64.0
+
+    def ensure(pid: str) -> None:
+        if pid not in labels:
+            participants.append(pid)
+            labels[pid] = pid
+
+    for raw in lines:
+        line = raw.strip()
+        if not line or line.startswith("%%"):
+            continue
+        head = line.split(None, 1)[0].lower()
+        if head in ("sequencediagram", "activate", "deactivate", "autonumber", "rect", "critical", "break"):
+            continue
+        m = _SEQ_PART_RE.match(line)
+        if m:
+            pid = m.group(1)
+            label = (m.group(2) or pid).strip()
+            ensure(pid)
+            labels[pid] = label
+            continue
+        m = _SEQ_NOTE_RE.match(line)
+        if m:
+            ids = [x.strip() for x in m.group(2).split(",") if x.strip()]
+            for pid in ids:
+                ensure(pid)
+            notes.append({"where": m.group(1).lower(), "ids": ids, "text": m.group(3).strip(), "y": cursor})
+            cursor += 44
+            continue
+        m = _SEQ_ARROW_RE.match(line)
+        if m:
+            src, arrow, dst, text = m.group(1), m.group(2), m.group(3), m.group(4).strip()
+            ensure(src)
+            ensure(dst)
+            messages.append({"src": src, "dst": dst, "arrow": arrow, "text": text, "y": cursor})
+            cursor += 56 if src == dst else 44
+            continue
+        m = _SEQ_FRAME_RE.match(line)
+        if m:
+            frame = {
+                "kind": m.group(1).lower(),
+                "label": m.group(2).strip(),
+                "start": cursor,
+                "else": [],
+                "end": cursor + 30,
+                "depth": len(stack),
+            }
+            frames.append(frame)
+            stack.append(frame)
+            cursor += 42
+            continue
+        m = _SEQ_ELSE_RE.match(line)
+        if m and stack:
+            stack[-1]["else"].append(cursor)
+            cursor += 46
+            continue
+        if _SEQ_END_RE.match(line) and stack:
+            stack.pop()["end"] = cursor
+            cursor += 26
+            continue
+
+    if not messages and not notes:
+        return None
+
+    widths = {pid: max(96.0, _seq_text_width(labels[pid]) + 30.0) for pid in participants}
+    xs: dict[str, float] = {}
+    for i, pid in enumerate(participants):
+        if i == 0:
+            xs[pid] = 34.0 + widths[pid] / 2.0
+        else:
+            prev = participants[i - 1]
+            xs[pid] = xs[prev] + max(132.0, widths[prev] / 2.0 + widths[pid] / 2.0 + 46.0)
+    height = cursor + 26.0
+    width = xs[participants[-1]] + widths[participants[-1]] / 2.0 + 34.0
+
+    def esc(text: str) -> str:
+        return html.escape(text, quote=True)
+
+    marker = f"seq-arrow-{uid}"
+    out = [
+        f'<svg class="seq-map" viewBox="0 0 {width:.0f} {height:.0f}" '
+        f'xmlns="http://www.w3.org/2000/svg" role="img" aria-label="时序图">',
+        '<defs><marker id="{}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" '
+        'markerHeight="7" orient="auto-start-reverse">'
+        '<path d="M 0 0 L 10 5 L 0 10 z" class="seq-arrowhead"/></marker></defs>'.format(marker),
+    ]
+
+    # 生命线
+    for pid in participants:
+        out.append(f'<line x1="{xs[pid]:.1f}" y1="52" x2="{xs[pid]:.1f}" y2="{height - 16:.1f}" class="seq-life"/>')
+
+    # 组合片段（loop / alt / opt / par）
+    for frame in frames:
+        left = min(xs[p] for p in participants) - 18 + frame["depth"] * 8
+        right = max(xs[p] for p in participants) + 18 - frame["depth"] * 8
+        top, bottom = frame["start"], frame["end"] + 8
+        out.append(f'<rect x="{left:.1f}" y="{top:.1f}" width="{right - left:.1f}" '
+                   f'height="{bottom - top:.1f}" rx="6" class="seq-frame"/>')
+        tab = _seq_text_width(frame["kind"] + " " + frame["label"]) + 22
+        out.append(f'<rect x="{left:.1f}" y="{top:.1f}" width="{tab:.1f}" height="20" '
+                   'rx="5" class="seq-frame-tab"/>')
+        out.append(f'<text x="{left + 8:.1f}" y="{top + 14:.1f}" class="seq-frame-label">'
+                   f'{esc(frame["kind"] + " " + frame["label"])}</text>')
+        for pos, _label in enumerate(frame["else"]):
+            out.append(f'<line x1="{left:.1f}" y1="{_label:.1f}" x2="{right:.1f}" y2="{_label:.1f}" '
+                       'class="seq-frame"/>')
+            out.append(f'<text x="{left + 8:.1f}" y="{_label + 14:.1f}" class="seq-frame-label">'
+                       f'else{"" if pos == 0 else " " + str(pos + 1)}</text>')
+
+    # 消息
+    for msg in messages:
+        x1, x2, y = xs[msg["src"]], xs[msg["dst"]], msg["y"]
+        dashed = " seq-msg-dashed" if msg["arrow"].startswith("--") else ""
+        if msg["src"] == msg["dst"]:
+            # 最后一列的自调用向右会出画，改成向左绕回、标签放左侧
+            if x1 + 40 + _seq_text_width(msg["text"]) > width - 10:
+                out.append(f'<path d="M {x1:.1f} {y:.1f} h -32 v 16 h 32" class="seq-msg{dashed}" '
+                           f'fill="none" marker-end="url(#{marker})"/>')
+                out.append(f'<text x="{x1 - 40:.1f}" y="{y + 1:.1f}" class="seq-label" '
+                           f'text-anchor="end">{esc(msg["text"])}</text>')
+            else:
+                out.append(f'<path d="M {x1:.1f} {y:.1f} h 32 v 16 h -32" class="seq-msg{dashed}" '
+                           f'fill="none" marker-end="url(#{marker})"/>')
+                out.append(f'<text x="{x1 + 40:.1f}" y="{y + 1:.1f}" class="seq-label" '
+                           f'text-anchor="start">{esc(msg["text"])}</text>')
+        else:
+            out.append(f'<text x="{(x1 + x2) / 2:.1f}" y="{y - 6:.1f}" class="seq-label" '
+                       f'text-anchor="middle">{esc(msg["text"])}</text>')
+            out.append(f'<line x1="{x1:.1f}" y1="{y:.1f}" x2="{x2:.1f}" y2="{y:.1f}" '
+                       f'class="seq-msg{dashed}" marker-end="url(#{marker})"/>')
+
+    # 注释
+    for note in notes:
+        ids, y, text = note["ids"], note["y"], note["text"]
+        where = note["where"]
+        if where == "over":
+            if len(ids) > 1:
+                left, right = min(xs[p] for p in ids) - 12, max(xs[p] for p in ids) + 12
+            else:
+                w = max(190.0, _seq_text_width(text) + 24.0)
+                left, right = xs[ids[0]] - w / 2, xs[ids[0]] + w / 2
+        elif where == "left of":
+            right, left = xs[ids[0]] - 10, xs[ids[0]] - 10 - max(190.0, _seq_text_width(text) + 24.0)
+        else:
+            left, right = xs[ids[0]] + 10, xs[ids[0]] + 10 + max(190.0, _seq_text_width(text) + 24.0)
+        out.append(f'<rect x="{left:.1f}" y="{y:.1f}" width="{right - left:.1f}" height="34" '
+                   'rx="6" class="seq-note"/>')
+        out.append(f'<text x="{(left + right) / 2:.1f}" y="{y + 21:.1f}" class="seq-note-label" '
+                   f'text-anchor="middle">{esc(text)}</text>')
+
+    # 参与者标题
+    for pid in participants:
+        out.append(f'<rect x="{xs[pid] - widths[pid] / 2:.1f}" y="20" width="{widths[pid]:.1f}" '
+                   'height="30" rx="7" class="seq-part"/>')
+        out.append(f'<text x="{xs[pid]:.1f}" y="40" class="seq-part-label" '
+                   f'text-anchor="middle">{esc(labels[pid])}</text>')
+
+    out.append("</svg>")
+    return "\n".join(out)
 
 
 # ---------------------------------------------------------------- Markdown
@@ -209,6 +403,11 @@ def markdown_to_html(md: str, doc_index: int, base_dir: Path) -> tuple[str, list
                 code.append(lines[i])
                 i += 1
             i += 1
+            if lang == "mermaid":
+                svg = render_sequence_diagram(code, f"d{doc_index}-{len(out)}")
+                if svg:
+                    out.append(svg)
+                    continue
             body = html.escape("\n".join(code), quote=False)
             out.append(
                 f'<div class="code-block" data-lang="{lang}">'
@@ -413,9 +612,9 @@ def figures_html(paths: list[str]) -> str:
 
 
 DOC_SHOTS = {
-    "00-ErMao引擎方案文档": ["screenshots/editor.png", "screenshots/demo-wave.png"],
-    "07-v0.3-新功能": ["screenshots/demo-play.png", "screenshots/demo-wave.png"],
-    "09-打包与发布": ["screenshots/survivors3d-menu.png"],
+    "教学/引擎架构": ["screenshots/editor.png", "screenshots/demo-wave.png"],
+    "版本/版本记录": ["screenshots/demo-play.png", "screenshots/demo-wave.png"],
+    "版本/发布与工程": ["screenshots/survivors3d-menu.png"],
 }
 def lecture_extras(path: Path) -> str:
     stem = path.stem
@@ -432,17 +631,17 @@ def main() -> int:
     docs: list[dict] = []
     entries: list[tuple[Path, str, str]] = []  # (path, group, title)
 
-    for name, title in GUIDE:
+    for name, title, group in GUIDE:
         p = DOCS / name
         if p.exists():
-            entries.append((p, "入门与工程", title))
-    lect_readme = DOCS / "lectures" / "README.md"
+            entries.append((p, group, title))
+    lect_readme = DOCS / "教学" / "讲义" / "README.md"
     if lect_readme.exists():
-        entries.append((lect_readme, "GAMES104 讲义", "讲义索引"))
+        entries.append((lect_readme, "教学文档 · 讲义", "讲义索引"))
     for name in LECTURES:
-        p = DOCS / "lectures" / name
+        p = DOCS / "教学" / "讲义" / name
         md = p.read_text(encoding="utf-8")
-        entries.append((p, "GAMES104 讲义", doc_title(md, p.stem)))
+        entries.append((p, "教学文档 · 讲义", doc_title(md, p.stem)))
 
     doc_ids = {p.resolve(): slug_id(i) for i, (p, _g, _t) in enumerate(entries)}
 
@@ -472,7 +671,7 @@ def main() -> int:
             return f'href="#{doc_id}"' if doc_id else m.group(0)
 
         body = re.sub(r'href="([^"]+\.md)(#[^"]*)?"', link_repl, body)
-        extra = lecture_extras(path) if "lectures" in str(path) else ""
+        extra = lecture_extras(path) if "讲义" in str(path) else ""
         if not extra:
             for key, shots in DOC_SHOTS.items():
                 if key in path.name:
@@ -484,7 +683,7 @@ def main() -> int:
             "index": index,
             "group": group,
             "title": title,
-            "path": str(path.relative_to(ROOT)).replace("\\", "/"),
+            "path": os.path.relpath(path, ROOT).replace("\\", "/"),
             "html": (map_svg + body) if map_svg else body,
             "h2": [h[1] for h in headings if h[2] == 2][:12],
         })
@@ -628,6 +827,19 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor {{ opacity: 1; }}
 .map-box {{ fill: var(--panel); stroke: var(--border); }}
 .map-text {{ fill: var(--text); font-size: 13px; }}
 .map-arrow {{ stroke: var(--border); stroke-width: 2; }}
+.seq-map {{ width: 100%; height: auto; margin: 16px 0 26px; }}
+.seq-part {{ fill: var(--panel); stroke: var(--border); }}
+.seq-part-label {{ fill: var(--text); font-size: 13px; font-weight: 600; }}
+.seq-life {{ stroke: var(--border); stroke-width: 1; stroke-dasharray: 3 4; }}
+.seq-msg {{ stroke: var(--accent-2); stroke-width: 1.5; }}
+.seq-msg-dashed {{ stroke-dasharray: 5 4; }}
+.seq-arrowhead {{ fill: var(--accent-2); }}
+.seq-label {{ fill: var(--text); font-size: 12.5px; }}
+.seq-frame {{ fill: none; stroke: var(--border); stroke-dasharray: 4 3; }}
+.seq-frame-tab {{ fill: var(--panel); stroke: var(--border); }}
+.seq-frame-label {{ fill: var(--accent); font-size: 12px; }}
+.seq-note {{ fill: var(--panel); stroke: var(--accent); }}
+.seq-note-label {{ fill: var(--text); font-size: 12px; }}
 .doc-nav {{ display: flex; justify-content: space-between; gap: 12px; margin-top: 48px; }}
 .doc-nav a {{
   flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px;

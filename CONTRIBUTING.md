@@ -44,8 +44,8 @@ build\bin\ErMao.exe --demo3d --frames 120          :: 3D 可运行
 ## 目录约定
 
 - 源码在 `engine/src/<层>/`：`core → rhi → renderer → scene → game → editor → runtime`，禁止反向依赖；
-- 资源在 `engine/assets/<类型>/`，外部素材必须登记 `docs/assets-credits.md`；
-- 文档在 `docs/`，讲义在 `docs/lectures/`，博客在 `docs/blog/`；
+- 资源在 `engine/assets/<类型>/`，外部素材必须登记 `docs/版本/发布与工程.md` 的“素材来源与许可”；
+- 文档只有两类：`docs/版本/`（版本文档）与 `docs/教学/`（教学文档，讲义在 `docs/教学/讲义/`）；总纲在 `docs/00-代码总纲.md`；
 - `build/`、`dist/`、`.staging/`、`*.log` 不入库。
 
 ## PR / 合并清单

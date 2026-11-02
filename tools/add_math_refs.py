@@ -4,7 +4,7 @@
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-LEC = ROOT / "docs" / "lectures"
+LEC = ROOT / "docs" / "教学" / "讲义"
 
 # 参考书目（键 -> 完整条目）
 BIB = {
@@ -28,7 +28,7 @@ BIB = {
     "GJK": "Gilbert, Johnson, Keerthi. *A Fast Procedure for Computing the Distance Between Complex Objects in Three-Dimensional Space*. IEEE J. Robotics and Automation, 1988.",
     "PART": "Reeves. *Particle Systems—A Technique for Modeling a Class of Fuzzy Objects*. SIGGRAPH 1983.",
     "IMGUI": "Cornut. *Dear ImGui: Bloat-free Immediate Mode Graphical User Interfaces for C++*. https://github.com/ocornut/imgui",
-    "REFLECT": "Campbell. *Reflection and Serialization in Game Engines*（课程笔记/工程实践）. 另见 `docs/lectures/L14`.",
+    "REFLECT": "Campbell. *Reflection and Serialization in Game Engines*（课程笔记/工程实践）. 另见 `docs/教学/讲义/L14`.",
     "JSON": "ECMA-404. *The JSON Data Interchange Format*, 2013. https://www.json.org/",
     "RTREE": "Guttman. *R-Trees: A Dynamic Index Structure for Spatial Searching*. SIGMOD 1984.",
     "JOB": "Blumofe, Leiserson. *Scheduling Multithreaded Computations by Work Stealing*. JACM, 1999.",

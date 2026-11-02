@@ -1,0 +1,214 @@
+# AI 优先的开发指南（无头脚本接口）
+
+> 目标：**不打开编辑器也能把游戏做出来**。
+> 你用 DCC（Blender/Maya/Substance…）产出 OBJ/PNG/WAV，剩下的「资产 → 场景 → 玩法 → 打包」
+> 全部由 AI 通过文本命令完成；所有操作都有 JSON 结果，可校验、可回放、可进 CI。
+>
+> 入口：`ErMao.exe --script <commands.json> --json-out <report.json>`
+
+---
+
+## 0. 为什么不是蓝图/面板
+
+| 蓝图/面板 | 本工程的 AI 接口 |
+|---|---|
+| 连线存在二进制资产里 | 命令是 **纯文本 JSON**，可 diff、可生成 |
+| 人要看得懂节点 | AI 直接读写字段名（反射表） |
+| 改完要手动点保存 | `scene.save` 一行命令 |
+| 验证靠肉眼 | `validate` + `screenshot` 返回结构化结果 |
+| 逻辑耦合在图表里 | 关卡/玩法是 **代码或 JSON**，AI 可以生成 |
+
+**设计原则**：引擎里每一个「编辑器能做的事」，都必须有一个等价的命令行/脚本命令。
+编辑器只是这些命令的一个前端。
+
+---
+
+## 1. 三层接口
+
+```
+① 命令层  --script commands.json      建场景 / 加组件 / 改字段 / 存盘 / 截图 / 打包
+② 关卡层  level.build kind=...        直接生成内置玩法（survivors3d 等）
+③ 资产层  assets.import mesh|texture  DCC 导出物 → assets/ → 场景引用
+```
+
+三层都返回 JSON：
+
+```json
+{ "ok": true, "total": 17, "succeeded": 17,
+  "results": [ {"cmd":"object.create","result":{"ok":true,...}}, ... ] }
+```
+
+失败时 `result.error` 会说明原因（找不到对象 / 组件 / 字段 / 资产），AI 可以据此自我修正。
+
+---
+
+## 2. 命令参考
+
+### 2.1 场景
+
+| 命令 | 参数 | 说明 |
+|---|---|---|
+| `scene.new` | — | 清空世界 |
+| `scene.save` | `path` | 存成 `.ermaos.json` |
+| `scene.load` | `path` | 读回场景 |
+| `scene.query` | — | 返回所有对象、位置/旋转/缩放/组件列表 |
+
+### 2.2 对象
+
+| 命令 | 参数 | 说明 |
+|---|---|---|
+| `object.create` | `name`, `position?`, `rotation?`, `scale?` | 创建空对象 |
+| `object.destroy` | `name` | 删除 |
+| `object.set` | `name`, `position?`, `rotation?`, `scale?`, `active?` | 改变换/激活 |
+
+> `rotation` 是四元数 `[x,y,z,w]`。
+
+### 2.3 组件（反射驱动）
+
+| 命令 | 参数 | 说明 |
+|---|---|---|
+| `component.add` | `object`, `component` | 组件名用显示名，如 `"Mesh Renderer"`、`"Directional Light"` |
+| `component.set` | `object`, `component`, `field`, `value` | 任意字段，类型自动转换 |
+| `component.get` | `object`, `component`, `field` | 读回字段 |
+
+可用组件名（与 `Reflection::All()` 一致）：
+
+`Mesh Renderer`、`Directional Light`、`Point Light`、`Camera`、`Sprite Renderer`、`Sprite Animator`、
+`Particle Emitter`、`Rigidbody`、`Box Collider`、`Third Person Controller`、`Health`、`Combat`、
+`Survivors Player`、`Survivors Enemy`、`Survivors Projectile`、`Survivors Gem`、
+`Survivors3D Player`、`Survivors3D Enemy`、`Survivors3D Projectile`、`Survivors3D Gem`。
+
+字段名就是序列化 key（见 `docs/教学/讲义/L14-序列化与反射.md` 与各 `Describe()`）：
+
+```json
+{ "cmd": "component.set", "object": "箱子", "component": "Mesh Renderer",
+  "field": "albedo", "value": [0.85, 0.55, 0.2, 1] }
+```
+
+### 2.4 资产（DCC 产物）
+
+| 命令 | 参数 | 说明 |
+|---|---|---|
+| `assets.import` | `kind: mesh\|texture`, `path` | 复制到 `assets/models|textures` 并注册 |
+| `assets.list` | — | 列出已注册资产（名字/类型/是否内置） |
+
+- 网格：**OBJ**（DCC 导出时勾选 UV/法线）；
+- 贴图：**PNG/JPG**（WIC 解码，支持 sRGB）；
+- 音频：直接把 WAV 放进 `assets/audio/`，用 `PlaySfx("name")` 或场景组件引用。
+
+### 2.5 关卡 / 相机 / 打包 / 校验
+
+| 命令 | 参数 | 说明 |
+|---|---|---|
+| `level.build` | `kind: survivors3d\|survivors\|thirdperson\|skinning` | 生成内置关卡 |
+| `camera.set` | `position`, `yaw`, `pitch`, `fov` | 设置截图相机 |
+| `screenshot` | `path` | 立即渲染一帧并保存 PNG |
+| `package.game` | `name`, `level`, `target: windows\|linux` | 打出游戏包 |
+| `validate` | — | 检查网格/贴图引用，返回 `errors[]` |
+
+---
+
+## 3. 完整例子
+
+### 3.1 建一个场景并出图
+
+`agent/examples/build_scene.json`：
+
+```json
+{
+  "commands": [
+    { "cmd": "scene.new" },
+    { "cmd": "object.create", "name": "地面", "scale": [40, 1, 40] },
+    { "cmd": "component.add", "object": "地面", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "地面", "component": "Mesh Renderer", "field": "mesh", "value": "plane" },
+    { "cmd": "component.set", "object": "地面", "component": "Mesh Renderer", "field": "texture", "value": "noise" },
+    { "cmd": "object.create", "name": "箱子", "position": [0, 1, 0] },
+    { "cmd": "component.add", "object": "箱子", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "箱子", "component": "Mesh Renderer", "field": "albedo", "value": [0.85,0.55,0.2,1] },
+    { "cmd": "camera.set", "position": [8, 6, 10], "yaw": 0.675, "pitch": -0.43 },
+    { "cmd": "screenshot", "path": "docs/screenshots/agent-scene.png" },
+    { "cmd": "validate" }
+  ]
+}
+```
+
+```bat
+build\bin\ErMao.exe --script agent/examples/build_scene.json --json-out out.json
+```
+
+![AI 建场景](../screenshots/agent-scene.png)
+
+### 3.2 生成一款可打包的游戏
+
+`agent/examples/make_game.json`：
+
+```json
+{
+  "commands": [
+    { "cmd": "level.build", "kind": "survivors3d" },
+    { "cmd": "screenshot", "path": "docs/screenshots/agent-level.png" },
+    { "cmd": "package.game", "name": "AIGame", "level": "survivors3d", "target": "windows" }
+  ]
+}
+```
+
+产物：`dist/AIGame-Windows/AIGame.exe`（双击即玩）。
+
+### 3.3 只校验，不出图
+
+```bat
+build\bin\ErMao.exe --validate --json-out validate.json
+```
+
+```json
+{ "ok": true, "objects": 20, "components": 35, "errors": [] }
+```
+
+---
+
+## 4. AI 工作流（推荐）
+
+```
+1. 读本篇与 `agent/examples/*.json` —— 知道有哪些命令
+2. 用 assets.import 把 DCC 产物接进来
+3. 写 commands.json → 跑 --script → 看 report.json
+4. 失败就读 result.error，改命令再跑（毫秒级，无 GUI）
+5. screenshot 自检画面 → validate 自检引用
+6. package.game 出包 → 交付 exe
+```
+
+**关键点**：AI 不需要「知道引擎内部怎么实现」，只需要：
+
+- 组件显示名与字段名（本页 + `Reflection::All()`）；
+- 命令的输入/输出格式（本页）；
+- 失败了看 `error`。
+
+---
+
+## 5. 现在还没有命令行等价物的（明确列出）
+
+| 能力 | 现状 | 下一步 |
+|---|---|---|
+| 材质节点图 | 没有（PBR 参数化） | 若需要，用 JSON 材质描述，不做节点图 |
+| 动画剪辑编辑 | 没有（程序化动画） | glTF 动画导入 + JSON 状态机 |
+| 地形/植被绘制 | 没有 | 用 JSON 描述高度图/散布规则 |
+| 蓝图类逻辑 | **不做** | 用 C++ 组件或数据驱动 JSON |
+| 撤销/重做 | 无 | 脚本模式下用 git 回滚命令文件 |
+
+> 结论：本引擎刻意**不走向「可视化编程」**。逻辑的表达形式是 C++ 组件 + JSON 数据，
+> 两者都是 AI 能生成、能 diff、能验证的。
+
+---
+
+## 6. 给 AI 的提示词模板
+
+```text
+你是 ErMao 引擎的开发者。可用接口见 docs/教学/AI开发指南.md。
+目标：<描述游戏/场景>。
+请输出：
+1) 需要的资产清单（OBJ/PNG/WAV 路径）
+2) 可直接执行的 agent/examples/xxx.json 命令脚本
+3) 一条运行命令（--script + --json-out）
+4) 如果失败，根据 report.json 的 error 修正后重新给出脚本
+约束：不要要求用户打开编辑器；不要输出蓝图/节点图。
+```

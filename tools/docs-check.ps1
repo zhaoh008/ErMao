@@ -10,8 +10,7 @@ $searchDirs = @(
     (Join-Path $root "third_party")
 )
 $docFiles = @()
-$docFiles += Get-ChildItem -Path (Join-Path $root "docs") -Filter *.md -File
-$docFiles += Get-ChildItem -Path (Join-Path $root "docs\lectures") -Filter *.md -File -ErrorAction SilentlyContinue
+$docFiles += Get-ChildItem -Path (Join-Path $root "docs") -Filter *.md -File -Recurse
 
 # 只匹配本工程源码引用；hlsl 放在 h 前面，避免匹配到 "PBR.h" 这种前缀
 $pattern = '[A-Za-z0-9_\-]+/[A-Za-z0-9_\-/]+\.(hlsl|cpp|ps1|h)(?![A-Za-z0-9])'
