@@ -16,6 +16,7 @@ class World;
 class GameObject;
 class AssetManager;
 struct RenderScene;
+struct Camera2D;
 
 // ---------------------------------------------------------------- 玩家
 class SurvivorsPlayerComponent : public Component {
@@ -34,6 +35,14 @@ public:
     float attackRange = 9.0f;
     float projectileSpeed = 14.0f;
 
+    // 基础值：升级/击杀加成都乘在它们上面，重开一局时恢复
+    float baseAttackDamage = 12.0f;
+    float baseAttackInterval = 0.75f;
+    float baseMaxHp = 100.0f;
+
+    // 击杀越多，攻速越快（每击杀 +3%，递减叠加）
+    int killCount = 0;
+
     bool  alive = true;
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
@@ -41,6 +50,9 @@ public:
 
     void OnUpdate(float dt) override;
     void AddXp(float amount);
+    void ApplyKillCount(int kills);
+    float KillAttackSpeedBonus() const; // 0.5 表示 +50% 攻速
+    void ResetCombatStats();
 
     // 菜单打开时禁止移动（和 3D 的 SetInputEnabled 同思路）
     static void SetInputEnabled(bool enabled);
@@ -48,7 +60,10 @@ public:
 
 private:
     float m_attackTimer = 0.0f;
+    float m_levelIntervalScale = 1.0f;
+    float m_killIntervalScale = 1.0f;
     void  FireAtNearestEnemy(const Vec2& origin);
+    void  RecomputeAttackInterval();
 };
 
 // ---------------------------------------------------------------- 敌人
@@ -58,6 +73,7 @@ public:
 
     float speed = 1.9f;
     float hp = 18.0f;
+    float maxHp = 18.0f;
     float damage = 8.0f;
     float attackInterval = 0.8f;
     float xpValue = 3.0f;
@@ -101,6 +117,9 @@ public:
     void Reset(World& world);
     void Update(World& world, float dt);
     void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight);
+    // 头顶血条（世界坐标 → 屏幕）+ 漂浮伤害数字（2D 版）
+    void DrawCombatFeedback(World& world, const Camera2D& camera, float viewportX, float viewportY,
+                            float viewportWidth, float viewportHeight);
 
     State GetState() const { return m_state; }
     void  ReturnToMenu() { m_state = State::Menu; }

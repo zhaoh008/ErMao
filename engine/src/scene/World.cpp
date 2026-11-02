@@ -200,7 +200,11 @@ GameObject* World::FindById(u64 id) const {
 void World::Update(float dt) {
     if (dt <= 0.0f) return;
     m_started = true;
-    for (GameObject* root : m_roots) {
+    // 快照根节点：组件在 OnUpdate 里会生成箭/宝石/特效（例如幸存者击杀掉落），
+    // 直接遍历 m_roots 会在 vector 扩容时失效，造成偶发 0xC0000005。
+    // 新生成的对象从下一帧开始 Start/Update，行为更可预测。
+    const std::vector<GameObject*> roots = m_roots;
+    for (GameObject* root : roots) {
         root->ForEach([dt](GameObject* object) {
             object->Start();
             object->Update(dt);
@@ -208,7 +212,7 @@ void World::Update(float dt) {
     }
 
     // 相机组件跟随 Transform
-    for (GameObject* root : m_roots) {
+    for (GameObject* root : roots) {
         root->ForEach([](GameObject* object) {
             if (auto* cam = object->GetComponent<CameraComponent>()) cam->SyncFromTransform();
         });
@@ -219,7 +223,8 @@ void World::Update(float dt) {
 void World::FixedUpdate(float dt) {
     if (dt <= 0.0f) return;
     if (m_physics) m_physics->Step(*this, dt);
-    for (GameObject* root : m_roots) {
+    const std::vector<GameObject*> roots = m_roots; // 同上：FixedUpdate 里也可能生成对象
+    for (GameObject* root : roots) {
         root->ForEach([dt](GameObject* object) { object->FixedUpdate(dt); });
     }
 }
