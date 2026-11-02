@@ -36,22 +36,28 @@ void ThirdPersonController::SetSimulatedInput(const Vec2& move, bool jump, bool 
 
 void ThirdPersonController::ClearSimulatedInput() { g_testInput.simulated = false; }
 
-void ThirdPersonController::OnStart() {
-    if (!m_owner) return;
+void ThirdPersonController::ResolveCamera() {
+    m_cameraObject = nullptr;
+    m_cameraObjectId = 0;
     World* world = GetWorld();
-    if (world) {
-        m_cameraObject = world->FindByName(cameraName);
-        if (!m_cameraObject) {
-            // 退而求其次：找场景里第一个主相机
-            for (const auto& root : world->RootObjects()) {
-                root->ForEach([&](GameObject* object) {
-                    auto* camera = object->GetComponent<CameraComponent>();
-                    if (camera && camera->primary && !m_cameraObject) m_cameraObject = object;
-                });
-            }
+    if (!world) return;
+
+    m_cameraObject = world->FindByName(cameraName);
+    if (!m_cameraObject) {
+        // 退而求其次：找场景里第一个主相机
+        for (const auto& root : world->RootObjects()) {
+            root->ForEach([&](GameObject* object) {
+                auto* camera = object->GetComponent<CameraComponent>();
+                if (camera && camera->primary && !m_cameraObject) m_cameraObject = object;
+            });
         }
     }
+    if (m_cameraObject) m_cameraObjectId = m_cameraObject->Id();
+}
 
+void ThirdPersonController::OnStart() {
+    if (!m_owner) return;
+    ResolveCamera();
     LogInfo("第三人称控制器就绪（相机: %s）", m_cameraObject ? m_cameraObject->Name().c_str() : "<未找到>");
 }
 
@@ -201,8 +207,19 @@ void ThirdPersonController::ResolveCollisions() {
     m_owner->SetPosition(position);
 }
 void ThirdPersonController::UpdateCamera() {
-    if (!m_cameraObject || !m_owner) return;
+    if (!m_owner) return;
     World* world = GetWorld();
+
+    // 相机可能在本帧之前被删除：先用 id 确认缓存指针仍指向 World 里的同一对象
+    // （审核 ERMAO-AUDIT-014），失效则按 cameraName / 首个主相机重新解析。
+    if (m_cameraObject && (!world || world->FindById(m_cameraObjectId) != m_cameraObject)) {
+        m_cameraObject = nullptr;
+        m_cameraObjectId = 0;
+    }
+    if (!m_cameraObject) {
+        ResolveCamera();
+        if (!m_cameraObject) return;
+    }
 
     const Quat rotation = Quat::FromEuler(ToRadians(yawDegrees), ToRadians(pitchDegrees), 0.0f);
     const Vec3 forward = rotation.RotateVector(Vec3(0, 0, -1));

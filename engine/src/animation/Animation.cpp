@@ -2,6 +2,7 @@
 #include "animation/Animation.h"
 #include "core/Log.h"
 #include "scene/GameObject.h"
+#include "scene/World.h"
 
 namespace erm {
 
@@ -102,6 +103,7 @@ AnimationClip AnimationClip::MakeWindmill(const std::string& name, const std::st
 
 void AnimatorComponent::OnStart() {
     m_targetObject = nullptr;
+    m_targetObjectId = 0;
     if (m_owner) {
         if (!target.empty()) {
             for (auto* child : m_owner->Children()) {
@@ -116,6 +118,7 @@ void AnimatorComponent::OnStart() {
             target = m_targetObject->Name();
         }
     }
+    if (m_targetObject) m_targetObjectId = m_targetObject->Id();
     RebuildClip();
     LogInfo("Animator 启动：clip=%s target=%s", clip.c_str(), target.c_str());
 }
@@ -130,7 +133,13 @@ void AnimatorComponent::RebuildClip() {
 }
 
 void AnimatorComponent::OnUpdate(float dt) {
-    // 目标被删除/改名后重新解析（审核 P2-15）
+    // 目标被删除后重新解析（审核 P2-15 / ERMAO-AUDIT-014）：World 在帧尾释放对象，
+    // 裸指针会悬空，因此用 id 向 World 查询确认它仍然存活。
+    World* world = GetWorld();
+    if (m_targetObject && (!world || world->FindById(m_targetObjectId) != m_targetObject)) {
+        m_targetObject = nullptr;
+        m_targetObjectId = 0;
+    }
     if (!m_targetObject) {
         OnStart();
         if (!m_targetObject) return;

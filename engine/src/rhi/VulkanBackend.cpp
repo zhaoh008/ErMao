@@ -3,6 +3,7 @@
 
 #if defined(ERMAO_HAS_VULKAN) && ERMAO_HAS_VULKAN
 
+#include "core/FileSystem.h"
 #include "core/Log.h"
 #include "platform/Window.h"
 
@@ -37,7 +38,7 @@ bool SaveBgraPng(const std::string& path, u32 width, u32 height, const u8* pixel
     bool ok = false;
     do {
         if (FAILED(factory->CreateStream(&stream))) break;
-        const std::wstring wide(path.begin(), path.end());
+        const std::wstring wide = FileSystem::Utf8ToWide(path);
         if (FAILED(stream->InitializeFromFilename(wide.c_str(), GENERIC_WRITE))) break;
         if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder))) break;
         if (FAILED(encoder->Initialize(stream, WICBitmapEncoderNoCache))) break;
