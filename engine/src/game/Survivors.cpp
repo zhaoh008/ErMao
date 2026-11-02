@@ -582,6 +582,8 @@ void SurvivorsPlayerComponent::RecomputeAttackInterval() {
 void SurvivorsPlayerComponent::RecomputeAttackDamage() { attackDamage = ArrowDamage(); }
 
 void SurvivorsPlayerComponent::RefreshDerivedStats() {
+    // 等级带来的攻速缩放可以直接由 level 还原，读档时不会丢掉升级攻速
+    m_levelIntervalScale = (std::max)(0.25f, std::pow(0.9f, static_cast<float>(level - 1)));
     RecomputeAttackInterval();
     RecomputeAttackDamage();
 }
@@ -781,7 +783,6 @@ void SurvivorsPlayerComponent::AddXp(float amount) {
         xp -= xpNext;
         ++level;
         xpNext *= 1.35f;
-        m_levelIntervalScale = (std::max)(0.25f, m_levelIntervalScale * 0.9f);
         maxHp += 8.0f;
         hp = (std::min)(maxHp, hp + 8.0f);
         RefreshDerivedStats();
