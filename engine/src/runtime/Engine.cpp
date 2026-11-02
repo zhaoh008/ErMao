@@ -535,8 +535,8 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
                 const Vec3 position = player->Position();
                 Vec2 half(20.0f, 8.0f);
                 if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
-                camera2D.position = Vec2(Clamp(position.x, -half.x + 12.8f, half.x - 12.8f),
-                                         Clamp(position.y, -half.y + 7.2f, half.y - 7.2f));
+                camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                         Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
             }
         } else {
             camera2D.position = Vec2(camera.position.x, camera.position.y);
@@ -751,8 +751,8 @@ void Engine::MainLoop() {
                     const Vec3 position = player->Position();
                     Vec2 half(20.0f, 8.0f);
                     if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
-                    camera2D.position = Vec2(Clamp(position.x, -half.x + 12.8f, half.x - 12.8f),
-                                             Clamp(position.y, -half.y + 7.2f, half.y - 7.2f));
+                    camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                             Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
                 }
                 m_scene.is2D = true;
                 m_scene.camera2D = camera2D;
