@@ -786,6 +786,13 @@ void Survivors3DPlayerComponent::Describe(TypeInfo& t) {
     t.Field("projectileSpeed", FieldType::Float, &Survivors3DPlayerComponent::projectileSpeed, "弹速", 1.0f, 60.0f);
 }
 
+void Survivors3DEnemyComponent::OnDestroy() {
+    // 对象真正释放时同步移除注册表项，避免 World::Clear/RemoveComponent 留下悬垂指针。
+    // 只比较指针值，不解引用（此时 GameObject 正在析构）。
+    if (!m_owner) return;
+    g3dEnemies.erase(std::remove(g3dEnemies.begin(), g3dEnemies.end(), m_owner), g3dEnemies.end());
+}
+
 void Survivors3DEnemyComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<Survivors3DEnemyComponent>(); };
     t.Field("speed", FieldType::Float, &Survivors3DEnemyComponent::speed, "移动速度", 0.2f, 12.0f);

@@ -80,6 +80,7 @@ public:
     float hitFlash = 0.0f;
 
     void OnUpdate(float dt) override;
+    void OnDestroy() override;
 
 private:
     float m_attackTimer = 0.0f;
