@@ -14,7 +14,9 @@
 #include <imgui.h>
 
 #include <algorithm>
+#include <cfloat>
 #include <cmath>
+#include <cstdio>
 
 namespace erm {
 
@@ -33,6 +35,45 @@ float Random01() {
 Vec2 SafeDir2(const Vec2& v) {
     const float len = Length(v);
     return len > 1e-5f ? v / len : Vec2(0.0f, 0.0f);
+}
+
+// 漂浮伤害数字（3D）：世界坐标 + 世界速度，投影到屏幕时按距离缩放
+struct DamageNumber3D {
+    Vec3  position;
+    Vec3  velocity;
+    float age = 0.0f;
+    float life = 0.9f;
+    float value = 0.0f;
+};
+
+std::vector<DamageNumber3D> g3dDamageNumbers;
+float                       g3dFxRng = 0.314159f;
+
+float FxRandom01() {
+    g3dFxRng = std::fmod(g3dFxRng * 1103515245.0f + 12345.0f, 2147483648.0f);
+    return g3dFxRng / 2147483648.0f;
+}
+
+void SpawnDamageNumber(const Vec3& position, float value) {
+    if (g3dDamageNumbers.size() >= 96) g3dDamageNumbers.erase(g3dDamageNumbers.begin());
+    DamageNumber3D number;
+    number.position = position;
+    number.velocity = Vec3((FxRandom01() - 0.5f) * 0.8f, 2.4f, (FxRandom01() - 0.5f) * 0.8f);
+    number.life = 0.95f + FxRandom01() * 0.2f;
+    number.value = value;
+    g3dDamageNumbers.push_back(number);
+}
+
+void UpdateDamageNumbers(float dt) {
+    for (DamageNumber3D& number : g3dDamageNumbers) {
+        number.age += dt;
+        number.position += number.velocity * dt;
+        number.velocity.y -= 2.6f * dt;
+    }
+    g3dDamageNumbers.erase(
+        std::remove_if(g3dDamageNumbers.begin(), g3dDamageNumbers.end(),
+                       [](const DamageNumber3D& number) { return number.age >= number.life; }),
+        g3dDamageNumbers.end());
 }
 
 GameObject* FindPlayer(World& world) { return world.FindByName("玩家"); }
@@ -105,6 +146,39 @@ void SpawnGem(World& world, const Vec3& position, float value) {
 // ================================================================ 玩家
 void Survivors3DPlayerComponent::SetInputEnabled(bool enabled) { g3dInputEnabled = enabled; }
 bool Survivors3DPlayerComponent::InputEnabled() { return g3dInputEnabled; }
+
+void Survivors3DPlayerComponent::RecomputeAttackInterval() {
+    attackInterval = Clamp(baseAttackInterval * m_levelIntervalScale * m_killIntervalScale, 0.07f, baseAttackInterval);
+}
+
+void Survivors3DPlayerComponent::ApplyKillCount(int kills) {
+    if (kills == killCount) return;
+    killCount = kills;
+    // 递减叠加：每击杀 +3% 攻速 → 实际间隔 = 基础间隔 / (1 + 0.03 * 击杀数)
+    m_killIntervalScale = 1.0f / (1.0f + 0.03f * static_cast<float>(killCount));
+    RecomputeAttackInterval();
+}
+
+float Survivors3DPlayerComponent::KillAttackSpeedBonus() const {
+    return m_killIntervalScale > 1e-5f ? 1.0f / m_killIntervalScale - 1.0f : 0.0f;
+}
+
+void Survivors3DPlayerComponent::ResetCombatStats() {
+    level = 1;
+    xp = 0.0f;
+    xpNext = 12.0f;
+    attackDamage = baseAttackDamage;
+    maxHp = baseMaxHp;
+    hp = maxHp;
+    alive = true;
+    invulnerable = 0.0f;
+    hitFlash = 0.0f;
+    killCount = 0;
+    m_levelIntervalScale = 1.0f;
+    m_killIntervalScale = 1.0f;
+    m_attackTimer = 0.0f;
+    RecomputeAttackInterval();
+}
 
 void Survivors3DPlayerComponent::OnUpdate(float dt) {
     if (!alive || !m_owner) return;
@@ -194,7 +268,8 @@ void Survivors3DPlayerComponent::AddXp(float amount) {
         ++level;
         xpNext *= 1.32f;
         attackDamage += 5.0f;
-        attackInterval = (std::max)(0.2f, attackInterval * 0.92f);
+        m_levelIntervalScale = (std::max)(0.25f, m_levelIntervalScale * 0.92f);
+        RecomputeAttackInterval();
         maxHp += 10.0f;
         hp = (std::min)(maxHp, hp + 10.0f);
         PlaySfx("levelup", 0.6f);
@@ -216,6 +291,7 @@ void Survivors3DEnemyComponent::OnUpdate(float dt) {
         SpawnGem(*world, m_owner->Position() + Vec3(0.0f, 0.35f, 0.0f), xpValue);
         SpawnBurst(*world, m_owner->Position() + Vec3(0.0f, 0.8f, 0.0f), "particles/spark_01.png",
                    Vec4(1.0f, 0.55f, 0.2f, 1.0f), 0.5f);
+        ++g3dKills; // 3D 版此前漏了计数：击杀数一直是 0，攻速/结算都不准
         g3dEnemies.erase(std::remove(g3dEnemies.begin(), g3dEnemies.end(), m_owner), g3dEnemies.end());
         world->DestroyObject(m_owner);
         return;
@@ -280,6 +356,7 @@ void Survivors3DProjectileComponent::OnUpdate(float dt) {
             if (auto* component = enemy->GetComponent<Survivors3DEnemyComponent>()) {
                 component->hp -= damage;
                 component->hitFlash = 1.0f;
+                SpawnDamageNumber(Vec3(p.x, p.y + 1.15f, p.z), damage);
             }
             SpawnBurst(*world, position, "particles/flame_01.png", Vec4(1.0f, 0.8f, 0.35f, 1.0f), 0.35f);
             world->DestroyObject(m_owner);
@@ -335,6 +412,7 @@ void Survivors3DDirector::SpawnEnemy(World& world, const Vec2& position, float h
                                    Vec3(2.0f, 2.0f, 2.0f), Vec4(0.85f, 0.85f, 0.9f, 1.0f), true);
     auto* component = enemy->AddComponent<Survivors3DEnemyComponent>();
     component->hp *= hpScale;
+    component->maxHp = component->hp;
     component->speed *= speedScale;
     g3dEnemies.push_back(enemy);
 }
@@ -369,20 +447,17 @@ void Survivors3DDirector::Reset(World& world) {
     world.ProcessPendingDestruction();
     g3dEnemies.clear();
 
+    g3dDamageNumbers.clear();
     if (GameObject* player = FindPlayer(world)) {
         player->SetPosition(Vec3(0.0f, 0.0f, 0.0f));
-        if (auto* component = player->GetComponent<Survivors3DPlayerComponent>()) {
-            component->hp = component->maxHp;
-            component->xp = 0.0f;
-            component->level = 1;
-            component->alive = true;
-            component->invulnerable = 0.0f;
-        }
+        if (auto* component = player->GetComponent<Survivors3DPlayerComponent>()) component->ResetCombatStats();
     }
 
     g3dRng = 0.7f;
+    g3dFxRng = 0.314159f;
     m_state = State::Playing;
     m_kills = 0;
+    g3dKills = 0;
     m_time = 0.0f;
     m_spawnTimer = 1.0f;
     LogInfo("[3D] 开始游戏");
@@ -393,6 +468,10 @@ void Survivors3DDirector::Update(World& world, float dt) {
 
     m_time += dt;
     m_kills = g3dKills;
+    UpdateDamageNumbers(dt);
+    if (GameObject* player = FindPlayer(world)) {
+        if (auto* component = player->GetComponent<Survivors3DPlayerComponent>()) component->ApplyKillCount(m_kills);
+    }
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
         SpawnWave(world);
@@ -434,6 +513,7 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
             ImGui::Separator();
             ImGui::TextWrapped("WASD 移动，角色自动朝最近的亡灵发射光弹。");
             ImGui::TextWrapped("击杀掉落经验宝石，靠近自动拾取；升级会提高攻击力与生命。");
+            ImGui::TextWrapped("击杀越多攻速越快；亡灵头顶有 3D 血条，命中会飘出伤害数字。");
             ImGui::TextWrapped("模型来自 Kenney（CC0）：Blocky Characters + Graveyard Kit；");
             ImGui::TextWrapped("特效来自 Kenney Particle Pack（火焰/火花/星光）。");
             ImGui::Dummy(ImVec2(0, 12));
@@ -486,7 +566,7 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
     const float xpRatio = component && component->xpNext > 0.0f ? Clamp01(component->xp / component->xpNext) : 0.0f;
 
     ImGui::SetNextWindowPos(ImVec2(viewportX + 14.0f, viewportY + 34.0f), ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(300, 128), ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(320, 150), ImGuiCond_Always);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.04f, 0.06f, 0.62f));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
     ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
@@ -502,6 +582,8 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
     ImGui::ProgressBar(xpRatio, ImVec2(250, 10));
     ImGui::PopStyleColor();
     ImGui::Text("等级 %d   击杀 %d   时间 %.0fs", component ? component->level : 1, m_kills, m_time);
+    ImGui::Text("攻速 +%.0f%%   间隔 %.2fs   攻击 %.0f", component ? component->KillAttackSpeedBonus() * 100.0f : 0.0f,
+                component ? component->attackInterval : 0.0f, component ? component->attackDamage : 0.0f);
     ImGui::End();
     ImGui::PopStyleVar(2);
     ImGui::PopStyleColor();
@@ -510,10 +592,87 @@ void Survivors3DDirector::DrawUI(World& world, float viewportX, float viewportY,
                                             IM_COL32(220, 225, 235, 180), "WASD 移动 · 自动攻击 · Esc 暂停");
 }
 
+void Survivors3DDirector::DrawCombatFeedback(World& world, const Camera& camera, float viewportX, float viewportY,
+                                             float viewportWidth, float viewportHeight) {
+    if (m_state != State::Playing) return;
+    if (viewportWidth < 8.0f || viewportHeight < 8.0f) return;
+
+    const Vec2 screenSize(viewportWidth, viewportHeight);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    draw->PushClipRect(ImVec2(viewportX, viewportY),
+                       ImVec2(viewportX + viewportWidth, viewportY + viewportHeight), true);
+
+    // 头顶 3D 血条：锚在世界坐标、按透视投影到屏幕；被墓碑/柱子挡住时不画
+    for (GameObject* enemy : g3dEnemies) {
+        if (!enemy || !enemy->Active()) continue;
+        auto* component = enemy->GetComponent<Survivors3DEnemyComponent>();
+        if (!component || component->hp <= 0.0f) continue;
+
+        // 亡灵模型是 2 倍缩放，最高约 1.65 m；血条放在头顶略上方
+        const Vec3 head = enemy->Position() + Vec3(0.0f, 1.9f, 0.0f);
+        Vec2       screen;
+        if (!camera.WorldToScreen(head, screenSize, screen)) continue;
+
+        const Vec3  occluderTarget = enemy->Position() + Vec3(0.0f, 0.9f, 0.0f);
+        const float headDistance = Length(occluderTarget - camera.position);
+        if (headDistance > 0.5f) {
+            const Ray      visibilityRay{camera.position, Normalize(occluderTarget - camera.position)};
+            World::RaycastHit blocker;
+            if (world.Raycast(visibilityRay, headDistance - 0.25f, blocker) && blocker.object != enemy) continue;
+        }
+
+        const float distance = Length(camera.position - head);
+        const float barWidth = Clamp(1500.0f / (std::max)(distance, 1.0f), 48.0f, 170.0f);
+        const float barHeight = Clamp(barWidth * 0.075f, 6.0f, 11.0f);
+        const float ratio = Clamp01(component->hp / (component->maxHp > 0.0f ? component->maxHp : 1.0f));
+        const float px = viewportX + screen.x;
+        const float py = viewportY + screen.y;
+        const float left = px - barWidth * 0.5f;
+        const float top = py - barHeight;
+
+        draw->AddRectFilled(ImVec2(left - 1.0f, top - 1.0f), ImVec2(left + barWidth + 1.0f, top + barHeight + 1.0f),
+                            IM_COL32(6, 7, 10, 210), 3.0f);
+        draw->AddRectFilled(ImVec2(left, top), ImVec2(left + barWidth, top + barHeight), IM_COL32(28, 30, 36, 235),
+                            2.0f);
+        if (ratio > 0.0f) {
+            const ImU32 fill = component->hitFlash > 0.0f ? IM_COL32(255, 255, 255, 255)
+                                                           : IM_COL32(226, 64, 74, 245);
+            draw->AddRectFilled(ImVec2(left, top), ImVec2(left + barWidth * ratio, top + barHeight), fill, 2.0f);
+            draw->AddRectFilled(ImVec2(left + 1.0f, top + 1.0f),
+                                ImVec2(left + barWidth * ratio - 1.0f, top + barHeight * 0.35f),
+                                IM_COL32(255, 255, 255, 60), 1.0f);
+        }
+    }
+
+    // 3D 伤害数字：世界坐标锚定、按透视投影与距离缩放，看起来有纵深
+    for (const DamageNumber3D& number : g3dDamageNumbers) {
+        Vec2 screen;
+        if (!camera.WorldToScreen(number.position, screenSize, screen)) continue;
+        const float distance = Length(camera.position - number.position);
+        const float t = Clamp01(number.age / number.life);
+        const float fontSize = Clamp(280.0f / (std::max)(distance, 1.0f), 13.0f, 32.0f) * Lerp(1.0f, 0.72f, t);
+        char text[32];
+        std::snprintf(text, sizeof(text), "-%.0f", number.value);
+        const ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text);
+        const ImVec2 pos(viewportX + screen.x - textSize.x * 0.5f, viewportY + screen.y - textSize.y * 0.5f);
+        const int alpha = static_cast<int>(255.0f * (1.0f - t));
+        const ImU32 outline = IM_COL32(20, 12, 6, alpha);
+        draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x - 1.5f, pos.y), outline, text);
+        draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x + 1.5f, pos.y), outline, text);
+        draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x, pos.y - 1.5f), outline, text);
+        draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x, pos.y + 1.5f), outline, text);
+        draw->AddText(ImGui::GetFont(), fontSize, pos, IM_COL32(255, 204, 84, alpha), text);
+    }
+
+    draw->PopClipRect();
+}
+
 // ================================================================ 关卡
 void BuildSurvivors3DLevel(World& world, AssetManager& assets) {
     world.Clear();
     g3dEnemies.clear();
+    g3dDamageNumbers.clear();
+    g3dFxRng = 0.314159f;
     g3dKills = 0;
 
     // 光照

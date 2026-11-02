@@ -29,7 +29,18 @@ namespace erm {
 namespace {
 constexpr float kFixedDt = 1.0f / 60.0f;
 constexpr int   kMaxSubSteps = 5;
+
+// 3D 幸存者：第三人称俯视跟随。视口渲染和头顶血条投影必须用同一台相机。
+void AimSurvivors3DCamera(World& world, Camera& camera) {
+    if (GameObject* player = world.FindByName("玩家")) {
+        const Vec3 p = player->Position();
+        camera.position = p + Vec3(0.0f, 6.4f, 8.8f);
+        const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - camera.position);
+        camera.yaw = std::atan2(-dir.x, -dir.z);
+        camera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
+    }
 }
+} // namespace
 
 int Engine::Run(int argc, char** argv) {
     // 游戏包：exe 旁的 game.cfg 决定默认关卡与模式（命令行参数优先级更高）
@@ -397,26 +408,7 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
 
     Camera viewCamera = camera;
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
-
-            if (m_survivors3dLevel) {
-                // 3D 幸存者：第三人称俯视跟随
-                if (GameObject* player = m_world.FindByName("玩家")) {
-                    const Vec3 p = player->Position();
-                    viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
-                    const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
-                    viewCamera.yaw = std::atan2(-dir.x, -dir.z);
-                    viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
-                }
-            }
-    if (m_survivors3dLevel) {
-        if (GameObject* player = m_world.FindByName("玩家")) {
-            const Vec3 p = player->Position();
-            viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
-            const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
-            viewCamera.yaw = std::atan2(-dir.x, -dir.z);
-            viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
-        }
-    }
+    if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
     if (m_is2D) {
         // 2D：正交相机跟随玩家（超出关卡边界时夹住）
@@ -509,6 +501,8 @@ void Engine::MainLoop() {
             }
         }
         bool gameplayInput = playing && (!m_showEditor || m_editor.ViewportHovered());
+        // 编辑器模式下也在这里把 UI 用的相机对齐到游戏视口（血条投影要一致）
+        if (m_survivors3dLevel && playing) AimSurvivors3DCamera(m_world, viewCamera);
         if (m_waveLevel) {
             if (playing) m_waveGame.Update(m_world, dt, gameplayInput);
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
@@ -556,13 +550,22 @@ void Engine::MainLoop() {
                 m_survivors.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
                                    static_cast<float>(m_editor.ViewportWidthPx()),
                                    static_cast<float>(m_editor.ViewportHeightPx()));
+                // 2D 幸存者：头顶血条 + 伤害数字（2D → 屏幕投影）
+                m_survivors.DrawCombatFeedback(m_world, m_scene.camera2D, m_editor.ViewportMinX(),
+                                               m_editor.ViewportMinY(),
+                                               static_cast<float>(m_editor.ViewportWidthPx()),
+                                               static_cast<float>(m_editor.ViewportHeightPx()));
                 if (m_survivors.WantsQuit()) m_running = false;
-                m_imgui.EndFrame();
             }
             if (m_survivors3dLevel && playing) {
                 m_survivors3d.DrawUI(m_world, m_editor.ViewportMinX(), m_editor.ViewportMinY(),
                                      static_cast<float>(m_editor.ViewportWidthPx()),
                                      static_cast<float>(m_editor.ViewportHeightPx()));
+                // 3D 幸存者：头顶 3D 血条 + 伤害数字（世界 → 屏幕投影）
+                m_survivors3d.DrawCombatFeedback(m_world, viewCamera, m_editor.ViewportMinX(),
+                                                 m_editor.ViewportMinY(),
+                                                 static_cast<float>(m_editor.ViewportWidthPx()),
+                                                 static_cast<float>(m_editor.ViewportHeightPx()));
                 if (m_survivors3d.WantsQuit()) m_running = false;
             }
 
@@ -571,16 +574,7 @@ void Engine::MainLoop() {
             m_imgui.EndFrame();
         } else {
             m_renderer.Debug().Begin();
-            if (m_survivors3dLevel) {
-                // 3D 幸存者：第三人称俯视跟随
-                if (GameObject* player = m_world.FindByName("玩家")) {
-                    const Vec3 p = player->Position();
-                    viewCamera.position = p + Vec3(0.0f, 6.4f, 8.8f);
-                    const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - viewCamera.position);
-                    viewCamera.yaw = std::atan2(-dir.x, -dir.z);
-                    viewCamera.pitch = std::asin(Clamp(dir.y, -1.0f, 1.0f));
-                }
-            }
+            if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
             m_world.BuildRenderScene(m_scene, viewCamera);
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
@@ -610,6 +604,9 @@ void Engine::MainLoop() {
                 m_imgui.BeginFrame();
                 m_survivors.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                    static_cast<float>(m_window.Height()));
+                m_survivors.DrawCombatFeedback(m_world, m_scene.camera2D, 0.0f, 0.0f,
+                                               static_cast<float>(m_window.Width()),
+                                               static_cast<float>(m_window.Height()));
                 if (m_survivors.WantsQuit()) m_running = false;
                 m_imgui.EndFrame();
             }
@@ -617,6 +614,9 @@ void Engine::MainLoop() {
                 m_imgui.BeginFrame();
                 m_survivors3d.DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                      static_cast<float>(m_window.Height()));
+                m_survivors3d.DrawCombatFeedback(m_world, viewCamera, 0.0f, 0.0f,
+                                                 static_cast<float>(m_window.Width()),
+                                                 static_cast<float>(m_window.Height()));
                 if (m_survivors3d.WantsQuit()) m_running = false;
                 m_imgui.EndFrame();
             }
