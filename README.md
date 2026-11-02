@@ -41,11 +41,12 @@ python tools\build_docs_site.py
 
 ```bat
 build.bat
-build\bin\ErMao.exe            :: 打开编辑器（默认加载刷怪竞技场）
+run.bat                        :: 发布版：打开编辑器，不弹控制台、不写日志
+run.bat dev                    :: 开发版：Debug + 控制台日志（排错用）
 ```
 
 - 编辑器里按 **F5**（或工具栏"运行"）→ 弹出游戏菜单 → `开始游戏`
-- 直接看演示：`build\bin\ErMao.exe --demo`
+- 直接看演示：`run.bat --demo`（发布版）或 `run.bat dev --demo`（开发版）
 - 打包：菜单 `文件 → 打包 → 打包 Windows`
 
 ## 操作

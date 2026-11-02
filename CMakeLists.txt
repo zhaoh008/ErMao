@@ -24,7 +24,9 @@ endif()
 foreach(cfg Debug Release RelWithDebInfo MinSizeRel)
     string(TOUPPER ${cfg} CFG)
     set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_${CFG} ${CMAKE_BINARY_DIR}/bin)
-    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFG} ${CMAKE_BINARY_DIR}/lib)
+    # 静态库按配置分目录：run.bat 在 Release/Debug 之间切换时，避免 VS 多配置
+    # 生成器把另一个配置的 .lib 留在 build/lib 导致 LNK4098（Debug/Release CRT 混链）。
+    set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY_${CFG} ${CMAKE_BINARY_DIR}/lib/${cfg})
 endforeach()
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
@@ -104,7 +106,12 @@ else()
     message(STATUS "Vulkan SDK 未安装：跳过 Vulkan 后端（D3D11 仍可用）")
 endif()
 target_link_libraries(ErMao PRIVATE ErMaoEngine)
-set_target_properties(ErMao PROPERTIES VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin")
+# GUI 子系统：发布版双击/run.bat 不再额外弹一个 CMD 控制台。
+# 开发版（run.bat dev / --dev）在运行时自己挂接或新建控制台并输出日志，入口见 main.cpp 的 WinMain。
+set_target_properties(ErMao PROPERTIES
+    WIN32_EXECUTABLE TRUE
+    VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
 
 # 把 shaders / assets 拷到可执行文件旁边，保证 exe 目录自包含
 add_custom_command(TARGET ErMao POST_BUILD

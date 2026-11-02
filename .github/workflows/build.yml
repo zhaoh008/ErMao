@@ -26,13 +26,18 @@ jobs:
         shell: pwsh
         run: ./tools/docs-check.ps1
 
-      # 冒烟测试：可执行文件 + 资源由 CMake 的 post-build 复制
-      - name: Smoke (30 frames, no editor)
+      # 冒烟测试：可执行文件 + 资源由 CMake 的 post-build 复制。
+      # ErMao 是 GUI 子系统（发布版不弹控制台），所以用 Start-Process -Wait 等它退出。
+      - name: Smoke (release, 30 frames, no editor)
         shell: pwsh
         run: |
-          if (Test-Path "build/bin/ErMao.exe") {
-            & "build/bin/ErMao.exe" --frames 30 --noeditor
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          } else {
-            Write-Warning "ErMao.exe not found at build/bin; skip smoke"
-          }
+          $exe = "build/bin/ErMao.exe"
+          if (-not (Test-Path $exe)) { throw "$exe not found" }
+          $p = Start-Process -FilePath $exe -ArgumentList "--frames", "30", "--noeditor" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "release smoke failed: exit $($p.ExitCode)" }
+
+      - name: Smoke (development console, 10 frames)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--dev", "--frames", "10", "--noeditor" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "dev smoke failed: exit $($p.ExitCode)" }
