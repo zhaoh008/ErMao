@@ -1,0 +1,36 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configure (CMake / MSVC x64)
+        run: cmake -S . -B build -G "Visual Studio 17 2022" -A x64
+
+      - name: Build Release
+        run: cmake --build build --config Release --parallel
+
+      - name: Docs reference check
+        shell: pwsh
+        run: ./tools/docs-check.ps1
+
+      # 冒烟测试：可执行文件 + 资源由 CMake 的 post-build 复制
+      - name: Smoke (30 frames, no editor)
+        shell: pwsh
+        run: |
+          if (Test-Path "build/bin/ErMao.exe") {
+            & "build/bin/ErMao.exe" --frames 30 --noeditor
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          } else {
+            Write-Warning "ErMao.exe not found at build/bin; skip smoke"
+          }

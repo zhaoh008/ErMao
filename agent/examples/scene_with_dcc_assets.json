@@ -1,0 +1,28 @@
+{
+  "commands": [
+    { "cmd": "scene.new" },
+    { "cmd": "object.create", "name": "遗迹地面", "scale": [50, 1, 50] },
+    { "cmd": "component.add", "object": "遗迹地面", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "遗迹地面", "component": "Mesh Renderer", "field": "mesh", "value": "plane" },
+    { "cmd": "component.set", "object": "遗迹地面", "component": "Mesh Renderer", "field": "texture", "value": "noise" },
+    { "cmd": "component.set", "object": "遗迹地面", "component": "Mesh Renderer", "field": "uvScale", "value": 30 },
+
+    { "cmd": "object.create", "name": "石柱", "position": [-4, 0, -3], "scale": [1.8, 1.8, 1.8] },
+    { "cmd": "component.add", "object": "石柱", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "石柱", "component": "Mesh Renderer", "field": "mesh", "value": "models/kenney/column-large.obj" },
+    { "cmd": "component.set", "object": "石柱", "component": "Mesh Renderer", "field": "texture", "value": "textures/kenney/colormap.png" },
+
+    { "cmd": "object.create", "name": "十字架", "position": [3, 0, -2] },
+    { "cmd": "component.add", "object": "十字架", "component": "Mesh Renderer" },
+    { "cmd": "component.set", "object": "十字架", "component": "Mesh Renderer", "field": "mesh", "value": "models/kenney/cross.obj" },
+
+    { "cmd": "object.create", "name": "太阳", "rotation": [-0.5, -0.6, 0, 0.62] },
+    { "cmd": "component.add", "object": "太阳", "component": "Directional Light" },
+    { "cmd": "component.set", "object": "太阳", "component": "Directional Light", "field": "intensity", "value": 2.4 },
+
+    { "cmd": "camera.set", "position": [9, 6.5, 11], "yaw": 0.68, "pitch": -0.42 },
+    { "cmd": "screenshot", "path": "docs/screenshots/agent-dcc.png" },
+    { "cmd": "scene.save", "path": "build/bin/assets/scenes/ai-dcc-scene.ermaos.json" },
+    { "cmd": "validate" }
+  ]
+}

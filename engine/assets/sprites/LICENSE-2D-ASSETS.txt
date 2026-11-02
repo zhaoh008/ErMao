@@ -1,0 +1,14 @@
+2D 素材来源与许可
+=================
+
+1) soldier_*.png / orc_*.png / arrow.png
+   来源：用户提供的 "Tiny RPG Character Asset Pack 01 v2.0 - Free Soldier & Orc"
+   包内未附许可文件；这是公开发布的免费素材，用于学习/演示。
+   如需商用，请向原作者确认许可。
+
+2) kenney_tilemap.png（12x11 张 16x16 图块：地板、墙、箱子、金币等）
+   来源：Kenney - Tiny Dungeon (CC0)
+   https://kenney.nl/assets/tiny-dungeon
+   许可：CC0 1.0（可商用、可修改、无需署名），见 LICENSE-kenney-tiny-dungeon.txt
+
+用法：引擎通过 AssetManager::GetTextureAsset("sprites/xxx.png") 懒加载。

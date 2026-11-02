@@ -1,0 +1,27 @@
+build/
+dist/
+.vs/
+*.user
+*.log
+imgui.ini
+roundtrip-*.json
+screenshot_*.png
+.probe/
+.staging/
+# AI 脚本输出
+agent-report.json
+agent-make-report.json
+agent-dcc-report.json
+validate.json
+
+# 生成的 HTML 副本（根目录那份入库，这里只保留本地）
+docs/site/
+
+# setup.ps1 下载的便携工具
+.tools/
+
+# IDE / 临时构建
+.idea/
+cmake-build-*/
+build-*/
+build_novk/

@@ -1,0 +1,39 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "vs2022",
+      "displayName": "Visual Studio 2022 (x64, 推荐)",
+      "description": "CLion: Settings → Build → CMake → 选择该预设（或 Generator 选 Visual Studio 17 2022）",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build"
+    },
+    {
+      "name": "ninja-msvc-debug",
+      "displayName": "Ninja + MSVC (Debug)",
+      "description": "需要 CLion 工具链选 Visual Studio（会注入 MSVC 环境）；直接在终端跑要先 vcvars64.bat",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-ninja",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "ninja-msvc-release",
+      "displayName": "Ninja + MSVC (Release)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-ninja-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "vs2022-debug", "configurePreset": "vs2022", "configuration": "Debug" },
+    { "name": "vs2022-release", "configurePreset": "vs2022", "configuration": "Release" },
+    { "name": "ninja-msvc-debug", "configurePreset": "ninja-msvc-debug" },
+    { "name": "ninja-msvc-release", "configurePreset": "ninja-msvc-release" }
+  ]
+}
