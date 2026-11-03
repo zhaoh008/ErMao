@@ -394,7 +394,7 @@ bool Engine::RenderAgentScreenshot(const std::string& path) {
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
     m_renderer.Render(m_editorCamera, m_scene, m_time, false);
-    CaptureScreenshot(path);
+    if (!CaptureScreenshot(path)) return false;
     return FileSystem::Exists(path);
 }
 
