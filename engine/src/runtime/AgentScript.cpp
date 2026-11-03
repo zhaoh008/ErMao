@@ -275,12 +275,14 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
         if (kind == "mesh") {
             Mesh* mesh = m_assets.ImportMesh(path, &error);
             if (!mesh) return Error(error);
-            result.Set("name", JsonValue(path));
+            // ImportMesh 注册名是 "models/<文件名>"，返回值必须与之一致，AI 才能直接拿它去 component.set
+            result.Set("name", JsonValue("models/" + FileSystem::FileNameOf(path)));
             result.Set("triangles", JsonValue(static_cast<unsigned>(mesh->IndexCount() / 3)));
         } else if (kind == "texture") {
             Texture* texture = m_assets.ImportTexture(path, &error);
             if (!texture) return Error(error);
-            result.Set("name", JsonValue(path));
+            // ImportTexture 注册名是 "textures/<文件名>"，与 ImportMesh 同理
+            result.Set("name", JsonValue("textures/" + FileSystem::FileNameOf(path)));
         } else {
             return Error("kind 必须是 mesh 或 texture");
         }
@@ -409,12 +411,23 @@ bool Engine::RunAgentScript(const std::string& path, const std::string& outputPa
         LogError("[AI] 脚本格式错误: %s", parseError.c_str());
         return false;
     }
+    const JsonValue& commands = root["commands"];
+    if (!commands.IsArray()) {
+        LogError("[AI] 脚本格式错误: commands 必须是数组: %s", path.c_str());
+        return false;
+    }
+    for (const JsonValue& command : commands.Elements()) {
+        if (!command.IsObject()) {
+            LogError("[AI] 脚本格式错误: commands 的元素必须是对象: %s", path.c_str());
+            return false;
+        }
+    }
 
     JsonValue report = JsonValue::MakeObject();
     report.Set("script", JsonValue(path));
     JsonValue results = JsonValue::MakeArray();
     int okCount = 0;
-    for (const JsonValue& command : root["commands"].Elements()) {
+    for (const JsonValue& command : commands.Elements()) {
         JsonValue result = ExecuteAgentCommand(command);
         JsonValue entry = JsonValue::MakeObject();
         entry.Set("cmd", JsonValue(command["cmd"].AsString()));
@@ -423,8 +436,8 @@ bool Engine::RunAgentScript(const std::string& path, const std::string& outputPa
         if (result["ok"].AsBool()) ++okCount;
         LogInfo("[AI] %s -> ok=%d", command["cmd"].AsString().c_str(), result["ok"].AsBool() ? 1 : 0);
     }
-    report.Set("ok", JsonValue(okCount == static_cast<int>(root["commands"].Size())));
-    report.Set("total", JsonValue(static_cast<int>(root["commands"].Size())));
+    report.Set("ok", JsonValue(okCount == static_cast<int>(commands.Size())));
+    report.Set("total", JsonValue(static_cast<int>(commands.Size())));
     report.Set("succeeded", JsonValue(okCount));
     report.Set("results", results);
 
@@ -434,8 +447,8 @@ bool Engine::RunAgentScript(const std::string& path, const std::string& outputPa
         out << json;
         LogInfo("[AI] 结果写入 %s", outputPath.c_str());
     }
-    LogInfo("[AI] 脚本完成：%d/%d 条命令成功", okCount, static_cast<int>(root["commands"].Size()));
-    return okCount == static_cast<int>(root["commands"].Size());
+    LogInfo("[AI] 脚本完成：%d/%d 条命令成功", okCount, static_cast<int>(commands.Size()));
+    return okCount == static_cast<int>(commands.Size());
 }
 
 } // namespace erm

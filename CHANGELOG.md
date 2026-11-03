@@ -36,6 +36,8 @@
 
 ### Fixed
 
+- 无头脚本 `assets.import` 现在返回资源注册名（`models/<文件名>` / `textures/<文件名>`），不再返回源文件路径，导入结果可直接用于 `component.set` 的 mesh/texture 字段
+- `--script` 脚本的 `commands` 不是数组、或数组元素不是对象时，现在记录格式错误并以失败返回（进程非 0 退出），不再被当作 0 条命令而误报 `ok=true`
 - 第三人称地面检测与相机弹簧臂射线现在通过 `World::Raycast(..., ignore)` 在求交前跳过角色自身：射线起点位于角色 AABB 内时 `IntersectRayAABB` 返回 `tmin=0`，原先“命中后再比较 `hit.object`”无法找到平台，导致站上平台/台阶时 `grounded=false`、角色下沉
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
