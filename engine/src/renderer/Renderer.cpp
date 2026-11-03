@@ -54,8 +54,8 @@ bool Renderer::Init(Device* device) {
     if (!CreateGpuCullResources()) {
         LogWarn("GPU 剔除不可用，回退 CPU 批处理");
     }
-    if (!m_spriteBuffer.Create(m_device->GetDevice(), nullptr, 65536 * sizeof(SpriteVertex), D3D11_BIND_VERTEX_BUFFER,
-                               D3D11_USAGE_DYNAMIC)) {
+    if (!m_spriteBuffer.Create(m_device->GetDevice(), nullptr, kMaxSpriteVertices * sizeof(SpriteVertex),
+                               D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC)) {
         LogError("精灵顶点缓冲创建失败");
         return false;
     }
@@ -63,7 +63,7 @@ bool Renderer::Init(Device* device) {
         LogError("精灵常量缓冲创建失败");
         return false;
     }
-    if (!m_particleBuffer.Create(m_device->GetDevice(), nullptr, 4096 * sizeof(ParticleVertex),
+    if (!m_particleBuffer.Create(m_device->GetDevice(), nullptr, kMaxParticleVertices * sizeof(ParticleVertex),
                                  D3D11_BIND_VERTEX_BUFFER, D3D11_USAGE_DYNAMIC)) {
         LogError("粒子顶点缓冲创建失败");
         return false;
@@ -303,6 +303,22 @@ void Renderer::GpuCulledDraw(ID3D11DeviceContext* ctx) {
         return;
     }
 
+    // 0) 固定容量的 args 缓冲只有 kMaxCullBatches 个；超过时整帧回退 CPU 批处理，
+    //    不能只画前 32 批而把其余批次静默丢掉。
+    u32 nonEmptyBatches = 0;
+    for (const Batch& batch : m_batches) {
+        if (batch.count > 0) ++nonEmptyBatches;
+    }
+    if (nonEmptyBatches > kMaxCullBatches) {
+        if (!m_gpuBatchOverflowWarned) {
+            LogWarn("GPU 剔除批次 %u 超过上限 %u，本帧回退 CPU 批处理", nonEmptyBatches, kMaxCullBatches);
+            m_gpuBatchOverflowWarned = true;
+        }
+        m_stats.gpuCullEnabled = false;
+        DrawBatches(ctx);
+        return;
+    }
+
     // 1) 实例数据整块上传（教学规模：几千个实例 × 144B）
     ctx->UpdateSubresource(m_gpuInstanceSource.Get(), 0, nullptr, m_instances.data(), 0, 0);
 
@@ -420,9 +436,18 @@ void Renderer::SpritePass(ID3D11DeviceContext* ctx, const RenderScene& scene, fl
     std::vector<Run> runs;
 
     m_spriteVertices.clear();
-    m_spriteVertices.reserve(scene.sprites.size() * 6);
+    m_spriteVertices.reserve((std::min)(scene.sprites.size() * 6, static_cast<size_t>(kMaxSpriteVertices)));
+    if (scene.sprites.size() * 6 <= kMaxSpriteVertices) m_spriteCapacityWarned = false;
     for (const SpriteDraw& sprite : scene.sprites) {
         if (!sprite.texture) continue;
+        if (m_spriteVertices.size() + 6 > kMaxSpriteVertices) {
+            if (!m_spriteCapacityWarned) {
+                LogWarn("精灵顶点缓冲上限 %u 顶点（%u 个精灵），场景含 %zu 个精灵，本帧截断多余精灵",
+                        kMaxSpriteVertices, kMaxSpriteVertices / 6, scene.sprites.size());
+                m_spriteCapacityWarned = true;
+            }
+            break;
+        }
         if (runs.empty() || runs.back().texture != sprite.texture) {
             runs.push_back({sprite.texture, static_cast<u32>(m_spriteVertices.size()), 0});
         }
@@ -947,8 +972,18 @@ void Renderer::ParticlePass(ID3D11DeviceContext* ctx) {
     std::vector<Run> runs;
 
     m_particleVertices.clear();
-    m_particleVertices.reserve(m_currentScene->particles.size() * 6);
+    m_particleVertices.reserve(
+        (std::min)(m_currentScene->particles.size() * 6, static_cast<size_t>(kMaxParticleVertices)));
+    if (m_currentScene->particles.size() * 6 <= kMaxParticleVertices) m_particleCapacityWarned = false;
     for (const ParticleRender& p : m_currentScene->particles) {
+        if (m_particleVertices.size() + 6 > kMaxParticleVertices) {
+            if (!m_particleCapacityWarned) {
+                LogWarn("粒子顶点缓冲上限 %u 顶点（%u 个粒子），场景含 %zu 个粒子，本帧截断多余粒子",
+                        kMaxParticleVertices, kMaxParticleVertices / 6, m_currentScene->particles.size());
+                m_particleCapacityWarned = true;
+            }
+            break;
+        }
         if (runs.empty() || runs.back().texture != p.texture) {
             runs.push_back({p.texture, static_cast<u32>(m_particleVertices.size()), 0});
         }

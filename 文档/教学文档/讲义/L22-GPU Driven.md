@@ -168,7 +168,8 @@ argsDesc.MiscFlags = D3D11_RESOURCE_MISC_DRAWINDIRECT_ARGS;
   同 buffer”；代码写了两条路径；
 - 间接参数 5 个 `UINT`：`{IndexCount, InstanceCount, StartIndex, BaseVertex, StartInstance}`；
 - `kMaxCullBatches = 32`，每批独立的 args 缓冲/UAV；回读 staging 大小
-  `5 × 4 × 32 = 640 B`。
+  `5 × 4 × 32 = 640 B`。非空批次超过 32 时整帧回退 `DrawBatches` 并告警，
+  不再静默丢弃第 33 个及以后的批次。
 
 ### 5.2 compute shader（`Cull.hlsl`）
 

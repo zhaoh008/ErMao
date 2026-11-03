@@ -215,6 +215,7 @@ private:
     };
     std::vector<ParticleVertex> m_particleVertices;
     GpuBuffer                   m_particleBuffer;
+    bool                        m_particleCapacityWarned = false;
     std::vector<RenderItem>     m_visibleItems;
     std::vector<u8>             m_visibility;
 
@@ -258,6 +259,8 @@ private:
     ConstantBuffer<GpuCullCB>       m_cullParams;
 
     // 2D 精灵（第 23 讲）
+    static constexpr u32 kMaxSpriteVertices = 65536;
+    static constexpr u32 kMaxParticleVertices = 4096;
     struct SpriteVertex {
         Vec2 position;
         Vec2 uv;
@@ -270,6 +273,7 @@ private:
     ConstantBuffer<ParticleParamsCB> m_particleParams;
     std::vector<SpriteVertex> m_spriteVertices;
     GpuBuffer                 m_spriteBuffer;
+    bool                      m_spriteCapacityWarned = false;
     ComPtr<ID3D11Buffer>            m_gpuInstanceSource;
     ComPtr<ID3D11ShaderResourceView> m_gpuInstanceSRV;
     ComPtr<ID3D11Buffer>            m_gpuCompact;
@@ -283,6 +287,7 @@ private:
     bool                            m_gpuCullReady = false;
     bool                            m_gpuCompactIsUavOnly = false;
     bool                            m_gpuCullWanted = true;
+    bool                            m_gpuBatchOverflowWarned = false;
     const Camera*      m_currentCamera = nullptr;
 };
 
