@@ -676,22 +676,23 @@ void Engine::MainLoop() {
         // PIE 里点击“运行”后鼠标通常还在工具栏上；玩法输入不应因此被禁用。
         // 只在暂停或正在输入文字时关闭，避免 WASD 抢输入框。
         const bool paused = m_showEditor && m_editor.IsPaused();
+        const bool advanceGameplay = playing && !paused;
         bool gameplayInput = playing && !paused && !ImGui::GetIO().WantTextInput;
         // 编辑器模式下也在这里把 UI 用的相机对齐到游戏视口（血条投影要一致）
         if (m_survivors3dLevel && playing) AimSurvivors3DCamera(m_world, viewCamera);
         if (m_waveLevel) {
-            if (playing) m_waveGame.Update(m_world, dt, gameplayInput);
+            if (advanceGameplay) m_waveGame.Update(m_world, dt, gameplayInput);
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
             if (!playing) m_waveGame.ReturnToMenu();
         }
         if (m_survivors3dLevel) {
-            if (playing) m_survivors3d.Update(m_world, dt);
+            if (advanceGameplay) m_survivors3d.Update(m_world, dt);
             if (m_survivors3d.GetState() != Survivors3DDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors3d.ReturnToMenu();
             Survivors3DPlayerComponent::SetInputEnabled(gameplayInput);
         }
         if (m_survivorsLevel) {
-            if (playing) m_survivors.Update(m_world, dt);
+            if (advanceGameplay) m_survivors.Update(m_world, dt);
             if (m_survivors.GetState() != SurvivorsDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors.ReturnToMenu();
             SurvivorsPlayerComponent::SetInputEnabled(gameplayInput);
