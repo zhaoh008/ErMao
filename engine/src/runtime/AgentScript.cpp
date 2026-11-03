@@ -13,6 +13,8 @@
 #include "core/Log.h"
 #include "renderer/Renderer.h"
 #include "game/Levels.h"
+#include "game/ParticleEmitter.h"
+#include "game/SkinningDemo.h"
 #include "runtime/Packager.h"
 #include <fstream>
 #include "scene/Components.h"
@@ -143,6 +145,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 场景
     if (cmd == "scene.new") {
         m_world.Clear();
+        // scene.new 是"清空世界"，也必须把引擎侧的关卡模式状态复位；否则从 2D 关卡
+        // 建空场景后 m_is2D/m_survivorsLevel 仍为 true，截图与运行会沿用上一关。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
+        m_is2D = false;
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         return Ok();
     }
     if (cmd == "scene.save") {
@@ -305,6 +317,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 关卡
     if (cmd == "level.build") {
         const std::string kind = command["kind"].AsString();
+        // 关卡切换后同步全部模式状态（与 Engine::LoadLevel 一致），避免无头截图
+        // 或后续命令沿用上一关的 2D 标记与玩法导演。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
+        m_is2D = (kind == "survivors");
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         m_world.Clear();
         if (kind == "survivors3d") {
             BuildSurvivors3DLevel(m_world, m_assets);
@@ -312,7 +334,6 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
         } else if (kind == "survivors") {
             BuildSurvivorsLevel(m_world, m_assets);
             m_survivorsLevel = true;
-            m_is2D = true;
         } else if (kind == "skinning") {
             game::BuildSkinningLevel(m_world, m_renderer);
         } else if (kind == "thirdperson") {
@@ -358,6 +379,20 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
 bool Engine::RenderAgentScreenshot(const std::string& path) {
     m_renderer.Debug().Begin();
     m_world.BuildRenderScene(m_scene, m_editorCamera);
+    // 无头截图复用视口渲染的场景准备：2D 关卡必须用与运行时一致的 Camera2D。
+    m_scene.is2D = m_is2D;
+    if (m_is2D) {
+        Camera2D camera2D;
+        camera2D.halfHeight = 6.4f;
+        if (GameObject* player = m_world.FindByName("玩家")) {
+            const Vec3 position = player->Position();
+            camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+        }
+        m_scene.camera2D = camera2D;
+    }
+    // 与 RenderViewportScene / MainLoop 的视口路径保持一致：蒙皮与粒子在 BuildRenderScene 之后收集。
+    game::CollectSkinnedDraws(m_world, m_scene);
+    CollectParticles(m_world, m_scene);
     m_renderer.Render(m_editorCamera, m_scene, m_time, false);
     CaptureScreenshot(path);
     return FileSystem::Exists(path);

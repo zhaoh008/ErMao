@@ -9,6 +9,11 @@
 
 namespace erm {
 
+void SkinnedCharacterComponent::OnStart() {
+    // dt=0 只按当前时间/相位采样并计算骨骼矩阵，不推进动画时间。
+    OnUpdate(0.0f);
+}
+
 void SkinnedCharacterComponent::OnUpdate(float dt) {
     if (!m_owner || skeleton.bones.empty()) return;
 

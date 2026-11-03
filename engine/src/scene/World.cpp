@@ -244,6 +244,8 @@ bool World::HasActiveCamera() const {
 }
 
 void World::BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const {
+    // 兜底：RenderScene 是复用对象，默认按 3D 处理；2D 由调用方在构建后显式设置。
+    scene.is2D = false;
     scene.items.clear();
     scene.pointLights.clear();
     scene.sprites.clear();

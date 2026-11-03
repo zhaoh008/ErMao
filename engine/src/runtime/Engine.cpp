@@ -530,6 +530,8 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
     if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
+    // scene 是复用成员，BuildRenderScene 不保留 2D 状态；每帧按当前关卡显式同步，3D 必须复位。
+    m_scene.is2D = m_is2D;
     if (m_is2D) {
         // 2D：运行时跟随玩家；编辑时用编辑器正交相机（位置/缩放与 gizmo 严格一致）
         const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
@@ -547,7 +549,6 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
             camera2D.position = Vec2(camera.position.x, camera.position.y);
             camera2D.halfHeight = (std::max)(camera.orthoHeight, 0.1f) * 0.5f;
         }
-        m_scene.is2D = true;
         m_scene.camera2D = camera2D;
     }
     game::CollectSkinnedDraws(m_world, m_scene);
@@ -747,6 +748,7 @@ void Engine::MainLoop() {
             m_renderer.Debug().Begin();
             if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
             m_world.BuildRenderScene(m_scene, viewCamera);
+            m_scene.is2D = m_is2D; // 复用 scene：3D 时必须复位，避免沿用上一关的 2D 状态
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
             if (m_is2D) {
@@ -759,7 +761,6 @@ void Engine::MainLoop() {
                     camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
                                              Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
                 }
-                m_scene.is2D = true;
                 m_scene.camera2D = camera2D;
             }
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
