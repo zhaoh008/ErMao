@@ -438,10 +438,15 @@ bool Engine::RenderAgentScreenshot(const std::string& path) {
     m_scene.is2D = m_is2D;
     if (m_is2D) {
         Camera2D camera2D;
-        camera2D.halfHeight = 6.4f;
+        // 与 RenderViewportScene / MainLoop 的运行时 2D 相机保持一致（#25 已把半高改为 7.2、
+        // 视野按 SurvivorsPlayerComponent::arenaHalf 跟随），无头截图不能再用旧的固定常量。
+        camera2D.halfHeight = 7.2f;
         if (GameObject* player = m_world.FindByName("玩家")) {
             const Vec3 position = player->Position();
-            camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+            Vec2 half(20.0f, 8.0f);
+            if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+            camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                     Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
         }
         m_scene.camera2D = camera2D;
     }
