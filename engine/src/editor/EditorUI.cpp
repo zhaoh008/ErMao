@@ -231,7 +231,7 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
     if (m_showSettings) DrawSettings(world, renderer, editorCamera);
     DrawStatusBar();
 
-    HandleShortcuts(world, editorCamera);
+    HandleShortcuts(world, editorCamera, renderer);
 
     // 帧时间曲线
     m_frameTimes[m_frameTimeOffset] = dt * 1000.0f;
@@ -1700,7 +1700,7 @@ void Editor::NewScene(World& world) {
     if (m_sceneLoaded) m_sceneLoaded(std::string());
 }
 
-void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
+void Editor::HandleShortcuts(World& world, Camera& editorCamera, Renderer& renderer) {
     (void)editorCamera;
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
@@ -1714,6 +1714,9 @@ void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
         FocusSelected(world, editorCamera);
         SetStatus("聚焦: " + m_selected->Name());
     }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_F2)) renderer.Wireframe() = !renderer.Wireframe();
+    if (ImGui::IsKeyPressed(ImGuiKey_F4)) renderer.ShadowsEnabled() = !renderer.ShadowsEnabled();
 
     if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
         if (m_playing) {

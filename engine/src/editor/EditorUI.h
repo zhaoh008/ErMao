@@ -97,7 +97,7 @@ private:
     void DrawComponents(World& world, GameObject* object, AssetManager& assets);
     bool DrawField(const FieldDesc& field, void* object, AssetManager& assets);
 
-    void HandleShortcuts(World& world, Camera& editorCamera);
+    void HandleShortcuts(World& world, Camera& editorCamera, Renderer& renderer);
     void DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewportMin, const ImVec2& viewportSize);
     void FocusSelected(World& world, Camera& editorCamera);
     void PickObject(World& world, Camera& editorCamera, const ImVec2& viewportPos, const ImVec2& viewportSize);
