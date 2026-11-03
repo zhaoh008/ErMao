@@ -71,12 +71,13 @@
 | `component.set` | `object`, `component`, `field`, `value` | 任意字段，类型自动转换 |
 | `component.get` | `object`, `component`, `field` | 读回字段 |
 
-可用组件名（与 `Reflection::All()` 一致）：
+可用组件名（按源码注册表核对；`Reflection::Find` 为精确字符串匹配，区分大小写与空格）：
 
-`Mesh Renderer`、`Directional Light`、`Point Light`、`Camera`、`Sprite Renderer`、`Sprite Animator`、
-`Particle Emitter`、`Rigidbody`、`Box Collider`、`Third Person Controller`、`Health`、`Combat`、
+`Mesh Renderer`、`Camera`、`Directional Light`、`Point Light`、`Rigid Body`、`Spinner`、
+`Nav Agent`、`Player Controller`、`Animator`、`Third Person Controller`、`Health`、`Combat`、
+`Projectile`、`Enemy`、`Skinned Character`、`Particle Emitter`、`Sprite Renderer`、`Sprite Animator`、
 `Survivors Player`、`Survivors Enemy`、`Survivors Projectile`、`Survivors Gem`、
-`Survivors3D Player`、`Survivors3D Enemy`、`Survivors3D Projectile`、`Survivors3D Gem`。
+`Survivors3D Player`、`Survivors3D Enemy`、`Survivors3D Projectile`、`Survivors3D Gem`、`Survivors3D Effect`。
 
 字段名就是序列化 key（见 `文档/教学文档/讲义/L14-序列化与反射.md` 与各 `Describe()`）：
 
