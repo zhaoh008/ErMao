@@ -40,13 +40,21 @@ bool CopyTree(const std::string& source, const std::string& destination) {
 }
 
 bool WriteText(const std::string& path, const std::string& content) {
-    return FileSystem::WriteTextFile(path, content);
+    if (!FileSystem::WriteTextFile(path, content)) {
+        LogError("[打包] 写入文本失败: %s", path.c_str());
+        return false;
+    }
+    return true;
 }
 
 } // namespace
 
 PackageResult Packager::PackageWindows(const std::string& outputRoot) {
     PackageResult result;
+    bool textOk = true;
+    auto writeText = [&textOk](const std::string& path, const std::string& content) {
+        if (!WriteText(path, content)) textOk = false;
+    };
     const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
     const std::string target = FileSystem::Join(root, "ErMao-Windows");
     result.outputDir = target;
@@ -73,17 +81,17 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
 
     // 发布版：GUI 子系统 + 默认无日志，双击只出现游戏/编辑器窗口；
     // 开发版：同一个 exe 加 --dev，复用 run-dev.bat 的控制台输出日志。
-    WriteText(FileSystem::Join(target, "run.bat"),
+    writeText(FileSystem::Join(target, "run.bat"),
               "@echo off\r\n"
               "rem Release: no console window, no log file.\r\n"
               "start \"\" \"%~dp0ErMao.exe\" %*\r\n");
-    WriteText(FileSystem::Join(target, "run-dev.bat"),
+    writeText(FileSystem::Join(target, "run-dev.bat"),
               "@echo off\r\n"
               "rem Development: keep this console open for the log output.\r\n"
               "start \"\" /wait \"%~dp0ErMao.exe\" --dev %*\r\n");
-    WriteText(FileSystem::Join(root, "GENERATED_DO_NOT_EDIT.txt"),
+    writeText(FileSystem::Join(root, "GENERATED_DO_NOT_EDIT.txt"),
               "dist/ 是打包产物，不要手改。\r\n改源码请改工程目录，然后重新执行 文件 → 打包。\r\n");
-    WriteText(FileSystem::Join(target, "README.txt"),
+    writeText(FileSystem::Join(target, "README.txt"),
               "ErMao Engine - Windows package\r\n"
               "\r\n"
               "1. 双击 run.bat（发布版：无控制台、无日志）\r\n"
@@ -94,6 +102,10 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
               "\r\n"
               "assets/ 下是场景与模型，shaders/ 是运行时编译的 HLSL，删改前请先备份。\r\n");
 
+    if (!textOk) {
+        result.message = "写入打包文本失败";
+        return result;
+    }
     result.success = true;
     result.message = "Windows 包已生成：" + target;
     LogInfo("[打包] %s", result.message.c_str());
@@ -102,6 +114,10 @@ PackageResult Packager::PackageWindows(const std::string& outputRoot) {
 
 PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
     PackageResult result;
+    bool textOk = true;
+    auto writeText = [&textOk](const std::string& path, const std::string& content) {
+        if (!WriteText(path, content)) textOk = false;
+    };
     const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
     const std::string target = FileSystem::Join(root, "ErMao-Linux-Source");
     result.outputDir = target;
@@ -120,7 +136,7 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
     CopyTree(FileSystem::Join(project, "文档"), FileSystem::Join(target, "文档"));
     FileSystem::CopyFileTo(FileSystem::Join(project, "CMakeLists.txt"), FileSystem::Join(target, "CMakeLists.txt"));
 
-    WriteText(FileSystem::Join(target, "build.sh"),
+    writeText(FileSystem::Join(target, "build.sh"),
               "#!/usr/bin/env bash\n"
               "# ErMao v0.3 的图形/窗口层是 Win32 + D3D11，Linux 上无法直接构建。\n"
               "# 这个脚本只做环境检查，避免让 cmake 抛出一个看不懂的 FATAL_ERROR。\n"
@@ -138,7 +154,7 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
               "echo \"补完后端后可执行：cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j\"\n"
               "exit 0\n");
 
-    WriteText(FileSystem::Join(target, "README-LINUX.md"),
+    writeText(FileSystem::Join(target, "README-LINUX.md"),
               "# ErMao Linux 源码包\n\n"
               "## 现状（重要）\n\n"
               "ErMao v0.2 的图形与窗口层是 **Win32 + D3D11**，没有 Linux 运行时，\n"
@@ -151,6 +167,10 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
               "5. 打包：把 `assets/`、`shaders/` 与可执行文件放在同一目录。\n\n"
               "引擎的场景、序列化、物理、AI、玩法代码与图形后端无关，可以直接复用。\n");
 
+    if (!textOk) {
+        result.message = "写入打包文本失败";
+        return result;
+    }
     result.success = true;
     result.message = "Linux 源码包已生成（需自行补 Vulkan/OpenGL 后端）：" + target;
     LogWarn("[打包] %s", result.message.c_str());
@@ -161,6 +181,10 @@ PackageResult Packager::PackageLinuxSource(const std::string& outputRoot) {
 PackageResult Packager::PackageGameWindows(const std::string& gameName, const std::string& level,
                                            const std::string& outputRoot) {
     PackageResult result;
+    bool textOk = true;
+    auto writeText = [&textOk](const std::string& path, const std::string& content) {
+        if (!WriteText(path, content)) textOk = false;
+    };
     const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
     const std::string target = FileSystem::Join(root, gameName + "-Windows");
     result.outputDir = target;
@@ -182,18 +206,18 @@ PackageResult Packager::PackageGameWindows(const std::string& gameName, const st
     }
 
     // 游戏启动配置：exe 名称无关，game.cfg 决定默认关卡与模式
-    WriteText(FileSystem::Join(target, "game.cfg"),
+    writeText(FileSystem::Join(target, "game.cfg"),
               "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
 
-    WriteText(FileSystem::Join(target, "run.bat"),
+    writeText(FileSystem::Join(target, "run.bat"),
               "@echo off\r\n"
               "rem Release: no console window, no log file.\r\n"
               "start \"\" \"%~dp0" + gameName + ".exe\" %*\r\n");
-    WriteText(FileSystem::Join(target, "run-dev.bat"),
+    writeText(FileSystem::Join(target, "run-dev.bat"),
               "@echo off\r\n"
               "rem Development: keep this console open for the log output.\r\n"
               "start \"\" /wait \"%~dp0" + gameName + ".exe\" --dev %*\r\n");
-    WriteText(FileSystem::Join(target, "README.txt"),
+    writeText(FileSystem::Join(target, "README.txt"),
               gameName + " - Windows 游戏包\r\n"
               "\r\n"
               "双击 run.bat 启动（发布版：无控制台、无日志）。\r\n"
@@ -209,6 +233,10 @@ PackageResult Packager::PackageGameWindows(const std::string& gameName, const st
         FileSystem::CopyFileTo(license, FileSystem::Join(target, "LICENSE-2D-ASSETS.txt"));
     }
 
+    if (!textOk) {
+        result.message = "写入打包文本失败";
+        return result;
+    }
     result.success = true;
     result.message = "Windows 游戏包已生成：" + target;
     LogInfo("[打包] %s", result.message.c_str());
@@ -218,6 +246,10 @@ PackageResult Packager::PackageGameWindows(const std::string& gameName, const st
 PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, const std::string& level,
                                                const std::string& outputRoot) {
     PackageResult result;
+    bool textOk = true;
+    auto writeText = [&textOk](const std::string& path, const std::string& content) {
+        if (!WriteText(path, content)) textOk = false;
+    };
     const std::string root = outputRoot.empty() ? DefaultOutputRoot() : outputRoot;
     const std::string target = FileSystem::Join(root, gameName + "-Linux-Source");
     result.outputDir = target;
@@ -234,9 +266,9 @@ PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, cons
     CopyTree(FileSystem::Join(project, "third_party"), FileSystem::Join(target, "third_party"));
     CopyTree(FileSystem::Join(project, "文档"), FileSystem::Join(target, "文档"));
     FileSystem::CopyFileTo(FileSystem::Join(project, "CMakeLists.txt"), FileSystem::Join(target, "CMakeLists.txt"));
-    WriteText(FileSystem::Join(target, "game.cfg"),
+    writeText(FileSystem::Join(target, "game.cfg"),
               "game=" + gameName + "\r\nlevel=" + level + "\r\neditor=0\r\nplay=1\r\n");
-    WriteText(FileSystem::Join(target, "build.sh"),
+    writeText(FileSystem::Join(target, "build.sh"),
               "#!/usr/bin/env bash\n"
               "set -e\n"
               "echo \"这是 " + gameName + " 的 Linux 源码包。\"\n"
@@ -244,7 +276,7 @@ PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, cons
               "echo \"需要补：GLFW/SDL 平台层、Vulkan/OpenGL 的 rhi、HLSL->SPIR-V、ImGui 后端。\"\n"
               "echo \"补完后：cmake -S . -B build -DCMAKE_BUILD_TYPE=Release && cmake --build build -j\"\n"
               "exit 0\n");
-    WriteText(FileSystem::Join(target, "README-LINUX.md"),
+    writeText(FileSystem::Join(target, "README-LINUX.md"),
               "# " + gameName + " - Linux 源码包\n\n"
               "游戏逻辑（2D 精灵、玩法、HUD、菜单）与资源都在这个包里，但引擎的图形/窗口是 Win32 + D3D11，\n"
               "因此本包**不含 Linux 可执行文件**。要得到 Linux 版游戏，需要先补平台与图形后端：\n\n"
@@ -255,6 +287,10 @@ PackageResult Packager::PackageGameLinuxSource(const std::string& gameName, cons
               "5. 用 `game.cfg` 指定默认关卡（" + level + "）。\n\n"
               "游戏资源在 `engine/assets/`，构建入口是 `CMakeLists.txt`。\n");
 
+    if (!textOk) {
+        result.message = "写入打包文本失败";
+        return result;
+    }
     result.success = true;
     result.message = "Linux 游戏源码包已生成（需自行补图形后端）：" + target;
     LogWarn("[打包] %s", result.message.c_str());

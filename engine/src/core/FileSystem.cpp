@@ -114,6 +114,11 @@ bool FileSystem::WriteTextFile(const std::string& path, const std::string& conte
     std::ofstream f(Utf8ToWide(path).c_str(), std::ios::binary | std::ios::trunc);
     if (!f) return false;
     f.write(content.data(), static_cast<std::streamsize>(content.size()));
+    f.flush();
+    if (!f.good()) {
+        LogError("写入文件失败: %s", path.c_str());
+        return false;
+    }
     return true;
 }
 
@@ -122,6 +127,11 @@ bool FileSystem::WriteBinaryFile(const std::string& path, const void* data, size
     std::ofstream f(Utf8ToWide(path).c_str(), std::ios::binary | std::ios::trunc);
     if (!f) return false;
     f.write(static_cast<const char*>(data), static_cast<std::streamsize>(size));
+    f.flush();
+    if (!f.good()) {
+        LogError("写入文件失败: %s", path.c_str());
+        return false;
+    }
     return true;
 }
 

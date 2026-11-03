@@ -66,6 +66,7 @@
 - 新建场景未清除当前场景路径，Ctrl+S 会用空场景覆盖旧文件；从资源浏览器打开普通场景后路径未更新，保存会写回上一个文件
 - 无头接口不再把失败当成功：`package.game` 失败时返回 `ok:false` 与 `error`；`--script` / `--validate` / `--package` / `--package-game` 失败时进程以非 0 退出码结束，CI 可据此失败
 - 修复 `--script --json-out` 的逐条结果被覆盖：报告只含 `script` 字段，现由 `RunAgentScript` 写入完整的 `ok` / `total` / `succeeded` / `results`，逐条失败原因可供 AI/CI 读取
+- 报告与文本写盘失败不再误报成功：`--script` / `--validate` 的 `--json-out` 失败返回非 0；`FileSystem::WriteTextFile` / `WriteBinaryFile` 失败返回 false，场景保存报错，打包文本失败时 `PackageResult.success` 为 false
 - 旋转 gizmo 改为绕物体**局部 X/Y/Z** 旋转；只命中朝向相机的前半环，并按环的屏幕切线累计角度，不再出现“斜拖一下同时转两轴 / 点错环”的问题
 - 正交（正视图/俯视图/2D）拾取射线从近平面像素位置出发，不再全部从画面中心发射
 - 编辑模式下 2D 精灵把整张序列图当一帧压扁导致玩家“消失”（第一帧 UV 未应用）
