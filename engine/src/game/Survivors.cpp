@@ -693,8 +693,14 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     LogInfo("2D 幸存者关卡：%zu 个对象", world.ObjectCount());
 }
 
-
 // ================================================================ 反射
+void RegisterSurvivorsComponents() {
+    Reflection::Register<SurvivorsPlayerComponent>("Survivors Player");
+    Reflection::Register<SurvivorsEnemyComponent>("Survivors Enemy");
+    Reflection::Register<SurvivorsProjectileComponent>("Survivors Projectile");
+    Reflection::Register<SurvivorsGemComponent>("Survivors Gem");
+}
+
 void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SurvivorsPlayerComponent>(); };
     t.Field("speed", FieldType::Float, &SurvivorsPlayerComponent::speed, "移动速度", 0.5f, 15.0f);

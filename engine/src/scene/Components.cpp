@@ -92,6 +92,8 @@ void RegisterAllComponents() {
     Reflection::Register<PointLightComponent>("Point Light");
     Reflection::Register<RigidBodyComponent>("Rigid Body");
     Reflection::Register<SpinnerComponent>("Spinner");
+    Reflection::Register<SpriteRendererComponent>("Sprite Renderer");
+    Reflection::Register<SpriteAnimatorComponent>("Sprite Animator");
 }
 
 
