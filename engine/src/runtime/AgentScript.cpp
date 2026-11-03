@@ -466,7 +466,16 @@ bool Engine::RunAgentScript(const std::string& path, const std::string& outputPa
     const std::string json = report.Dump(2);
     if (!outputPath.empty()) {
         std::ofstream out(outputPath, std::ios::binary);
+        if (!out.is_open()) {
+            LogError("[AI] 结果写入失败（无法打开）: %s", outputPath.c_str());
+            return false;
+        }
         out << json;
+        out.flush();
+        if (!out.good()) {
+            LogError("[AI] 结果写入失败: %s", outputPath.c_str());
+            return false;
+        }
         LogInfo("[AI] 结果写入 %s", outputPath.c_str());
     }
     LogInfo("[AI] 脚本完成：%d/%d 条命令成功", okCount, static_cast<int>(root["commands"].Size()));
