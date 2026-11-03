@@ -6,9 +6,6 @@ namespace erm {
 
 bool RenderTarget::Create(ID3D11Device* device, u32 width, u32 height, DXGI_FORMAT colorFormat, bool withDepth,
                           bool colorHasSrv, bool colorSrgb) {
-    m_width = width;
-    m_height = height;
-
     D3D11_TEXTURE2D_DESC desc{};
     desc.Width = width;
     desc.Height = height;
@@ -19,10 +16,10 @@ bool RenderTarget::Create(ID3D11Device* device, u32 width, u32 height, DXGI_FORM
     desc.Usage = D3D11_USAGE_DEFAULT;
     desc.BindFlags = D3D11_BIND_RENDER_TARGET | (colorHasSrv ? D3D11_BIND_SHADER_RESOURCE : 0);
     HRESULT hr = device->CreateTexture2D(&desc, nullptr, &m_colorTex);
-    if (FAILED(hr)) { LogError("RenderTarget 颜色纹理创建失败 (0x%08X)", (unsigned)hr); return false; }
+    if (FAILED(hr)) { LogError("RenderTarget 颜色纹理创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
 
     hr = device->CreateRenderTargetView(m_colorTex.Get(), nullptr, &m_rtv);
-    if (FAILED(hr)) { LogError("RenderTarget RTV 创建失败 (0x%08X)", (unsigned)hr); return false; }
+    if (FAILED(hr)) { LogError("RenderTarget RTV 创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
 
     if (colorHasSrv) {
         D3D11_SHADER_RESOURCE_VIEW_DESC srvDesc{};
@@ -34,7 +31,7 @@ bool RenderTarget::Create(ID3D11Device* device, u32 width, u32 height, DXGI_FORM
         srvDesc.Texture2D.MostDetailedMip = 0;
         srvDesc.Texture2D.MipLevels = 1;
         hr = device->CreateShaderResourceView(m_colorTex.Get(), &srvDesc, &m_colorSrv);
-        if (FAILED(hr)) { LogError("RenderTarget SRV 创建失败 (0x%08X)", (unsigned)hr); return false; }
+        if (FAILED(hr)) { LogError("RenderTarget SRV 创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
     }
     (void)colorSrgb;
 
@@ -49,13 +46,13 @@ bool RenderTarget::Create(ID3D11Device* device, u32 width, u32 height, DXGI_FORM
         dd.Usage = D3D11_USAGE_DEFAULT;
         dd.BindFlags = D3D11_BIND_DEPTH_STENCIL | D3D11_BIND_SHADER_RESOURCE;
         hr = device->CreateTexture2D(&dd, nullptr, &m_depthTex);
-        if (FAILED(hr)) { LogError("RenderTarget 深度纹理创建失败 (0x%08X)", (unsigned)hr); return false; }
+        if (FAILED(hr)) { LogError("RenderTarget 深度纹理创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
 
         D3D11_DEPTH_STENCIL_VIEW_DESC dsvDesc{};
         dsvDesc.Format = DXGI_FORMAT_D32_FLOAT;
         dsvDesc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
         hr = device->CreateDepthStencilView(m_depthTex.Get(), &dsvDesc, &m_dsv);
-        if (FAILED(hr)) { LogError("RenderTarget DSV 创建失败 (0x%08X)", (unsigned)hr); return false; }
+        if (FAILED(hr)) { LogError("RenderTarget DSV 创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
 
         D3D11_SHADER_RESOURCE_VIEW_DESC dsrv{};
         dsrv.Format = DXGI_FORMAT_R32_FLOAT;
@@ -63,12 +60,19 @@ bool RenderTarget::Create(ID3D11Device* device, u32 width, u32 height, DXGI_FORM
         dsrv.Texture2D.MostDetailedMip = 0;
         dsrv.Texture2D.MipLevels = 1;
         hr = device->CreateShaderResourceView(m_depthTex.Get(), &dsrv, &m_depthSrv);
-        if (FAILED(hr)) { LogError("RenderTarget 深度 SRV 创建失败 (0x%08X)", (unsigned)hr); return false; }
+        if (FAILED(hr)) { LogError("RenderTarget 深度 SRV 创建失败 (0x%08X)", (unsigned)hr); Shutdown(); return false; }
     }
+
+    // 只有全部资源创建成功后才发布尺寸：任一失败时 Shutdown() 已把尺寸清零，
+    // EnsureSceneTarget/EnsureViewportTarget 会重新尝试，而不是把空视图当成有效目标。
+    m_width = width;
+    m_height = height;
     return true;
 }
 
 void RenderTarget::Shutdown() {
+    m_width = 0;
+    m_height = 0;
     m_colorSrv.Reset();
     m_rtv.Reset();
     m_colorTex.Reset();
