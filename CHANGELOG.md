@@ -29,6 +29,10 @@
   面向会 C++、有 UE 经验但未实现过引擎模块的读者；同步 README 的读者假设/学习路线、术语表与参考资料
 - 修正讲义中的技术问题：L01 累加器余数与触顶丢弃时间的账本、L04 矩阵复合顺序与投影数值例子、
   L08 模型空间/世界空间与“GPU 蒙皮”表述、L17 行为树记忆语义与错配的参考资料、L18 预测校正与 rollback 的混淆
+- 头文件依赖按讲义 L02 收紧：`renderer/RenderScene.h` 用前向声明，不再拉入 `Mesh`/`Texture`/D3D；
+  `scene/World.h` 不再 include ai/renderer（`Camera`/`RenderScene` 改前向声明，`NavGrid` 改为 `Scope` 持有）；
+  `SkinnedMeshData` 下沉到 `renderer/SkinnedMeshData.h`，消除 renderer→animation 反向边；
+  玩法组件注册移到 `game/RegisterComponents.cpp` 并由 runtime 调用；删除未使用的 `Camera::UpdateFly`
 
 ### Fixed
 

@@ -4,10 +4,9 @@
 // 交互：Dock 布局、拾取、Play-In-Editor（快照回滚）、资源导入、面板开关
 //
 // 设计原则（与用户要求一致）：UI 只提供"看得见、改得动"的基本能力，
-// 真正的关卡/玩法仍然是代码优先（见 game/Levels.cpp）。
+// 真正的关卡/玩法仍然是代码优先（见 game/Levels.h）。
 #pragma once
 
-#include "core/Json.h"
 #include "core/Math.h"
 #include "core/Types.h"
 #include "editor/ImGuiLayer.h"

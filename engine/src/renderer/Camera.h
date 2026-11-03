@@ -73,9 +73,6 @@ public:
 
     // 世界坐标 → 屏幕坐标（用于 UI 叠加；返回 false 表示在相机背面）
     bool WorldToScreen(const Vec3& world, const Vec2& screenSize, Vec2& outScreen) const;
-
-    // 编辑器自由视角：WASD 移动、QE 升降、Shift 加速、右键转视角
-    void UpdateFly(float dt, bool mouseCaptured, const Vec2& mouseDelta);
 };
 
 } // namespace erm

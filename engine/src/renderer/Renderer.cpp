@@ -1,5 +1,6 @@
 // ErMao Engine - 渲染器实现
 #include "renderer/Renderer.h"
+#include "renderer/Mesh.h"
 #include "renderer/SkinnedMesh.h"
 #include "core/JobSystem.h"
 #include "core/Log.h"

@@ -3,7 +3,6 @@
 #include "asset/AssetManager.h"
 #include "scene/World.h"
 #include "scene/GameObject.h"
-#include "scene/World.h"
 
 namespace erm {
 

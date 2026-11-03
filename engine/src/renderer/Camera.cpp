@@ -1,8 +1,5 @@
 // ErMao Engine - 相机实现
 #include "renderer/Camera.h"
-#include "platform/Input.h"
-
-#include <windows.h>
 
 namespace erm {
 
@@ -42,28 +39,6 @@ void Camera::SetFromMatrix(const Mat4& world) {
     yaw = std::atan2(-forward.x, -forward.z);
     up = Vec3(0, 1, 0);
     orthographic = false;
-}
-
-void Camera::UpdateFly(float dt, bool mouseCaptured, const Vec2& mouseDelta) {
-    if (mouseCaptured) {
-        const float sensitivity = 0.0025f;
-        yaw -= mouseDelta.x * sensitivity;
-        pitch -= mouseDelta.y * sensitivity;
-        pitch = Clamp(pitch, -kHalfPi + 0.01f, kHalfPi - 0.01f);
-    }
-
-    float speed = moveSpeed;
-    if (Input::IsKeyDown(VK_SHIFT)) speed *= 4.0f;
-    const Vec3 f = Forward();
-    const Vec3 r = Right();
-    Vec3 move{0, 0, 0};
-    if (Input::IsKeyDown('W')) move += f;
-    if (Input::IsKeyDown('S')) move -= f;
-    if (Input::IsKeyDown('D')) move += r;
-    if (Input::IsKeyDown('A')) move -= r;
-    if (Input::IsKeyDown('E')) move += Vec3(0, 1, 0);
-    if (Input::IsKeyDown('Q')) move -= Vec3(0, 1, 0);
-    if (LengthSq(move) > 0.0f) position += Normalize(move) * speed * dt;
 }
 
 } // namespace erm
