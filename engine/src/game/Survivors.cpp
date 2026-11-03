@@ -716,6 +716,7 @@ void SurvivorsEnemyComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SurvivorsEnemyComponent>(); };
     t.Field("speed", FieldType::Float, &SurvivorsEnemyComponent::speed, "移动速度", 0.2f, 12.0f);
     t.Field("hp", FieldType::Float, &SurvivorsEnemyComponent::hp, "生命", 1.0f, 500.0f);
+    t.Field("maxHp", FieldType::Float, &SurvivorsEnemyComponent::maxHp, "最大生命", 1.0f, 999.0f);
     t.Field("damage", FieldType::Float, &SurvivorsEnemyComponent::damage, "伤害", 1.0f, 100.0f);
     t.Field("xpValue", FieldType::Float, &SurvivorsEnemyComponent::xpValue, "经验值", 1.0f, 50.0f);
 }

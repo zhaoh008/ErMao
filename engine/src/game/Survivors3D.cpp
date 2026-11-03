@@ -797,6 +797,7 @@ void Survivors3DEnemyComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<Survivors3DEnemyComponent>(); };
     t.Field("speed", FieldType::Float, &Survivors3DEnemyComponent::speed, "移动速度", 0.2f, 12.0f);
     t.Field("hp", FieldType::Float, &Survivors3DEnemyComponent::hp, "生命", 1.0f, 500.0f);
+    t.Field("maxHp", FieldType::Float, &Survivors3DEnemyComponent::maxHp, "最大生命", 1.0f, 999.0f);
     t.Field("damage", FieldType::Float, &Survivors3DEnemyComponent::damage, "伤害", 1.0f, 100.0f);
     t.Field("xpValue", FieldType::Float, &Survivors3DEnemyComponent::xpValue, "经验值", 1.0f, 50.0f);
 }

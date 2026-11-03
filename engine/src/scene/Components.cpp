@@ -144,5 +144,6 @@ void SpriteRendererComponent::Describe(TypeInfo& t) {
     t.Field("color", FieldType::Color, &SpriteRendererComponent::color, "颜色");
     t.Field("flipX", FieldType::Bool, &SpriteRendererComponent::flipX, "水平翻转");
     t.Field("layer", FieldType::Int, &SpriteRendererComponent::layer, "层级");
+    t.Field("rotation", FieldType::Float, &SpriteRendererComponent::rotation, "旋转（弧度）", -6.2832f, 6.2832f);
 }
 } // namespace erm
