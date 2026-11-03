@@ -127,10 +127,11 @@ long long __stdcall Window::WndProcStatic(void* hwnd, unsigned int msg, unsigned
 }
 
 long long Window::HandleMessage(void* hwnd, unsigned int msg, unsigned long long wparam, long long lparam) {
-    // UI 层（ImGui）只做“观察”，不消费消息（审核 P2-16）。
-    // 这样 ImGui 返回 1 的消息也不会把窗口逻辑整段跳过。
+    // UI 层（ImGui）只做“观察”，不消费消息（审核 P2-16）；
+    // 唯一例外是输入法的提交结果，见下面的 WM_IME_COMPOSITION 分支。
+    bool rawHandled = false;
     if (m_callbacks.onRawMessage) {
-        m_callbacks.onRawMessage(hwnd, msg, wparam, lparam);
+        rawHandled = m_callbacks.onRawMessage(hwnd, msg, wparam, lparam);
     }
     switch (msg) {
         case WM_CLOSE:
@@ -170,6 +171,13 @@ long long Window::HandleMessage(void* hwnd, unsigned int msg, unsigned long long
         case WM_CHAR:
             if (m_callbacks.onChar) m_callbacks.onChar(static_cast<unsigned int>(wparam));
             return 0;
+        case WM_IME_COMPOSITION:
+            // ImGui 的 Win32 后端在 raw 回调里已经对提交结果（GCS_RESULTSTR）
+            // 调用过 DefWindowProcW（见 imgui_impl_win32.cpp 的 WM_IME_COMPOSITION
+            // 分支），提交字符串由它发出的 WM_IME_CHAR → WM_CHAR 进入 ImGui。
+            // 窗口层再走一次默认处理会再送一遍，导致每个提交的汉字重复。
+            if (rawHandled) return 0;
+            break;
         case WM_MOUSEMOVE: {
             if (!m_mouseCaptured) {
                 const float x = static_cast<float>(GET_X_LPARAM(lparam));
