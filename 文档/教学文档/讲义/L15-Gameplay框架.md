@@ -141,14 +141,14 @@ m_owner->SetPosition(position);
 - **下落速度夹到 -30**：防止长时间下落把速度积到很大，落地时一步穿过地面。
 - **边沿输入在固定步里采样**：`Input::BeginFrame` 每渲染帧清一次 `s_pressed`，而 `OnFixedUpdate` 一帧可能跑 0 次（高帧率）或多次。跑 0 次时，这一帧按下的空格会被清掉，跳跃丢失。更稳的做法是在 `OnUpdate` 里把跳跃"锁存"成 `jumpQueued`，在固定步里消费。
 ### 4.4 地面检测：向下射线
-**源码节选**（`ThirdPersonController.cpp:127-149`）：
+**源码节选**（`ThirdPersonController.cpp:134-155`）：
 ```cpp
 Ray groundRay;
 groundRay.origin = position + Vec3(0, 0.15f, 0);
 groundRay.direction = Vec3(0, -1, 0);
 World::RaycastHit hit;
 const float groundProbe = height * 0.5f + 0.35f;   // 1.9/2 + 0.35 = 1.30
-if (world->Raycast(groundRay, groundProbe, hit) && hit.object != m_owner) {
+if (world->Raycast(groundRay, groundProbe, hit, m_owner)) {
     const float targetY = hit.point.y + height * 0.5f;
     if (position.y <= targetY + 0.05f) {
         position.y = targetY;
@@ -167,15 +167,17 @@ if (world->Raycast(groundRay, groundProbe, hit) && hit.object != m_owner) {
 ```
 它想做的是：从身体中心稍上方往下打 1.3 m，命中地面/平台顶面就把中心放到"命中点 + 半身高"，并把竖直速度清零。`else if` 是兜底：没有命中任何网格时，至少保证脚不穿 `y=0` 的平地。
 
-但按当前代码静态推演，这个射线有个大问题：**起点在角色自己的 AABB 里**。玩家的网格是 `capsule`（局部半高约 0.6，缩放 0.95 后约 0.57），身体中心在 `y≈0.95`，射线起点是 `y≈1.10`，仍在自己的 AABB 内。`IntersectRayAABB` 对"起点在盒内"返回 `t=0`，`World::Raycast` 取最近命中，于是最先命中的是玩家自己；`hit.object != m_owner` 为假，整个 `if` 不成立，又掉到 `else if` 的平地兜底。
+025 修复之前，这个射线确实有个大问题：**起点在角色自己的 AABB 里**。玩家的网格是 `capsule`（局部半高约 0.6，缩放 0.95 后约 0.57），身体中心在 `y≈0.95`，射线起点是 `y≈1.10`，仍在自己的 AABB 内。`IntersectRayAABB` 对"起点在盒内"返回 `t=0`，`World::Raycast` 取最近命中，于是最先命中的是玩家自己。
 
-后果：
+025 的修法不是命中后再比较 `hit.object` 与 `m_owner` 来否决，而是给 `Raycast` 增加 `ignore` 参数，并在 `WorldQuery.cpp` 的 `BuildWorldAABB` **之前**执行 `if (object == ignore) return;`：这样玩家从一开始就不会进入候选集，射线会继续找后面的平台/地面。事后否决之所以不够，是因为自命中会占住"最近命中"；比较结果为“是自己”后没有第二近的结果可回退，只能掉到 `else if` 的平地兜底。
 
-- 在 `y=0` 的平地上，兜底分支仍能把人放在 `0.95`，看起来正常；
-- 站上 `平台A`/台阶时，`position.y - height*0.5` 大于 0，兜底不成立，`grounded=false`，人就站不住平台；
-- 代码没有给 `Raycast` 传 ignore 列表，`hit.object != m_owner` 只是"事后否决"，不会"跳过自己继续找后面的地面"。
+修复后的效果：
 
-本次没有运行 exe 验证，但分支条件在源码里是确定的。修法是给 `Raycast` 加 ignore 参数，或从脚底附近起射并显式过滤自己；修完后还要注意：起跳第一帧的上升量是 `(7 - 22/60)/60 ≈ 0.111 m`，大于 `0.05` 的吸附阈值，所以跳跃不会被立即吸回去；如果 `jumpSpeed` 小于约 `3.37`，第一帧就会被吸附，跳不起来。
+- 在 `y=0` 的平地上，射线命中地面，正常 `grounded=true`；
+- 站上 `平台A`/台阶时，射线命中平台顶面，`targetY` 把人放到平台顶面，不再依赖平地兜底；
+- 如果以后把 `m_owner` 漏传或删掉 `ignore` 判断，平台/台阶会重新站不住，所以回归要同时覆盖平地和平台。
+
+还要注意：起跳第一帧的上升量是 `(7 - 22/60)/60 ≈ 0.111 m`，大于 `0.05` 的吸附阈值，所以跳跃不会被立即吸回去；如果 `jumpSpeed` 小于约 `3.37`，第一帧就会被吸附，跳不起来。
 
 另外，`stepHeight = 0.45` 这个字段只在头文件里声明，`.cpp` 里从未使用：**本工程没有真正的"迈台阶"逻辑**，台阶靠地面射线吸附，而不是靠碰撞形状抬升。
 ### 4.5 水平碰撞：圆 vs AABB，不是完整胶囊
@@ -215,7 +217,7 @@ if (v_n < 0) v -= n·v_n
 ```
 它把"往墙里"的法向分量去掉，只留下切向，所以沿墙滑得动。但 `velocity.x/z` 在**下一个固定步开头**会被 `velocity.x = wish.x * speed` 重新赋值，投影的效果不会跨步保留。真正让角色沿墙滑的是"位置先按输入走、再被法线推回"这个几何过程；速度投影只影响当前步剩余的逻辑。这个区别在调"贴墙手感"时很重要。
 ### 4.7 相机：弹簧臂
-相机不是角色的子节点，而是每帧由控制器摆放。**源码节选**（`ThirdPersonController.cpp:203-225`）：
+相机不是角色的子节点，而是每帧由控制器摆放。**源码节选**（`ThirdPersonController.cpp:224-236`）：
 ```cpp
 const Quat rotation = Quat::FromEuler(ToRadians(yawDegrees), ToRadians(pitchDegrees), 0.0f);
 const Vec3 forward = rotation.RotateVector(Vec3(0, 0, -1));
@@ -224,7 +226,7 @@ const Vec3 head = m_owner->Position() + Vec3(0, cameraHeight, 0);
 float distance = cameraDistance;
 Ray armRay; armRay.origin = head; armRay.direction = -forward;
 World::RaycastHit hit;
-if (world->Raycast(armRay, distance + 0.3f, hit) && hit.object != m_owner) {
+if (world->Raycast(armRay, distance + 0.3f, hit, m_owner)) {
     distance = (std::max)(cameraMinDistance, hit.distance - 0.35f);
 }
 const Vec3 desired = head - forward * distance;
@@ -304,13 +306,13 @@ build\bin\ErMao.exe --smoke --frames 200 --level thirdperson
 :: 手动玩：W 走、W+D 斜走、空格跳、撞矮墙、把相机贴到柱子后面
 build\bin\ErMao.exe --level thirdperson --play --frames 180
 ```
-`--smoke` 的日志只在帧 30、60、120、180 打印玩家位置（`Engine.cpp:593`），不是每帧都打。旧日志里的三行坐标是**未经本次运行核对的示例**，不要当作实测数据；按当前地面射线的自身命中问题，帧 120 的位置很可能与旧示例不同。
+`--smoke` 的日志只在帧 30、60、120、180 打印玩家位置（`Engine.cpp:593`），不是每帧都打。旧日志里的三行坐标是**未经本次运行核对的示例**，不要当作实测数据；帧 120 的位置以实际运行日志为准。
 
 1. **斜向速度**：按住 W+D 直走 1 秒，和只按 W 对比。预期未归一化时斜向快 41%；如果速度一样，说明归一化生效。想量化就在 `OnFixedUpdate` 里临时打印 `Length(velocity.xz)`。
 2. **跳跃高度**：按空格，记录最高点。预期脚底升高约 1.06 m、滞空约 0.63 秒（固定 1/60）。如果明显更高/更低，检查 `jumpSpeed`、`gravity` 是否被 Inspector 改过；注意这里的 `gravity` 不是物理面板的 `-9.81`。
 3. **帧率无关**：把 `--frames` 和窗口刷新率改一改，位移/跳跃应不变（固定步长的作用）。如果变了，检查是不是把代码搬进了 `OnUpdate`。
 4. **相机弹簧臂**：把角色背靠立柱/矮墙，转动视角。预期相机被拉近；没有平滑、可能突然跳变。把 `cameraMinDistance` 调大，预期贴墙时仍会穿模（4.7 的最小距离问题）。
-5. **验证地面射线打中自己**：在 `OnFixedUpdate` 的地面检测前临时打印 `hit.object` 的名字。按本讲分析，站在平地上也应先命中"玩家"；如果日志如此，说明 `hit.object != m_owner` 没有起到"跳过自己"的作用。
+5. **验证地面射线跳过自己**：在 `OnFixedUpdate` 的地面检测前临时打印 `hit.object` 的名字。站在平地上应命中地面/平台，而不是"玩家"；再站上平台，确认 `grounded=true` 且中心被抬到平台顶面。若日志仍命中玩家，说明 `Raycast(..., m_owner)` 的 `ignore` 被漏传。
 6. **撞墙穿透**：把 `runSpeed` 调到 30，撞矮墙。预期在一步 0.5 m 的情况下可能跨过薄墙；调回 7.8 应恢复正常。
 7. **改重力**：把控制器 `gravity` 从 -22 改成 -9.81，预期跳跃更高、滞空更久（连续解 `49/19.62 ≈ 2.50 m`，离散值略低）；物理面板的重力不会影响这个值。
 
@@ -329,7 +331,7 @@ build\bin\ErMao.exe --level thirdperson --play --frames 180
 1. 写出 `yaw` 对应的 `cameraForward/cameraRight`，并验证 `yaw=90°` 时 W 应该往哪走。**答案**：见 3.2/4.1；`forward=(-1,0,0)`，W 往世界 `-X`。
 2. 为什么 W+D 未归一化会快 41%？**答案**：见 3.1；`|(1,0,-1)|=√2`。
 3. 跳跃高度在 `h=1/60`、`1/30`、`1/15` 下分别是多少？**答案**：见 3.3；约 1.056 / 1.000 / 0.889 m。
-4. 地面射线为什么会先命中玩家自己？**答案**：见 4.4；起点在自身 AABB 内，`IntersectRayAABB` 返回 `t=0`，`Raycast` 取最近命中。
+4. 为什么必须在构造 AABB / 求交之前跳过自身，而不是命中后再比较 `hit.object` 与 `m_owner` 来否决？**答案**：见 4.4；起点在自身 AABB 内时 `IntersectRayAABB` 返回 `t=0`，自命中会占住最近命中，事后否决没有第二近结果可回退。
 5. 为什么水平推离的 `distance` 是三维的，但只做 XZ 推出会出问题？**答案**：见 4.5；`distance` 包含 y，推离量 `radius-distance` 偏小，角色会陷入。
 6. 哪些更新在 `OnFixedUpdate`，哪些在 `OnUpdate`？**答案**：见第 7 节；位移/重力/碰撞/转身在固定步，鼠标/相机在渲染帧。
 ## 练习（故意改坏）
