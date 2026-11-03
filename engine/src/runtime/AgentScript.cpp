@@ -43,12 +43,16 @@ JsonValue QuatJson(const Quat& q) {
 
 bool ReadVec3(const JsonValue& value, Vec3& out) {
     if (!value.IsArray() || value.Size() < 3) return false;
+    for (size_t i = 0; i < 3; ++i)
+        if (!value[i].IsNumber()) return false;
     out = Vec3(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat());
     return true;
 }
 
 bool ReadQuat(const JsonValue& value, Quat& out) {
     if (!value.IsArray() || value.Size() < 4) return false;
+    for (size_t i = 0; i < 4; ++i)
+        if (!value[i].IsNumber()) return false;
     out = Quat(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat(), value[3].AsFloat());
     return true;
 }
@@ -89,14 +93,28 @@ JsonValue FieldToJson(const FieldDesc& field, void* object) {
 bool JsonToField(const FieldDesc& field, void* object, const JsonValue& value) {
     void* ptr = field.access(object);
     switch (field.type) {
-        case FieldType::Bool: *static_cast<bool*>(ptr) = value.AsBool(); return true;
-        case FieldType::Int: *static_cast<int*>(ptr) = value.AsInt(); return true;
-        case FieldType::Float: *static_cast<float*>(ptr) = value.AsFloat(); return true;
+        case FieldType::Bool:
+            if (!value.IsBool()) return false;
+            *static_cast<bool*>(ptr) = value.AsBool();
+            return true;
+        case FieldType::Int:
+            if (!value.IsNumber()) return false;
+            *static_cast<int*>(ptr) = value.AsInt();
+            return true;
+        case FieldType::Float:
+            if (!value.IsNumber()) return false;
+            *static_cast<float*>(ptr) = value.AsFloat();
+            return true;
         case FieldType::String:
         case FieldType::MeshAsset:
-        case FieldType::TextureAsset: *static_cast<std::string*>(ptr) = value.AsString(); return true;
+        case FieldType::TextureAsset:
+            if (!value.IsString()) return false;
+            *static_cast<std::string*>(ptr) = value.AsString();
+            return true;
         case FieldType::Vec2: {
             if (!value.IsArray() || value.Size() < 2) return false;
+            for (size_t i = 0; i < 2; ++i)
+                if (!value[i].IsNumber()) return false;
             *static_cast<Vec2*>(ptr) = Vec2(value[0].AsFloat(), value[1].AsFloat());
             return true;
         }
@@ -109,6 +127,8 @@ bool JsonToField(const FieldDesc& field, void* object, const JsonValue& value) {
         case FieldType::Vec4:
         case FieldType::Color: {
             if (!value.IsArray() || value.Size() < 4) return false;
+            for (size_t i = 0; i < 4; ++i)
+                if (!value[i].IsNumber()) return false;
             *static_cast<Vec4*>(ptr) =
                 Vec4(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat(), value[3].AsFloat());
             return true;
@@ -226,17 +246,27 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     if (cmd == "object.set") {
         GameObject* object = m_world.FindByName(command["name"].AsString());
         if (!object) return Error("找不到对象");
-        if (command.Has("position")) object->SetPosition(Vec3(command["position"][0].AsFloat(),
-                                                              command["position"][1].AsFloat(),
-                                                              command["position"][2].AsFloat()));
-        if (command.Has("scale")) object->SetScale(Vec3(command["scale"][0].AsFloat(),
-                                                        command["scale"][1].AsFloat(),
-                                                        command["scale"][2].AsFloat()));
-        if (command.Has("rotation")) {
-            Quat rotation;
-            if (ReadQuat(command["rotation"], rotation)) object->SetRotation(rotation);
+
+        // 先全部校验，再统一应用，避免部分字段已写入后才发现类型错误。
+        Vec3 position;
+        Vec3 scale;
+        Quat rotation;
+        bool active = false;
+        if (command.Has("position") && !ReadVec3(command["position"], position))
+            return Error("position 需要 3 个数字");
+        if (command.Has("scale") && !ReadVec3(command["scale"], scale))
+            return Error("scale 需要 3 个数字");
+        if (command.Has("rotation") && !ReadQuat(command["rotation"], rotation))
+            return Error("rotation 需要 4 个数字");
+        if (command.Has("active")) {
+            if (!command["active"].IsBool()) return Error("active 需要布尔值");
+            active = command["active"].AsBool();
         }
-        if (command.Has("active")) object->SetActive(command["active"].AsBool());
+
+        if (command.Has("position")) object->SetPosition(position);
+        if (command.Has("scale")) object->SetScale(scale);
+        if (command.Has("rotation")) object->SetRotation(rotation);
+        if (command.Has("active")) object->SetActive(active);
         return Ok();
     }
 
@@ -263,18 +293,43 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
             result.Set("value", FieldToJson(*field, component));
             return result;
         }
-        if (!JsonToField(*field, component, command["value"])) return Error("值类型不匹配");
+        if (!JsonToField(*field, component, command["value"])) {
+            switch (field->type) {
+                case FieldType::Vec2: return Error("需要 2 个数字");
+                case FieldType::Vec3: return Error("需要 3 个数字");
+                case FieldType::Vec4:
+                case FieldType::Color: return Error("需要 4 个数字");
+                default: return Error("值类型不匹配");
+            }
+        }
         return Ok();
     }
 
     if (cmd == "camera.set") {
-        if (command.Has("position")) {
-            Vec3 position;
-            if (ReadVec3(command["position"], position)) m_editorCamera.position = position;
+        // 先全部校验，再统一应用，避免部分字段已写入后才发现类型错误。
+        Vec3 position;
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        float fov = 0.0f;
+        if (command.Has("position") && !ReadVec3(command["position"], position))
+            return Error("position 需要 3 个数字");
+        if (command.Has("yaw")) {
+            if (!command["yaw"].IsNumber()) return Error("yaw 需要数字");
+            yaw = command["yaw"].AsFloat();
         }
-        if (command.Has("yaw")) m_editorCamera.yaw = command["yaw"].AsFloat();
-        if (command.Has("pitch")) m_editorCamera.pitch = command["pitch"].AsFloat();
-        if (command.Has("fov")) m_editorCamera.fovY = command["fov"].AsFloat();
+        if (command.Has("pitch")) {
+            if (!command["pitch"].IsNumber()) return Error("pitch 需要数字");
+            pitch = command["pitch"].AsFloat();
+        }
+        if (command.Has("fov")) {
+            if (!command["fov"].IsNumber()) return Error("fov 需要数字");
+            fov = command["fov"].AsFloat();
+        }
+
+        if (command.Has("position")) m_editorCamera.position = position;
+        if (command.Has("yaw")) m_editorCamera.yaw = yaw;
+        if (command.Has("pitch")) m_editorCamera.pitch = pitch;
+        if (command.Has("fov")) m_editorCamera.fovY = fov;
         return Ok();
     }
 
