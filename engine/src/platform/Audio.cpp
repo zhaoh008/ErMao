@@ -128,7 +128,7 @@ const AudioSystem::Sound* AudioSystem::Load(const std::string& name) {
 }
 
 void AudioSystem::Play(const std::string& name, float volume, float pitch) {
-    if (!m_initialized || !m_engine) return;
+    if (!m_initialized || !m_engine || !m_sfxEnabled) return;
     const Sound* sound = Load(name);
     if (!sound || sound->bytes.empty()) return;
 
@@ -153,7 +153,7 @@ void AudioSystem::Play(const std::string& name, float volume, float pitch) {
         return;
     }
 
-    const float finalVolume = m_muted ? 0.0f : volume * m_masterVolume;
+    const float finalVolume = m_muted ? 0.0f : volume * m_sfxVolume * m_masterVolume;
     voice->SetVolume(finalVolume);
     voice->SetFrequencyRatio(std::clamp(pitch, 0.25f, 4.0f));
     voice->Start(0);
@@ -167,7 +167,12 @@ void AudioSystem::Play(const std::string& name, float volume, float pitch) {
 }
 
 void AudioSystem::PlayMusic(const std::string& name, float volume) {
-    if (!m_initialized || !m_engine) return;
+    if (!m_initialized || !m_engine || !m_musicEnabled) return;
+    if (m_music && m_musicName == name) {
+        m_musicVolume = std::clamp(volume, 0.0f, 1.0f);
+        m_music->SetVolume(m_muted ? 0.0f : m_musicVolume * m_masterVolume);
+        return;
+    }
     StopMusic();
 
     const Sound* sound = Load(name);
@@ -188,8 +193,9 @@ void AudioSystem::PlayMusic(const std::string& name, float volume) {
     buffer.LoopCount = XAUDIO2_LOOP_INFINITE;
     buffer.Flags = XAUDIO2_END_OF_STREAM;
     m_music->SubmitSourceBuffer(&buffer);
-    m_musicVolume = volume;
-    m_music->SetVolume(m_muted ? 0.0f : volume * m_masterVolume);
+    m_musicVolume = std::clamp(volume, 0.0f, 1.0f);
+    m_musicName = name;
+    m_music->SetVolume(m_muted ? 0.0f : m_musicVolume * m_masterVolume);
     m_music->Start(0);
 }
 
@@ -199,6 +205,7 @@ void AudioSystem::StopMusic() {
         m_music->DestroyVoice();
         m_music = nullptr;
     }
+    m_musicName.clear();
 }
 
 void AudioSystem::Update(float dt) {
@@ -226,6 +233,26 @@ void AudioSystem::SetMuted(bool muted) {
     if (m_music) m_music->SetVolume(m_muted ? 0.0f : m_musicVolume * m_masterVolume);
 }
 
+void AudioSystem::SetMusicEnabled(bool enabled) {
+    m_musicEnabled = enabled;
+    if (!enabled) StopMusic();
+}
+
+void AudioSystem::SetSfxEnabled(bool enabled) {
+    m_sfxEnabled = enabled;
+    if (!enabled) {
+        for (auto& voice : m_voices) voice.voice->DestroyVoice();
+        m_voices.clear();
+    }
+}
+
+void AudioSystem::SetMusicVolume(float volume) {
+    m_musicVolume = std::clamp(volume, 0.0f, 1.0f);
+    if (m_music) m_music->SetVolume(m_muted ? 0.0f : m_musicVolume * m_masterVolume);
+}
+
+void AudioSystem::SetSfxVolume(float volume) { m_sfxVolume = std::clamp(volume, 0.0f, 1.0f); }
+
 void AudioSystem::Shutdown() {
     if (!m_initialized) return;
     StopMusic();
@@ -240,6 +267,7 @@ void AudioSystem::Shutdown() {
         m_engine = nullptr;
     }
     m_sounds.clear();
+    m_musicName.clear();
     m_initialized = false;
     LogInfo("音频系统关闭");
 }

@@ -428,6 +428,8 @@ bool Engine::Init() {
 }
 
 void Engine::LoadLevel(const std::string& kind) {
+    // 2D 幸存者的背景音乐只属于 survivors 关卡，切到别的关卡时停掉
+    if (kind != "survivors") AudioSystem::Get().StopMusic();
     // World::Clear 会释放所有 GameObject；先断开编辑器的裸指针选中项，
     // 避免同一帧后续的 DrawInspector/DrawGizmo 解引用悬垂指针。
     m_editor.Select(nullptr);
@@ -467,6 +469,7 @@ void Engine::LoadLevel(const std::string& kind) {
 }
 
 void Engine::ApplyLevelMode(const std::string& kind) {
+    if (kind != "survivors") AudioSystem::Get().StopMusic();
     m_survivorsLevel = (kind == "survivors");
     m_survivors3dLevel = (kind == "survivors3d");
     m_waveLevel = (kind == "arena");
@@ -532,10 +535,13 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
         const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
         Camera2D   camera2D;
         if (!m_showEditor || playing) {
-            camera2D.halfHeight = 6.4f;
+            camera2D.halfHeight = 7.2f;
             if (GameObject* player = m_world.FindByName("玩家")) {
                 const Vec3 position = player->Position();
-                camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+                Vec2 half(20.0f, 8.0f);
+                if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+                camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                         Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
             }
         } else {
             camera2D.position = Vec2(camera.position.x, camera.position.y);
@@ -611,7 +617,12 @@ void Engine::MainLoop() {
                 m_playSessionStarted = true;
                 m_accumulator = 0.0f;
                 if (m_survivorsLevel) {
-                    m_survivors.Reset(m_world);
+                    // --demo2d 直接开局；普通启动先显示开始界面，由玩家点“开始游戏”。
+                    if (m_demoMode) {
+                        m_survivors.Reset(m_world);
+                    } else {
+                        m_survivors.ReturnToMenu();
+                    }
                 } else if (m_survivors3dLevel) {
                     m_survivors3d.Reset(m_world);
                 } else if (m_waveLevel) {
@@ -631,7 +642,13 @@ void Engine::MainLoop() {
             if (Input::IsKeyPressed(VK_F12)) {
                 CaptureScreenshot("screenshot_" + std::to_string(m_frameIndex) + ".png");
             }
-            if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) break;
+            if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) {
+                if (m_survivorsLevel) {
+                    m_survivors.TogglePause();
+                } else {
+                    break;
+                }
+            }
         }
 
         // 4) 决定本帧相机
@@ -734,10 +751,13 @@ void Engine::MainLoop() {
     CollectParticles(m_world, m_scene);
             if (m_is2D) {
                 Camera2D camera2D;
-                camera2D.halfHeight = 6.4f;
+                camera2D.halfHeight = 7.2f;
                 if (GameObject* player = m_world.FindByName("玩家")) {
                     const Vec3 position = player->Position();
-                    camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+                    Vec2 half(20.0f, 8.0f);
+                    if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+                    camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                             Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
                 }
                 m_scene.is2D = true;
                 m_scene.camera2D = camera2D;
