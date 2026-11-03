@@ -1,0 +1,164 @@
+{
+  "icon_arrow": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_lightning": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_blade": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_frost": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_poison": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_fireball": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_health": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "icon_xp": {
+    "size": [
+      64,
+      64
+    ]
+  },
+  "panel": {
+    "size": [
+      64,
+      64
+    ],
+    "nine_slice_ltrb": [
+      20,
+      20,
+      20,
+      20
+    ]
+  },
+  "slot": {
+    "size": [
+      48,
+      48
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "button_primary": {
+    "size": [
+      64,
+      40
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "button_normal": {
+    "size": [
+      64,
+      40
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "button_hover": {
+    "size": [
+      64,
+      40
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "button_pressed": {
+    "size": [
+      64,
+      40
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "button_disabled": {
+    "size": [
+      64,
+      40
+    ],
+    "nine_slice_ltrb": [
+      12,
+      12,
+      12,
+      12
+    ]
+  },
+  "bar_track": {
+    "size": [
+      36,
+      24
+    ],
+    "nine_slice_ltrb": [
+      10,
+      10,
+      10,
+      10
+    ]
+  },
+  "bar_health_fill": {
+    "size": [
+      8,
+      12
+    ]
+  },
+  "bar_xp_fill": {
+    "size": [
+      8,
+      12
+    ]
+  },
+  "crest": {
+    "size": [
+      120,
+      76
+    ]
+  }
+}

@@ -550,23 +550,7 @@ int PickEnemyType(float time) {
     return pool.back().type;
 }
 
-// ---------------------------------------------------------------- 设置/存档 UI 工具
-void DrawToast(const std::string& text, float timer, float viewportX, float viewportY, float viewportWidth,
-               float viewportHeight) {
-    if (timer <= 0.0f || text.empty()) return;
-    const float alpha = Clamp01(timer / 0.35f);
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-    const ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(18.0f, FLT_MAX, 0.0f, text.c_str());
-    const ImVec2 center(viewportX + viewportWidth * 0.5f, viewportY + viewportHeight - 78.0f);
-    const ImVec2 min(center.x - textSize.x * 0.5f - 16.0f, center.y - textSize.y * 0.5f - 9.0f);
-    const ImVec2 max(center.x + textSize.x * 0.5f + 16.0f, center.y + textSize.y * 0.5f + 9.0f);
-    draw->AddRectFilled(min, max, IM_COL32(6, 8, 12, static_cast<int>(205 * alpha)), 8.0f);
-    draw->AddRect(min, max, IM_COL32(240, 205, 120, static_cast<int>(150 * alpha)), 8.0f);
-    draw->AddText(ImGui::GetFont(), 18.0f, ImVec2(center.x - textSize.x * 0.5f, center.y - textSize.y * 0.5f),
-                  IM_COL32(255, 226, 150, static_cast<int>(255 * alpha)), text.c_str());
 }
-
-} // namespace
 
 // ================================================================ 玩家：设置/数值
 void SurvivorsPlayerComponent::SetInputEnabled(bool enabled) { g_inputEnabled = enabled; }
@@ -662,6 +646,7 @@ void SurvivorsPlayerComponent::ResetCombatStats() {
     level = 1;
     xp = 0.0f;
     xpNext = 12.0f;
+    pendingLevelUps = 0;
     attackDamage = baseAttackDamage;
     maxHp = baseMaxHp;
     hp = maxHp;
@@ -778,16 +763,69 @@ void SurvivorsPlayerComponent::ApplyPickup(int type) {
 }
 
 void SurvivorsPlayerComponent::AddXp(float amount) {
+    if (amount <= 0.0f) return;
     xp += amount;
     while (xp >= xpNext) {
         xp -= xpNext;
-        ++level;
         xpNext *= 1.35f;
-        maxHp += 8.0f;
-        hp = (std::min)(maxHp, hp + 8.0f);
-        RefreshDerivedStats();
-        PlaySfx("levelup", 0.40f, 1.0f);
+        ++pendingLevelUps;
     }
+}
+
+void SurvivorsPlayerComponent::ApplyLevelUpUpgrade(int skill, int sub) {
+    switch (skill) {
+        case 0:
+            switch (sub) {
+                case 0:
+                    if (!arrowSpread) {
+                        arrowSpread = true;
+                        ShowPickupToast("获得：八向散射！");
+                    }
+                    break;
+                case 1:
+                    ++arrowSpeedLevel;
+                    RecomputeAttackInterval();
+                    break;
+                case 2:
+                    ++arrowDamageLevel;
+                    RecomputeAttackDamage();
+                    break;
+                case 3:
+                    ++arrowRangeLevel;
+                    break;
+                default: break;
+            }
+            break;
+        case 1:
+            ++lightningLevel;
+            m_lightningTimer = 0.0f;
+            break;
+        case 2:
+            ++bladeLevel;
+            break;
+        case 3:
+            ++frostLevel;
+            m_frostTimer = 0.0f;
+            break;
+        case 4:
+            ++poisonLevel;
+            m_poisonTick = 0.0f;
+            break;
+        case 5:
+            ++fireballLevel;
+            m_fireballTimer = 0.0f;
+            break;
+        default: break;
+    }
+}
+
+void SurvivorsPlayerComponent::CompleteLevelUp() {
+    if (pendingLevelUps > 0) --pendingLevelUps;
+    ++level;
+    maxHp += 8.0f;
+    hp = (std::min)(maxHp, hp + 8.0f);
+    RefreshDerivedStats();
+    PlaySfx("levelup", 0.48f, 1.12f);
 }
 
 // ================================================================ 玩家：更新
@@ -1404,6 +1442,10 @@ void SurvivorsDirector::Reset(World& world) {
     m_spawnTimer = 1.0f;
     m_eliteTimer = 45.0f;
     m_showSettings = false;
+    m_settingsReturn = State::Menu;
+    m_selectedSkill = -1;
+    m_pauseNotice.clear();
+    m_confirmExit = false;
     m_toastTimer = 0.0f;
     m_toastText.clear();
     LogInfo("[2D] 开始游戏");
@@ -1412,6 +1454,16 @@ void SurvivorsDirector::Reset(World& world) {
 
 void SurvivorsDirector::Update(World& world, float dt) {
     if (m_state != State::Playing) return;
+
+    // 经验满：先冻结战斗进入三选一，确认后再由 CompleteLevelUp 结算等级。
+    if (GameObject* pendingPlayer = FindPlayer(world)) {
+        if (auto* pending = pendingPlayer->GetComponent<SurvivorsPlayerComponent>()) {
+            if (pending->pendingLevelUps > 0) {
+                OpenLevelUp(*pending);
+                return;
+            }
+        }
+    }
 
     m_time += dt;
     m_difficulty = m_time / 60.0f;
@@ -1450,11 +1502,27 @@ void SurvivorsDirector::Update(World& world, float dt) {
 }
 
 void SurvivorsDirector::TogglePause() {
+    // 设置页优先响应 Esc：只关设置，回到打开它的页面；从暂停进入时保持暂停。
+    if (m_showSettings) {
+        m_showSettings = false;
+        PlaySfx("click", 0.6f);
+        return;
+    }
+    if (m_state == State::Prepare || m_state == State::Codex) {
+        m_state = State::Menu;
+        PlaySfx("click", 0.6f);
+        return;
+    }
+    if (m_state == State::LevelUp) return; // 必须先完成三选一
     if (m_state == State::Playing) {
         m_state = State::Paused;
+        m_pauseNotice.clear();
+        m_confirmExit = false;
         PlaySfx("click", 0.6f);
     } else if (m_state == State::Paused) {
         m_state = State::Playing;
+        m_pauseNotice.clear();
+        m_confirmExit = false;
         PlaySfx("click", 0.6f);
     }
 }
@@ -1467,12 +1535,13 @@ void SurvivorsDirector::ShowToast(const std::string& text) {
     m_toastTimer = 2.4f;
 }
 
-void SurvivorsDirector::SaveGame(World& world) {
+bool SurvivorsDirector::SaveGame(World& world) {
     GameObject* playerObject = FindPlayer(world);
     auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
     if (!player || !playerObject) {
         ShowToast("保存失败：找不到玩家");
-        return;
+        m_pauseNotice = "保存失败：找不到玩家";
+        return false;
     }
 
     JsonValue root = JsonValue::MakeObject();
@@ -1488,6 +1557,7 @@ void SurvivorsDirector::SaveGame(World& world) {
     playerJson.Set("level", player->level);
     playerJson.Set("xp", player->xp);
     playerJson.Set("xpNext", player->xpNext);
+    playerJson.Set("pendingLevelUps", player->pendingLevelUps);
     playerJson.Set("killCount", player->killCount);
     playerJson.Set("arrowSpread", player->arrowSpread);
     playerJson.Set("arrowSpeedLevel", player->arrowSpeedLevel);
@@ -1512,12 +1582,14 @@ void SurvivorsDirector::SaveGame(World& world) {
     const std::string path = SavePath();
     if (!FileSystem::WriteTextFile(path, root.Dump(2))) {
         ShowToast("保存失败：无法写入存档");
+        m_pauseNotice = "保存失败：无法写入存档";
         LogWarn("[2D] 存档写入失败: %s", path.c_str());
-        return;
+        return false;
     }
     ShowToast("游戏已保存");
     PlaySfx("levelup", 0.45f, 1.15f);
     LogInfo("[2D] 存档已保存: %s", path.c_str());
+    return true;
 }
 
 bool SurvivorsDirector::LoadGame(World& world) {
@@ -1550,6 +1622,7 @@ bool SurvivorsDirector::LoadGame(World& world) {
     player->level = playerJson["level"].AsInt(player->level);
     player->xp = playerJson["xp"].AsFloat(player->xp);
     player->xpNext = playerJson["xpNext"].AsFloat(player->xpNext);
+    player->pendingLevelUps = playerJson["pendingLevelUps"].AsInt(0);
     player->killCount = playerJson["killCount"].AsInt(player->killCount);
     player->arrowSpread = playerJson["arrowSpread"].AsBool(player->arrowSpread);
     player->arrowSpeedLevel = playerJson["arrowSpeedLevel"].AsInt(player->arrowSpeedLevel);
@@ -1585,6 +1658,158 @@ bool SurvivorsDirector::LoadGame(World& world) {
     return true;
 }
 
+// ================================================================ 导演：UI 数据与三选一
+void SurvivorsDirector::InitializeUI(AssetManager& assets, ImFont* body, ImFont* large, ImFont* display) {
+    m_uiReady = m_ui.Load(assets, body, large, display);
+    if (!m_uiReady) LogWarn("[2D] UI 切图未就绪，将使用纯色回退绘制");
+}
+
+SurvivorsSettingsState SurvivorsDirector::GetSettings() const {
+    SurvivorsSettingsState state;
+    state.musicEnabled = g_settings.musicEnabled;
+    state.sfxEnabled = g_settings.sfxEnabled;
+    state.masterVolume = g_settings.masterVolume;
+    state.musicVolume = g_settings.musicVolume;
+    state.sfxVolume = g_settings.sfxVolume;
+    return state;
+}
+
+void SurvivorsDirector::ApplySettings(const SurvivorsSettingsState& settings, bool persist) {
+    g_settings.musicEnabled = settings.musicEnabled;
+    g_settings.sfxEnabled = settings.sfxEnabled;
+    g_settings.masterVolume = settings.masterVolume;
+    g_settings.musicVolume = settings.musicVolume;
+    g_settings.sfxVolume = settings.sfxVolume;
+    ApplySurvivorsAudioSettings();
+    if (persist) SaveSurvivorsSettings();
+    if (g_settings.musicEnabled) {
+        EnsureMusic();
+    } else {
+        AudioSystem::Get().StopMusic();
+    }
+}
+
+void SurvivorsDirector::GenerateLevelUpChoices(const SurvivorsPlayerComponent& player) {
+    // 三张卡保持“一个箭矢强化 + 两个不同技能”的构成，避免整页都是同一类箭矢强化。
+    std::vector<SurvivorsLevelUpChoice> arrowOptions;
+    if (!player.arrowSpread) arrowOptions.push_back({0, 0}); // 八向散射
+    for (int sub = 1; sub <= 3; ++sub) arrowOptions.push_back({0, sub}); // 攻速 / 攻击 / 范围
+    std::shuffle(arrowOptions.begin(), arrowOptions.end(), g_rng);
+
+    std::vector<int> skills = {1, 2, 3, 4, 5};
+    std::shuffle(skills.begin(), skills.end(), g_rng);
+
+    m_levelChoices[0] = arrowOptions.front();
+    m_levelChoices[1] = {skills[0], 0};
+    m_levelChoices[2] = {skills[1], 0};
+
+    // 卡片顺序也随机，避免永远是箭矢排第一
+    std::shuffle(m_levelChoices, m_levelChoices + 3, g_rng);
+}
+
+void SurvivorsDirector::OpenLevelUp(const SurvivorsPlayerComponent& player) {
+    if (m_state == State::LevelUp) return;
+    m_state = State::LevelUp;
+    m_selectedSkill = -1;
+    GenerateLevelUpChoices(player);
+    PlaySfx("levelup", 0.55f, 1.05f);
+}
+
+void SurvivorsDirector::ApplyLevelUpChoice(World& world, int index) {
+    if (m_state != State::LevelUp || index < 0 || index > 2) return;
+    GameObject* playerObject = FindPlayer(world);
+    auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+    if (!player) return;
+
+    const SurvivorsLevelUpChoice choice = m_levelChoices[index];
+    player->ApplyLevelUpUpgrade(choice.skill, choice.sub);
+    player->CompleteLevelUp();
+    PlaySfx("click", 0.55f, 1.05f);
+
+    if (player->pendingLevelUps > 0) {
+        GenerateLevelUpChoices(*player);
+        return;
+    }
+    m_state = State::Playing;
+    m_selectedSkill = -1;
+}
+
+void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& screen) {
+    // 仅用于 --ui-preview 截图/走查。正常游戏不会调用。
+    if (screen.empty()) return;
+    m_showSettings = false;
+    m_settingsReturn = State::Menu;
+    m_pauseNotice.clear();
+    m_confirmExit = false;
+
+    auto seed = [&](bool dead) {
+        Reset(world);
+        m_time = 156.0f;
+        m_kills = 47;
+        g_kills = 47;
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->level = 3;
+                player->xp = 8.0f;
+                player->xpNext = 12.0f;
+                player->hp = dead ? 0.0f : player->maxHp * 0.82f;
+                player->alive = !dead;
+                player->arrowSpeedLevel = 1;
+                player->arrowDamageLevel = 1;
+                player->lightningLevel = 2;
+                player->bladeLevel = 1;
+                player->frostLevel = 1;
+                player->poisonLevel = 1;
+                player->fireballLevel = 1;
+                player->RefreshDerivedStats();
+            }
+        }
+    };
+
+    if (screen == "menu") {
+        ReturnToMenu();
+    } else if (screen == "prepare") {
+        Reset(world);
+        m_state = State::Prepare;
+    } else if (screen == "hud") {
+        seed(false);
+    } else if (screen == "pause") {
+        seed(false);
+        m_state = State::Paused;
+    } else if (screen == "settings") {
+        seed(false);
+        m_state = State::Paused;
+        m_settingsReturn = State::Paused;
+        m_showSettings = true;
+    } else if (screen == "levelup") {
+        seed(false);
+        GameObject* playerObject = FindPlayer(world);
+        auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+        if (player) {
+            player->pendingLevelUps = 1;
+            OpenLevelUp(*player);
+        }
+    } else if (screen == "result") {
+        seed(true);
+        m_state = State::GameOver;
+    } else if (screen == "codex") {
+        Reset(world);
+        m_state = State::Codex;
+    } else {
+        LogWarn("[2D] 未知的 --ui-preview 页面: %s", screen.c_str());
+    }
+
+    // 走查截图不需要“猎杀开始”提示遮挡画面
+    m_toastTimer = 0.0f;
+    m_toastText.clear();
+    if (GameObject* playerObject = FindPlayer(world)) {
+        if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+            player->pickupToast.clear();
+            player->pickupToastTimer = 0.0f;
+        }
+    }
+}
+
 // ================================================================ 导演：设置/音乐
 void SurvivorsDirector::ApplyAudioSettings() { ApplySurvivorsAudioSettings(); }
 
@@ -1596,300 +1821,6 @@ void SurvivorsDirector::EnsureMusic() {
     }
     if (!audio.Ready() || audio.IsMusicPlaying()) return;
     audio.PlayMusic("bgm_survivors", g_settings.musicVolume);
-}
-
-void SurvivorsDirector::DrawSettingsPanel() {
-    if (!m_showSettings) return;
-    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(500, 330), ImGuiCond_Always);
-    ImGui::Begin("游戏设置", &m_showSettings, ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoResize);
-    ImGui::TextWrapped("设置会立即生效，并保存到 assets/survivors_settings.json。");
-    ImGui::Separator();
-
-    bool musicEnabled = AudioSystem::Get().MusicEnabled();
-    if (ImGui::Checkbox("背景音乐", &musicEnabled)) {
-        g_settings.musicEnabled = musicEnabled;
-        ApplySurvivorsAudioSettings();
-        SaveSurvivorsSettings();
-        if (!musicEnabled) {
-            AudioSystem::Get().StopMusic();
-        } else {
-            EnsureMusic();
-        }
-    }
-    bool sfxEnabled = AudioSystem::Get().SfxEnabled();
-    if (ImGui::Checkbox("游戏音效", &sfxEnabled)) {
-        g_settings.sfxEnabled = sfxEnabled;
-        ApplySurvivorsAudioSettings();
-        SaveSurvivorsSettings();
-        if (sfxEnabled) PlaySfx("click", 0.6f);
-    }
-
-    ImGui::Separator();
-    float musicVolume = g_settings.musicVolume;
-    ImGui::Text("音乐音量");
-    ImGui::SameLine(110.0f);
-    ImGui::SetNextItemWidth(250.0f);
-    if (ImGui::SliderFloat("##musicVolume", &musicVolume, 0.0f, 1.0f, "%.2f")) {
-        g_settings.musicVolume = musicVolume;
-        ApplySurvivorsAudioSettings();
-        SaveSurvivorsSettings();
-    }
-    float sfxVolume = g_settings.sfxVolume;
-    ImGui::Text("音效音量");
-    ImGui::SameLine(110.0f);
-    ImGui::SetNextItemWidth(250.0f);
-    if (ImGui::SliderFloat("##sfxVolume", &sfxVolume, 0.0f, 1.0f, "%.2f")) {
-        g_settings.sfxVolume = sfxVolume;
-        ApplySurvivorsAudioSettings();
-        SaveSurvivorsSettings();
-    }
-    float masterVolume = g_settings.masterVolume;
-    ImGui::Text("主音量");
-    ImGui::SameLine(110.0f);
-    ImGui::SetNextItemWidth(250.0f);
-    if (ImGui::SliderFloat("##masterVolume", &masterVolume, 0.0f, 1.0f, "%.2f")) {
-        g_settings.masterVolume = masterVolume;
-        ApplySurvivorsAudioSettings();
-        SaveSurvivorsSettings();
-    }
-
-    ImGui::Separator();
-    ImGui::TextDisabled("Esc 暂停 / 继续");
-    ImGui::End();
-}
-
-// ================================================================ 导演：UI
-void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, float viewportWidth,
-                               float viewportHeight) {
-    EnsureMusic();
-
-    const ImVec2 center(viewportX + viewportWidth * 0.5f, viewportY + viewportHeight * 0.5f);
-    auto centeredWindow = [&](const char* name, const ImVec2& size) {
-        ImGui::SetNextWindowPos(center, ImGuiCond_Always, ImVec2(0.5f, 0.5f));
-        ImGui::SetNextWindowSize(size, ImGuiCond_Always);
-        return ImGui::Begin(name, nullptr,
-                            ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                                ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoScrollbar);
-    };
-
-    if (m_state == State::Menu) {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.04f, 0.06f, 0.93f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 14.0f);
-        if (centeredWindow("##SurvivorsMenu", ImVec2(850, 520))) {
-            ImGui::Dummy(ImVec2(0, 8));
-            ImGui::SetWindowFontScale(1.9f);
-            ImGui::SetCursorPosX(52);
-            ImGui::TextColored(ImVec4(0.96f, 0.80f, 0.36f, 1.0f), "二毛幸存者 · 2D");
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::SetCursorPosX(54);
-            ImGui::TextDisabled("自动战斗 · 击杀掉落 · 技能强化 · 生存挑战");
-            ImGui::Separator();
-            ImGui::Dummy(ImVec2(0, 4));
-            ImGui::TextWrapped("WASD 移动。箭矢会自动攻击最近的敌人；没有目标时会朝面朝方向射击。");
-            ImGui::TextWrapped("击杀怪物随机掉落强化道具：八向散射、箭矢攻速、箭矢攻击力、血瓶、箭矢范围，");
-            ImGui::TextWrapped("以及雷霆、回旋刃、霜环、毒雾、火球的强化。走上去即可拾取。");
-            ImGui::TextWrapped("怪物会越来越强；石柱、木箱、书架和围栏会挡住你和怪物。");
-            ImGui::Dummy(ImVec2(0, 10));
-            ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.22f, 0.46f, 0.28f, 1.0f));
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.27f, 0.56f, 0.34f, 1.0f));
-            if (ImGui::Button("开始游戏", ImVec2(230, 48))) {
-                PlaySfx("click");
-                Reset(world);
-            }
-            ImGui::PopStyleColor(2);
-            ImGui::SameLine(0, 16);
-            ImGui::BeginDisabled(!HasSave());
-            if (ImGui::Button("继续游戏", ImVec2(210, 48))) {
-                PlaySfx("click");
-                LoadGame(world);
-            }
-            ImGui::EndDisabled();
-            ImGui::SameLine(0, 16);
-            if (ImGui::Button("设置", ImVec2(130, 48))) {
-                PlaySfx("click");
-                m_showSettings = !m_showSettings;
-            }
-            ImGui::Dummy(ImVec2(0, 8));
-            if (ImGui::Button("退出程序", ImVec2(180, 40))) {
-                PlaySfx("click");
-                m_wantsQuit = true;
-            }
-            ImGui::SameLine(0, 16);
-            if (HasSave()) {
-                ImGui::TextDisabled("检测到存档：可以继续上次的冒险。");
-            } else {
-                ImGui::TextDisabled("暂无存档；暂停或失败时可以保存本局。");
-            }
-            ImGui::Separator();
-            ImGui::TextColored(ImVec4(0.96f, 0.80f, 0.36f, 1.0f), "局内目标");
-            ImGui::TextWrapped("在越来越强的怪潮里活下来。击杀会掉落强化，捡得越多，箭矢和五个技能就越强。");
-            ImGui::TextDisabled("技能：箭矢（掉落强化） / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球");
-            ImGui::TextDisabled("Esc 暂停与继续；暂停菜单里可以保存，主菜单可以继续上次存档。");
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-    } else if (m_state == State::Paused) {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.04f, 0.06f, 0.93f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
-        if (centeredWindow("##SurvivorsPause", ImVec2(460, 380))) {
-            ImGui::SetWindowFontScale(1.4f);
-            ImGui::TextColored(ImVec4(0.96f, 0.80f, 0.36f, 1.0f), "已暂停");
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Separator();
-            if (ImGui::Button("继续游戏", ImVec2(-1, 38))) m_state = State::Playing;
-            if (ImGui::Button("保存游戏", ImVec2(-1, 38))) SaveGame(world);
-            if (ImGui::Button("设置", ImVec2(-1, 38))) m_showSettings = !m_showSettings;
-            if (ImGui::Button("重新开始", ImVec2(-1, 38))) Reset(world);
-            if (ImGui::Button("保存并返回主菜单", ImVec2(-1, 38))) {
-                SaveGame(world);
-                m_state = State::Menu;
-            }
-            if (ImGui::Button("退出程序", ImVec2(-1, 38))) m_wantsQuit = true;
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-    } else if (m_state == State::GameOver) {
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.04f, 0.02f, 0.03f, 0.94f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 12.0f);
-        if (centeredWindow("##SurvivorsOver", ImVec2(540, 430))) {
-            ImGui::SetWindowFontScale(1.5f);
-            ImGui::TextColored(ImVec4(0.96f, 0.38f, 0.34f, 1.0f), "你被怪物淹没了");
-            ImGui::SetWindowFontScale(1.0f);
-            ImGui::Separator();
-            ImGui::Text("存活时间：%.1f 秒", m_time);
-            ImGui::Text("击杀：%d", m_kills);
-            if (GameObject* player = FindPlayer(world)) {
-                if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) {
-                    ImGui::Text("等级：%d    箭矢伤害：%.0f", component->level, component->ArrowDamage());
-                    ImGui::TextDisabled("雷霆 %d · 回旋刃 %d · 霜环 %d · 毒雾 %d · 火球 %d", component->lightningLevel,
-                                        component->bladeLevel, component->frostLevel, component->poisonLevel,
-                                        component->fireballLevel);
-                }
-            }
-            ImGui::Dummy(ImVec2(0, 8));
-            if (ImGui::Button("保存本局", ImVec2(160, 38))) SaveGame(world);
-            ImGui::SameLine(0, 12);
-            if (ImGui::Button("重新开始", ImVec2(160, 38))) Reset(world);
-            ImGui::SameLine(0, 12);
-            if (ImGui::Button("返回主菜单", ImVec2(160, 38))) m_state = State::Menu;
-            if (ImGui::Button("退出程序", ImVec2(-1, 36))) m_wantsQuit = true;
-        }
-        ImGui::End();
-        ImGui::PopStyleVar();
-        ImGui::PopStyleColor();
-    } else {
-        // ------------------------------------------------ HUD
-        EnsureMusic();
-        GameObject* player = FindPlayer(world);
-        auto*       component = player ? player->GetComponent<SurvivorsPlayerComponent>() : nullptr;
-        const float hpRatio = component && component->maxHp > 0.0f ? Clamp01(component->hp / component->maxHp) : 0.0f;
-        const float xpRatio = component && component->xpNext > 0.0f ? Clamp01(component->xp / component->xpNext) : 0.0f;
-
-        ImGui::SetNextWindowPos(ImVec2(viewportX + 14.0f, viewportY + 34.0f), ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(390, 210), ImGuiCond_Always);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.04f, 0.06f, 0.90f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
-        ImGui::Begin("##SurvivorsHud", nullptr,
-                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_NoScrollbar);
-        ImGui::Text("生命 %.0f / %.0f", component ? component->hp : 0.0f, component ? component->maxHp : 0.0f);
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.85f, 0.25f, 0.28f, 1.0f));
-        ImGui::ProgressBar(hpRatio, ImVec2(310, 12));
-        ImGui::PopStyleColor();
-        ImGui::Text("经验 %.0f / %.0f", component ? component->xp : 0.0f, component ? component->xpNext : 0.0f);
-        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(0.35f, 0.75f, 0.95f, 1.0f));
-        ImGui::ProgressBar(xpRatio, ImVec2(310, 10));
-        ImGui::PopStyleColor();
-        ImGui::Text("等级 %d   击杀 %d   时间 %.0fs", component ? component->level : 1, m_kills, m_time);
-        if (component) {
-            ImGui::Text("箭矢 %s   伤害 %.0f   攻速 +%.0f%%   范围 %.1f", component->arrowSpread ? "八向" : "单发",
-                        component->ArrowDamage(), component->ArrowSpeedBonus() * 100.0f, component->ArrowRange());
-            ImGui::TextDisabled("掉落：散射 %s · 攻速 %d · 攻击 %d · 范围 %d", component->arrowSpread ? "已解锁" : "未解锁",
-                                component->arrowSpeedLevel, component->arrowDamageLevel, component->arrowRangeLevel);
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor();
-
-        // 右上角技能面板
-        const float panelWidth = 410.0f;
-        const float panelHeight = 312.0f;
-        ImGui::SetNextWindowPos(ImVec2(viewportX + viewportWidth - panelWidth - 14.0f, viewportY + 34.0f),
-                                ImGuiCond_Always);
-        ImGui::SetNextWindowSize(ImVec2(panelWidth, panelHeight), ImGuiCond_Always);
-        ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.03f, 0.04f, 0.06f, 0.90f));
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 8.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12, 10));
-        ImGui::Begin("##SurvivorsSkills", nullptr,
-                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
-                         ImGuiWindowFlags_NoScrollbar);
-        ImGui::TextColored(ImVec4(0.96f, 0.80f, 0.36f, 1.0f), "技能");
-        ImGui::Separator();
-        if (component) {
-            auto skillLine = [&](const ImVec4& color, const char* name, int level, const char* detail) {
-                ImGui::TextColored(color, "%s", name);
-                ImGui::SameLine(96);
-                ImGui::Text("Lv.%d", level);
-                ImGui::SetWindowFontScale(0.90f);
-                ImGui::SetCursorPosX(18.0f);
-                ImGui::TextDisabled("%s", detail);
-                ImGui::SetWindowFontScale(1.0f);
-            };
-            char detail[192];
-            std::snprintf(detail, sizeof(detail), "%s · 伤害 %.0f · 攻速 +%.0f%% · 范围 %.1f",
-                          component->arrowSpread ? "八向 0.65x" : "单发锁定", component->ArrowDamage(),
-                          component->ArrowSpeedBonus() * 100.0f, component->ArrowRange());
-            skillLine(ImVec4(0.96f, 0.82f, 0.40f, 1.0f), "箭矢", 1 + component->arrowSpeedLevel +
-                                                                     component->arrowDamageLevel +
-                                                                     component->arrowRangeLevel + (component->arrowSpread ? 1 : 0),
-                      detail);
-            std::snprintf(detail, sizeof(detail), "%d 目标 · 连锁 %d · 伤害 %.0f · CD %.1fs",
-                          component->LightningTargets(), component->LightningChains(), component->LightningDamage(),
-                          component->LightningCooldown());
-            skillLine(ImVec4(1.00f, 0.95f, 0.40f, 1.0f), "雷霆", component->lightningLevel, detail);
-            std::snprintf(detail, sizeof(detail), "%d 刃 · 伤害 %.0f · 半径 %.1f", component->BladeCount(),
-                          component->BladeDamage(), component->BladeRadius());
-            skillLine(ImVec4(0.82f, 0.88f, 1.00f, 1.0f), "回旋刃", component->bladeLevel, detail);
-            std::snprintf(detail, sizeof(detail), "半径 %.1f · 伤害 %.0f · 减速 %.0f%% · CD %.1fs",
-                          component->FrostRadius(), component->FrostDamage(), component->FrostSlow() * 100.0f,
-                          component->FrostCooldown());
-            skillLine(ImVec4(0.55f, 0.85f, 1.00f, 1.0f), "霜环", component->frostLevel, detail);
-            std::snprintf(detail, sizeof(detail), "半径 %.1f · DPS %.0f", component->PoisonRadius(),
-                          component->PoisonDps());
-            skillLine(ImVec4(0.55f, 1.00f, 0.50f, 1.0f), "毒雾", component->poisonLevel, detail);
-            std::snprintf(detail, sizeof(detail), "%d 发 · 伤害 %.0f · 爆炸 %.1f · CD %.1fs", component->FireballCount(),
-                          component->FireballDamage(), component->FireballExplosionRadius(),
-                          component->FireballCooldown());
-            skillLine(ImVec4(1.00f, 0.60f, 0.25f, 1.0f), "火球", component->fireballLevel, detail);
-        }
-        ImGui::End();
-        ImGui::PopStyleVar(2);
-        ImGui::PopStyleColor();
-
-        ImGui::GetForegroundDrawList()->AddText(ImVec2(viewportX + 16, viewportY + viewportHeight - 30),
-                                                IM_COL32(220, 225, 235, 180),
-                                                "WASD 移动 · 自动战斗 · Esc 暂停");
-    }
-
-    if (m_showSettings) DrawSettingsPanel();
-
-    m_toastTimer = (std::max)(0.0f, m_toastTimer - ImGui::GetIO().DeltaTime);
-    std::string toast = m_toastTimer > 0.0f ? m_toastText : std::string();
-    if (toast.empty()) {
-        if (GameObject* player = FindPlayer(world)) {
-            if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) {
-                if (component->pickupToastTimer > 0.0f) toast = component->pickupToast;
-            }
-        }
-    }
-    if (!toast.empty()) {
-        const float timer = m_toastTimer > 0.0f ? m_toastTimer : 2.0f;
-        DrawToast(toast, timer, viewportX, viewportY, viewportWidth, viewportHeight);
-    }
 }
 
 // ================================================================ 导演：战斗反馈

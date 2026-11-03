@@ -5,11 +5,13 @@
 //   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和技能强化道具；
 //   * 箭矢是基础自动技能，击杀掉落可以把它强化成八向散射、加攻速、加攻击、加范围，
 //     血瓶直接回血；另外还有闪电 / 回旋刃 / 霜环 / 毒雾 / 火球五个技能；
-//   * 主菜单 / 设置 / 暂停 / 存档 / 失败界面用 ImGui，HUD 显示生命、经验、时间、击杀与技能。
+//   * 八页界面（主菜单/出战准备/HUD/升级三选一/暂停/设置/结算/技能图鉴）用自绘 ImGui 图层，
+//     九宫格切图来自用户提供的 ermao-ui-v2 UI 原型；HUD 显示生命、经验、时间、击杀与技能。
 #pragma once
 
 #include "core/Math.h"
 #include "core/Types.h"
+#include "game/SurvivorsUI.h"
 #include "scene/Component.h"
 
 #include <string>
@@ -59,6 +61,8 @@ public:
     int   level = 1;
     float xp = 0.0f;
     float xpNext = 12.0f;
+    // 经验已满、等待三选一确认的升级次数（AddXp 只累计，确认后才真正升级）
+    int   pendingLevelUps = 0;
 
     float attackDamage = 12.0f;
     float attackInterval = 0.75f;
@@ -106,6 +110,10 @@ public:
     void  ResetCombatStats();
     void  RefreshDerivedStats();
     void  ApplyPickup(int type);
+
+    // 三选一：先应用强化，再由 CompleteLevelUp 结算等级
+    void ApplyLevelUpUpgrade(int skill, int sub);
+    void CompleteLevelUp();
 
     // 当前生效数值（HUD 与投射物共用，避免两处公式不一致）
     float ArrowDamage() const;
@@ -233,10 +241,16 @@ public:
     void OnDestroy() override;
 };
 
+// ---------------------------------------------------------------- 三选一候选
+struct SurvivorsLevelUpChoice {
+    int skill = 0; // 0=箭矢 1=雷霆 2=回旋刃 3=霜环 4=毒雾 5=火球
+    int sub = 0;   // 箭矢专用：0=八向散射 1=攻速 2=攻击 3=范围
+};
+
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
-    enum class State { Menu, Playing, Paused, GameOver };
+    enum class State { Menu, Prepare, Playing, Paused, LevelUp, GameOver, Codex };
 
     void Reset(World& world);
     void Update(World& world, float dt);
@@ -246,7 +260,13 @@ public:
                             float viewportWidth, float viewportHeight);
 
     State GetState() const { return m_state; }
-    void  ReturnToMenu() { m_state = State::Menu; }
+    void  ReturnToMenu() {
+        m_state = State::Menu;
+        m_showSettings = false;
+        m_selectedSkill = -1;
+        m_pauseNotice.clear();
+        m_confirmExit = false;
+    }
     void  TogglePause();
     bool  WantsQuit() const { return m_wantsQuit; }
 
@@ -256,9 +276,18 @@ public:
 
     // 存档
     bool HasSave() const;
-    void SaveGame(World& world);
+    bool SaveGame(World& world);
     bool LoadGame(World& world);
     void ShowToast(const std::string& text);
+
+    // UI 切图/字体在关卡构建完成后注入（资源管理器此时已有 floor_big 等程序化贴图）
+    void InitializeUI(AssetManager& assets, ImFont* body, ImFont* large, ImFont* display);
+    // 截图/走查用：--ui-preview <menu|prepare|hud|levelup|pause|settings|result|codex>
+    void ApplyPreviewState(World& world, const std::string& screen);
+
+    // 设置面板数据（模型层只暴露快照，避免把文件读写细节带进 UI）
+    SurvivorsSettingsState GetSettings() const;
+    void                   ApplySettings(const SurvivorsSettingsState& settings, bool persist = true);
 
     // 关卡代码设置：把程序化宝石贴图注入（避免每次清场重建）
     void SetGemTexture(const std::string& name) { m_gemTexture = name; }
@@ -269,8 +298,22 @@ private:
                     float damageScale);
     void SpawnElite(World& world);
     void EnsureMusic();
-    void DrawSettingsPanel();
     void ApplyAudioSettings();
+
+    // UI 各页（实现见 SurvivorsUI.cpp）
+    void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
+    void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawSettingsScreen(float vx, float vy, float vw, float vh);
+    void DrawResultScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawCodexScreen(float vx, float vy, float vw, float vh);
+    void DrawToast(float vx, float vy, float vw, float vh, const std::string& text, float timer);
+
+    void OpenLevelUp(const SurvivorsPlayerComponent& player);
+    void GenerateLevelUpChoices(const SurvivorsPlayerComponent& player);
+    void ApplyLevelUpChoice(World& world, int index);
 
     State       m_state = State::Menu;
     int         m_kills = 0;
@@ -282,8 +325,16 @@ private:
     bool        m_wantsQuit = false;
 
     bool        m_showSettings = false;
+    State       m_settingsReturn = State::Menu;
     float       m_toastTimer = 0.0f;
     std::string m_toastText;
+
+    SurvivorsUIAssets     m_ui;
+    bool                  m_uiReady = false;
+    SurvivorsLevelUpChoice m_levelChoices[3];
+    int                   m_selectedSkill = -1;
+    std::string           m_pauseNotice;
+    bool                  m_confirmExit = false;
 };
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件

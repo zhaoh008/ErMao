@@ -9,6 +9,7 @@
 #include "core/Types.h"
 
 struct ImGuiContext;
+struct ImFont;
 
 namespace erm {
 
@@ -32,14 +33,23 @@ public:
     float  FontSize() const { return m_fontSize; }
     float  DpiScale() const { return m_dpiScale; }
 
+    // 幸存者 2D UI：正文 / 大标题 / 展示字体（中文，按 UI 文本裁剪字形）
+    ImFont* UIFontBody() const { return m_uiBodyFont; }
+    ImFont* UIFontLarge() const { return m_uiLargeFont; }
+    ImFont* UIFontDisplay() const { return m_uiDisplayFont; }
+
 private:
     void ApplyStyle(float scale);
     bool LoadFonts(float scale);
+    void LoadSurvivorsUIFonts();
 
     ImGuiContext* m_context = nullptr;
     float         m_fontSize = 16.0f;
     float         m_dpiScale = 1.0f;
     bool          m_initialized = false;
+    ImFont*       m_uiBodyFont = nullptr;
+    ImFont*       m_uiLargeFont = nullptr;
+    ImFont*       m_uiDisplayFont = nullptr;
 };
 
 } // namespace erm

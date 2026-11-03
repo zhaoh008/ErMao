@@ -123,6 +123,16 @@ int Engine::Run(int argc, char** argv) {
             m_editorSelect = argv[++i];
         } else if (arg == "--editor-settings") {
             m_editorSettings = true;
+        } else if (arg == "--ui-preview" && i + 1 < argc) {
+            m_uiPreview = argv[++i];
+        } else if (arg == "--window-size" && i + 1 < argc) {
+            int width = 0, height = 0;
+            if (std::sscanf(argv[++i], "%dx%d", &width, &height) == 2 && width >= 640 && height >= 480) {
+                m_windowWidth = width;
+                m_windowHeight = height;
+            } else {
+                LogWarn("--window-size 需要 WxH（例如 1280x720），已忽略: %s", argv[i]);
+            }
         } else if (arg == "--test-serialize") {
             m_testSerialize = true;
         } else if (arg == "--test-undo") {
@@ -217,7 +227,7 @@ bool Engine::Init() {
     JobSystem::Init();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    if (!m_window.Create("ErMao Engine 0.2 — GAMES104 教学引擎", 1600, 900)) return false;
+    if (!m_window.Create("ErMao Engine 0.2 — GAMES104 教学引擎", m_windowWidth, m_windowHeight)) return false;
     if (m_vulkanTest) {
         VulkanDemo demo;
         if (demo.Init(m_window)) {
@@ -343,6 +353,9 @@ bool Engine::Init() {
     if (!m_imgui.Init(m_window, m_device.GetDevice(), m_device.GetContext(), !autoRun)) return false;
     if (autoRun) m_editor.ForceDefaultLayout();
     m_editor.Init(&m_imgui);
+    if (m_survivorsLevel) {
+        m_survivors.InitializeUI(m_assets, m_imgui.UIFontBody(), m_imgui.UIFontLarge(), m_imgui.UIFontDisplay());
+    }
     m_editor.SetScenePath(m_scenePath);
     m_editor.SetLevelLoader([this](const std::string& kind) { LoadLevel(kind); });
     m_editor.SetSceneLoadedCallback([this](const std::string& kind) { ApplyLevelMode(kind); });
@@ -487,6 +500,10 @@ void Engine::LoadLevel(const std::string& kind) {
     m_editor.ResetUndoHistory(m_world);
     SetupEditorViewForLevel();
     m_playSessionStarted = false;
+    m_uiPreviewApplied = false;
+    if (m_survivorsLevel) {
+        m_survivors.InitializeUI(m_assets, m_imgui.UIFontBody(), m_imgui.UIFontLarge(), m_imgui.UIFontDisplay());
+    }
     LogInfo("[关卡] 已切换: %s（%zu 个对象）", kind.c_str(), m_world.ObjectCount());
 }
 
@@ -533,6 +550,10 @@ void Engine::UpdateGameplay(float dt) {
     const bool playing = m_editor.IsPlaying();
     const bool paused = m_editor.IsPaused();
     if (!playing || paused) return;
+
+    // 2D 幸存者的菜单/暂停/三选一/结算/图鉴都要求冻结世界，
+    // 否则敌人和接触伤害会在暂停或选卡时继续结算。
+    if (m_survivorsLevel && m_survivors.GetState() != SurvivorsDirector::State::Playing) return;
 
     m_accumulator += dt;
     int steps = 0;
@@ -742,6 +763,10 @@ void Engine::MainLoop() {
             } else if (!sessionPlaying) {
                 m_playSessionStarted = false;
             }
+        }
+        if (m_survivorsLevel && !m_uiPreview.empty() && !m_uiPreviewApplied) {
+            m_uiPreviewApplied = true;
+            m_survivors.ApplyPreviewState(m_world, m_uiPreview);
         }
 
         UpdateGameplay(dt);

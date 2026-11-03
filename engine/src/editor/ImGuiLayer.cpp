@@ -46,6 +46,7 @@ bool ImGuiLayer::Init(Window& window, void* d3dDevice, void* d3dContext, bool us
         LogWarn("ImGui 字体加载失败，回退默认字体（中文会显示为方块）");
         io.Fonts->AddFontDefault();
     }
+    LoadSurvivorsUIFonts();
 
     if (!ImGui_ImplWin32_Init(hwnd)) {
         LogError("ImGui Win32 后端初始化失败");
@@ -124,6 +125,51 @@ void ImGuiLayer::ApplyStyle(float scale) {
     c[ImGuiCol_PlotHistogram] = ImVec4(0.95f, 0.72f, 0.28f, 1.00f);
 
     style.ScaleAllSizes(scale);
+}
+
+namespace {
+// 2D 幸存者 UI 只使用这些中文/符号；按实际文本裁剪字形，避免在 4096 图集里塞入整套常用字。
+const char* kSurvivorsUIGlyphs =
+    "·×“”→、。一上下不与丛个中为主之乐了二人件休会伤住体使保倍倒值偏停入八关具兽内册再写冰冻准减出击刃分切到制刻前力加动化升半单卡即去发取可史各名后向吸命和回围图在地坏型士备复外大失好姆始子字存完定宝害家对寿射将少就局已并幸幽序度开弃强当录径得怪恢戏成战手打扩找技把择拾持挑损据提支攻放效敌散数整文斗新方旋无时明景暂最有木未本杀束来析柱标档检槽次每毒毛没法活测游满演潮火灰灵炸点爆片牢物猎率玩环现球瓶生用界的目矢知短石确碍示离秒称移程立等箭箱类精系索级纯经结绕绘统继绩绪续缩缺置者背能自色英范草莱获菜落蛛蜘血行角解计认设说读象败起距踏躲转载近返进连退选速道避部里重量鉴钉锁间附隔障雷雾霆霜面音页项额飞验骑骷髅高默！（），：；";
+} // namespace
+
+void ImGuiLayer::LoadSurvivorsUIFonts() {
+    ImGuiIO& io = ImGui::GetIO();
+    wchar_t windowsDir[MAX_PATH]{};
+    GetWindowsDirectoryW(windowsDir, MAX_PATH);
+    const std::string fontDir = FileSystem::WideToUtf8(windowsDir) + "\\Fonts\\";
+
+    ImFontGlyphRangesBuilder builder;
+    builder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+    builder.AddText(kSurvivorsUIGlyphs);
+    ImVector<ImWchar> ranges;
+    builder.BuildRanges(&ranges);
+
+    ImFontConfig cfg;
+    cfg.OversampleH = 1;
+    cfg.OversampleV = 1;
+    cfg.PixelSnapH = true;
+
+    auto load = [&](const char* fileName, float size) -> ImFont* {
+        const std::string path = fontDir + fileName;
+        if (!FileExists(path.c_str())) return nullptr;
+        return io.Fonts->AddFontFromFileTTF(path.c_str(), size, &cfg, ranges.Data);
+    };
+
+    // 正文字形覆盖面最广：微软雅黑。标题用雅黑粗体，展示标题用宋体（更接近原型的衬线标题）。
+    m_uiBodyFont = load("msyh.ttc", 24.0f);
+    if (!m_uiBodyFont) m_uiBodyFont = load("simhei.ttf", 24.0f);
+    m_uiLargeFont = load("msyhbd.ttc", 48.0f);
+    if (!m_uiLargeFont) m_uiLargeFont = load("msyh.ttc", 48.0f);
+    m_uiDisplayFont = load("simsun.ttc", 96.0f);
+    if (!m_uiDisplayFont) m_uiDisplayFont = load("msyhbd.ttc", 96.0f);
+
+    if (m_uiBodyFont && m_uiLargeFont && m_uiDisplayFont) {
+        LogInfo("2D UI 字体: 正文 %.0fpx / 标题 %.0fpx / 展示 %.0fpx", 24.0f, 48.0f, 96.0f);
+    } else {
+        LogWarn("2D UI 字体加载不完整（正文=%p 标题=%p 展示=%p），将退回默认 ImGui 字体", m_uiBodyFont,
+                m_uiLargeFont, m_uiDisplayFont);
+    }
 }
 
 bool ImGuiLayer::LoadFonts(float scale) {

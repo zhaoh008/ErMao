@@ -107,6 +107,10 @@ private:
     std::string m_editorView;        // --editor-view perspective|front|top（自动截图用）
     std::string m_editorSelect;      // --editor-select <名字>（自动截图用）
     bool        m_editorSettings = false; // --editor-settings（自动截图用）
+    std::string m_uiPreview;              // --ui-preview <page>（2D UI 截图/走查）
+    bool        m_uiPreviewApplied = false;
+    int         m_windowWidth = 1600;
+    int         m_windowHeight = 900;
 };
 
 } // namespace erm
