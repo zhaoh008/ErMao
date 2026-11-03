@@ -4,6 +4,7 @@
 #include "core/JobSystem.h"
 #include "core/Log.h"
 #include "core/Timer.h"
+#include "editor/UndoHistory.h"
 #include "game/Levels.h"
 #include "game/ParticleEmitter.h"
 #include "game/RegisterComponents.h"
@@ -124,6 +125,8 @@ int Engine::Run(int argc, char** argv) {
             m_editorSettings = true;
         } else if (arg == "--test-serialize") {
             m_testSerialize = true;
+        } else if (arg == "--test-undo") {
+            m_testUndo = true;
         } else if (arg == "--package-game" && i + 1 < argc) {
             m_packageGame = argv[++i];
         } else if (arg == "--package" && i + 1 < argc) {
@@ -182,7 +185,7 @@ int Engine::Run(int argc, char** argv) {
     }
 
     // 发布版默认静默；开发版和自动化任务按需写日志。
-    const bool automation = m_autoFrames > 0 || !m_screenshotPath.empty() || m_testSerialize || m_smoke ||
+    const bool automation = m_autoFrames > 0 || !m_screenshotPath.empty() || m_testSerialize || m_testUndo || m_smoke ||
                             !m_importPath.empty() || !m_packageTarget.empty() || !m_packageGame.empty() ||
                             m_audioTest || m_vulkanTest || !m_scriptPath.empty() || m_validateOnly;
     if (!m_logExplicit) m_logFile = m_devMode || automation;
@@ -283,6 +286,10 @@ bool Engine::Init() {
     // 场景文件统一放在 exe 旁的 assets/scenes（与编辑器、资源浏览器一致）
     m_scenePath = FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "scenes"),
                                    m_levelName + ".ermao.json");
+
+    if (m_testUndo) {
+        RunUndoSelfTest();
+    }
 
     if (m_testSerialize) {
         // 场景往返自检：第一次加载可能因四元数归一化产生 1 ULP 漂移，
@@ -476,6 +483,8 @@ void Engine::LoadLevel(const std::string& kind) {
     m_world.SetLevelKind(kind);
     m_scenePath = FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "scenes"), kind + ".ermao.json");
     m_editor.SetScenePath(m_scenePath);
+    // 整个 World 已重建，撤销历史不能跨场景保留。
+    m_editor.ResetUndoHistory(m_world);
     SetupEditorViewForLevel();
     m_playSessionStarted = false;
     LogInfo("[关卡] 已切换: %s（%zu 个对象）", kind.c_str(), m_world.ObjectCount());
@@ -577,6 +586,92 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
 bool Engine::CaptureScreenshot(const std::string& path) {
     // 在 Present 之前读后备缓冲（审核 P2-1）
     return SaveBackbufferToPng(m_device.GetDevice(), m_device.GetContext(), m_device.GetSwapChain(), path);
+}
+
+void Engine::RunUndoSelfTest() {
+    bool ok = true;
+    auto require = [&](bool condition, const char* what) {
+        if (!condition) {
+            LogError("[撤销自检] 失败：%s", what);
+            ok = false;
+        }
+    };
+
+    UndoHistory history;
+    history.Reset();
+    require(history.Capture(m_world), "记录初始状态");
+    const size_t baseObjects = m_world.ObjectCount();
+
+    GameObject* probe = m_world.CreateGameObject("撤销自检对象");
+    require(probe != nullptr, "创建测试对象");
+    if (!probe) {
+        m_headlessFailed = true;
+        m_running = false;
+        return;
+    }
+    probe->SetPosition(Vec3(1.0f, 2.0f, 3.0f));
+    require(history.Capture(m_world), "记录创建");
+    probe->SetPosition(Vec3(4.0f, 5.0f, 6.0f));
+    require(history.Capture(m_world), "记录移动");
+
+    require(history.Undo(m_world), "撤销移动");
+    GameObject* restored = m_world.FindByName("撤销自检对象");
+    require(restored != nullptr, "撤销移动后对象存在");
+    require(restored && Length(restored->Position() - Vec3(1.0f, 2.0f, 3.0f)) < 1e-4f, "撤销恢复移动前位置");
+
+    require(history.Undo(m_world), "撤销创建");
+    require(m_world.FindByName("撤销自检对象") == nullptr, "撤销创建后对象消失");
+    require(m_world.ObjectCount() == baseObjects, "撤销创建后对象数复原");
+
+    require(history.Redo(m_world), "重做创建");
+    restored = m_world.FindByName("撤销自检对象");
+    require(restored && Length(restored->Position() - Vec3(1.0f, 2.0f, 3.0f)) < 1e-4f, "重做恢复创建位置");
+    require(history.Redo(m_world), "重做移动");
+    restored = m_world.FindByName("撤销自检对象");
+    require(restored && Length(restored->Position() - Vec3(4.0f, 5.0f, 6.0f)) < 1e-4f, "重做恢复移动");
+    require(!history.CanRedo(), "重做到头后不再可重做");
+
+    // 撤销后做新编辑：redo 分支按编辑器惯例作废。
+    require(history.Undo(m_world), "再次撤销移动");
+    restored = m_world.FindByName("撤销自检对象");
+    require(restored != nullptr, "再次撤销后对象存在");
+    if (restored) restored->SetPosition(Vec3(7.0f, 8.0f, 9.0f));
+    require(history.Capture(m_world), "记录新编辑");
+    require(!history.CanRedo(), "新编辑后 redo 分支被清空");
+
+    // 撤销不能破坏场景里的其它对象。
+    if (!m_world.RootObjects().empty()) {
+        GameObject* other = m_world.RootObjects().front();
+        const u64   otherId = other->Id();
+        const Vec3  original = other->Position();
+        const size_t countBefore = m_world.ObjectCount();
+        other->SetPosition(original + Vec3(11.0f, 0.0f, 0.0f));
+        require(history.Capture(m_world), "记录其它对象移动");
+        require(history.Undo(m_world), "撤销其它对象移动");
+        GameObject* otherRestored = m_world.FindById(otherId);
+        require(otherRestored != nullptr, "撤销后其它对象存在");
+        require(otherRestored && Length(otherRestored->Position() - original) < 1e-4f, "撤销恢复其它对象位置");
+        require(m_world.ObjectCount() == countBefore, "撤销后对象数不变");
+    }
+
+    // 历史条数上限。
+    UndoHistory limited;
+    limited.SetLimit(3);
+    limited.Reset();
+    limited.Capture(m_world);
+    const float savedSun = m_world.sunIntensity;
+    for (int i = 0; i < 6; ++i) {
+        m_world.sunIntensity = savedSun + static_cast<float>(i + 1);
+        limited.Capture(m_world);
+    }
+    require(limited.Size() == 3, "历史条数不超过上限");
+    require(limited.Limit() == 3, "历史上限可配置");
+    m_world.sunIntensity = savedSun;
+
+    m_headlessFailed = !ok;
+    LogInfo("[撤销自检] %s（历史 %zu 条，对象 %zu 个）", ok ? "通过" : "失败", history.Size(),
+            m_world.ObjectCount());
+    m_running = false;
 }
 
 void Engine::MainLoop() {

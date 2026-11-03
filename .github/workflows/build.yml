@@ -42,6 +42,12 @@ jobs:
           $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--dev", "--frames", "10", "--noeditor" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "dev smoke failed: exit $($p.ExitCode)" }
 
+      - name: Smoke (editor undo history)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--test-undo", "--level", "survivors", "--noeditor" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "undo history test failed: exit $($p.ExitCode)" }
+
       # 2D 幸存者完整循环：自动开局、刷怪、掉落、技能与 UI 跑满 600 帧
       - name: Smoke (2D survivors, 600 frames)
         shell: pwsh

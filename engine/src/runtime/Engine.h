@@ -41,6 +41,7 @@ private:
     bool      RunAgentScript(const std::string& path, const std::string& outputPath);
     bool      RenderAgentScreenshot(const std::string& path);
     JsonValue ValidateWorld();
+    void RunUndoSelfTest();
     void UpdateGameplay(float dt);
     void RenderViewportScene(const Camera& camera, u32 width, u32 height);
     bool CaptureScreenshot(const std::string& path);
@@ -85,6 +86,7 @@ private:
     int         m_autoFrames = 0;
     int         m_frameIndex = 0;
     bool        m_testSerialize = false;
+    bool        m_testUndo = false;
     bool        m_smoke = false;
     std::string m_importPath;
     std::string m_packageTarget; // windows/linux

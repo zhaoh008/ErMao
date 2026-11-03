@@ -69,6 +69,7 @@ void Editor::Shutdown() {
     m_selected = nullptr;
     m_selectedId = 0;
     m_snapshot.clear();
+    m_undo.Reset();
     m_layoutInitialized = false;
 }
 
@@ -183,6 +184,8 @@ void Editor::Play() {
 }
 
 void Editor::EnterPlayMode(World& world) {
+    // 把播放前的最后一次编辑记进撤销历史，避免 Stop 回滚后它凭空消失。
+    m_undo.Capture(world);
     m_snapshot = world.ToJson().Dump();
     Play();
     SetStatus("Play：已保存场景快照，Stop 时回滚");
@@ -193,10 +196,55 @@ void Editor::ExitPlayMode(World& world) {
     if (!m_snapshot.empty()) {
         std::string error;
         JsonValue root = JsonValue::Parse(m_snapshot, &error);
-        if (error.empty()) world.FromJson(root);
+        if (error.empty()) {
+            world.FromJson(root);
+            // 回滚后的序列化可能有 1 ULP 漂移，同步当前条目，避免被当成新编辑。
+            m_undo.SyncCurrent(world);
+        }
     }
     Select(nullptr);
     SetStatus("已停止并回滚场景");
+}
+
+void Editor::ResetUndoHistory(World& world) {
+    m_undo.Reset();
+    m_undo.Capture(world);
+}
+
+void Editor::CaptureUndo(World& world) {
+    if (m_playing) return;
+    // 正在拖拽检视器字段 / Gizmo，或按着鼠标时先不落历史；
+    // 松手后的第一帧会把整段拖拽记成一条记录。
+    if (ImGui::IsAnyItemActive()) return;
+    if (m_gizmoAxis >= 0) return;
+    if (ImGui::IsMouseDown(ImGuiMouseButton_Left) || ImGui::IsMouseDown(ImGuiMouseButton_Right)) return;
+    m_undo.Capture(world);
+}
+
+void Editor::Undo(World& world) {
+    // 菜单项在点击帧本身是 active，不能因此挡住撤销；只挡 Gizmo 拖拽。
+    if (m_playing || m_gizmoAxis >= 0) return;
+    // 拖拽刚结束、还没到帧尾时按 Ctrl+Z：先把当前状态补记进历史。
+    m_undo.Capture(world);
+    const u64 selectedId = m_selectedId;
+    if (!m_undo.Undo(world)) {
+        SetStatus("没有可撤销的操作");
+        return;
+    }
+    Select(selectedId != 0 ? world.FindById(selectedId) : nullptr);
+    SetStatus("已撤销");
+}
+
+void Editor::Redo(World& world) {
+    if (m_playing || m_gizmoAxis >= 0) return;
+    m_undo.Capture(world); // 若有尚未记录的新编辑，redo 分支会按规则作废
+    const u64 selectedId = m_selectedId;
+    if (!m_undo.Redo(world)) {
+        SetStatus("没有可重做的操作");
+        return;
+    }
+    Select(selectedId != 0 ? world.FindById(selectedId) : nullptr);
+    SetStatus("已重做");
 }
 
 void Editor::Pause() {
@@ -222,6 +270,9 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
         }
     }
 
+    // 记录进入编辑器时的初始场景，保证第一次编辑也能撤销。
+    if (m_undo.Size() == 0 && !m_playing) m_undo.Capture(world);
+
     DrawDockspace(world, renderer, assets, editorCamera);
 
     if (m_showViewport) DrawViewport(world, renderer, editorCamera, renderViewport);
@@ -234,6 +285,9 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
     DrawStatusBar();
 
     HandleShortcuts(world, editorCamera, renderer);
+
+    // 本帧的检视器 / Gizmo / 创建删除等改动统一在帧尾落一条历史。
+    CaptureUndo(world);
 
     // 帧时间曲线
     m_frameTimes[m_frameTimeOffset] = dt * 1000.0f;
@@ -342,6 +396,11 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
     }
 
     if (ImGui::BeginMenu("编辑")) {
+        const bool canUndo = m_undo.CanUndo() && !m_playing;
+        const bool canRedo = m_undo.CanRedo() && !m_playing;
+        if (ImGui::MenuItem("撤销", "Ctrl+Z", false, canUndo)) Undo(world);
+        if (ImGui::MenuItem("重做", "Ctrl+Y", false, canRedo)) Redo(world);
+        ImGui::Separator();
         const bool hasSelection = m_selected != nullptr;
         if (ImGui::MenuItem("复制选中", "Ctrl+D", false, hasSelection)) DuplicateSelected(world);
         if (ImGui::MenuItem("删除选中", "Delete", false, hasSelection)) DeleteSelected(world);
@@ -418,7 +477,7 @@ void Editor::DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets,
         ImGui::Separator();
         ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1), "文件与编辑");
         ImGui::BulletText("Ctrl+N 新建   Ctrl+O 打开   Ctrl+S 保存");
-        ImGui::BulletText("Ctrl+D 复制   Delete 删除   F5 运行/停止");
+        ImGui::BulletText("Ctrl+Z 撤销   Ctrl+Y 重做   Ctrl+D 复制   Delete 删除   F5 运行/停止");
         ImGui::BulletText("F2 线框  F4 阴影  F11 隐藏编辑器  F12 截图");
         ImGui::Separator();
         if (ImGui::Button("知道了")) ImGui::CloseCurrentPopup();
@@ -943,6 +1002,7 @@ void Editor::LoadSceneAsset(World& world, const std::string& name, const std::st
         // LoadFromFile 会整体替换 World，旧的选中项已随 Clear 释放。
         Select(nullptr);
         m_scenePath = sourcePath;
+        ResetUndoHistory(world);
         SetStatus("场景已加载: " + name);
         if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
@@ -1671,6 +1731,7 @@ void Editor::LoadScene(World& world) {
     if (world.LoadFromFile(path)) {
         m_scenePath = path;
         Select(nullptr);
+        ResetUndoHistory(world);
         SetStatus("场景已加载: " + path);
         if (m_sceneLoaded) m_sceneLoaded(world.LevelKind());
     } else {
@@ -1701,6 +1762,7 @@ void Editor::NewScene(World& world) {
 
     world.RebuildNavigation();
     Select(nullptr);
+    ResetUndoHistory(world);
     SetStatus("已新建空场景");
     if (m_sceneLoaded) m_sceneLoaded(std::string());
 }
@@ -1710,6 +1772,14 @@ void Editor::HandleShortcuts(World& world, Camera& editorCamera, Renderer& rende
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
 
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Z)) {
+        if (io.KeyShift) {
+            Redo(world);
+        } else {
+            Undo(world);
+        }
+    }
+    if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_Y)) Redo(world);
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)) SaveScene(world, false);
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_O)) LoadScene(world);
     if (io.KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_N)) NewScene(world);
