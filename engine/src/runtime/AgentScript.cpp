@@ -404,22 +404,46 @@ JsonValue Engine::ValidateWorld() {
     u32 objectCount = 0;
     u32 componentCount = 0;
 
+    // GetMesh / GetTexture 对未知名字会回退到 cube / white，不能只看返回值；
+    // 先触发加载，再按注册表里的 name + type 判断资产是否真的存在。
+    auto hasAsset = [this](const std::string& name, AssetManager::AssetType type) {
+        for (const auto& asset : m_assets.Assets()) {
+            if (asset.name == name && asset.type == type) return true;
+        }
+        return false;
+    };
+    auto checkTexture = [&](GameObject* object, const std::string& texture, const char* label) {
+        if (texture.empty()) return;
+        if (texture.find('/') != std::string::npos) {
+            m_assets.GetTextureAsset(texture);
+        } else {
+            m_assets.GetTexture(texture);
+        }
+        if (!hasAsset(texture, AssetManager::AssetType::Texture)) {
+            errors.Push(JsonValue("对象 " + object->Name() + " 的" + label + "不存在: " + texture));
+        }
+    };
+
     for (GameObject* root : m_world.RootObjects()) {
         root->ForEach([&](GameObject* object) {
             ++objectCount;
             for (const auto& component : object->Components()) {
                 ++componentCount;
-                auto* renderer = dynamic_cast<MeshRenderer*>(component.get());
-                if (!renderer) continue;
-                if (!renderer->mesh.empty() && !m_assets.GetMesh(renderer->mesh)) {
-                    // 允许路径式网格
-                    if (renderer->mesh.find('/') == std::string::npos) {
-                        errors.Push(JsonValue("对象 " + object->Name() + " 的网格不存在: " + renderer->mesh));
+                if (auto* renderer = dynamic_cast<MeshRenderer*>(component.get())) {
+                    if (!renderer->mesh.empty()) {
+                        if (renderer->mesh.find('/') != std::string::npos) {
+                            m_assets.GetMeshAsset(renderer->mesh);
+                        } else {
+                            m_assets.GetMesh(renderer->mesh);
+                        }
+                        if (!hasAsset(renderer->mesh, AssetManager::AssetType::Mesh)) {
+                            errors.Push(JsonValue("对象 " + object->Name() + " 的网格不存在: " + renderer->mesh));
+                        }
                     }
+                    checkTexture(object, renderer->texture, "贴图");
                 }
-                if (!renderer->texture.empty() && renderer->texture.find('/') == std::string::npos &&
-                    !m_assets.GetTexture(renderer->texture)) {
-                    errors.Push(JsonValue("对象 " + object->Name() + " 的贴图不存在: " + renderer->texture));
+                if (auto* sprite = dynamic_cast<SpriteRendererComponent*>(component.get())) {
+                    checkTexture(object, sprite->texture, "精灵贴图");
                 }
             }
         });
