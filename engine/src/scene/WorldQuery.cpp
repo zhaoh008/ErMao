@@ -20,7 +20,10 @@ constexpr float kSamePlaneEpsilon = 0.01f;
 bool BuildWorldAABB(AssetManager* assets, GameObject* object, AABB& out, bool includeSprites) {
     if (auto* renderer = object->GetComponent<MeshRenderer>()) {
         if (!assets) return false;
-        Mesh* mesh = assets->GetMesh(renderer->mesh);
+        // 与 BuildRenderScene 保持一致：含 '/' 的是资源相对路径，走 GetMeshAsset；
+        // GetMesh 对未知路径会回退 cube，会让缺失模型产生不可见但可碰撞的 1x1x1 AABB。
+        Mesh* mesh = renderer->mesh.find('/') != std::string::npos ? assets->GetMeshAsset(renderer->mesh)
+                                                                  : assets->GetMesh(renderer->mesh);
         if (!mesh || !mesh->IsValid()) return false;
 
         const AABB& local = mesh->Bounds();

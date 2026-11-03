@@ -40,6 +40,7 @@
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
 - 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
+- WorldQuery 对路径式网格名改用 `GetMeshAsset`，缺失模型不再回退 `cube`，避免出现“渲染不可见、查询/碰撞却有 1x1x1 AABB”的不一致
 - OBJ 导入的多边形面（四边形/五边形等）按扇形三角化，不再只渲染每个面的第一个三角形
 - 修复非 ASCII（中文等）路径下纹理加载、截图保存与 WAV 音频加载失败：进入 WIC / 文件读取前统一使用
   UTF-8→UTF-16 转换（`FileSystem::Utf8ToWide` / `ReadBinaryFile`）
