@@ -519,8 +519,10 @@ void Engine::Shutdown() {
 }
 
 void Engine::UpdateGameplay(float dt) {
-    const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
-    const bool paused = m_showEditor ? m_editor.IsPaused() : false;
+    // 播放会话只由 Editor 的 Play/Stop 决定，与编辑器 UI 是否可见无关；
+    // m_startPlay 在 Init 时已转成 m_editor.Play()（ERMAO-AUDIT-002）。
+    const bool playing = m_editor.IsPlaying();
+    const bool paused = m_editor.IsPaused();
     if (!playing || paused) return;
 
     m_accumulator += dt;
@@ -547,9 +549,9 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     m_scene.is2D = m_is2D;
     if (m_is2D) {
         // 2D：运行时跟随玩家；编辑时用编辑器正交相机（位置/缩放与 gizmo 严格一致）
-        const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
+        const bool playing = m_editor.IsPlaying();
         Camera2D   camera2D;
-        if (!m_showEditor || playing) {
+        if (playing) {
             camera2D.halfHeight = 7.2f;
             if (GameObject* player = m_world.FindByName("玩家")) {
                 const Vec3 position = player->Position();
@@ -626,7 +628,7 @@ void Engine::MainLoop() {
         // 2.5) 点击“运行 / F5”即直接开局：幸存者 Demo 不再要求先点一次“开始游戏”。
         //      无编辑器的游戏包（game.cfg play=1）同样走这里。
         {
-            const bool sessionPlaying = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
+            const bool sessionPlaying = m_editor.IsPlaying();
             if (sessionPlaying && !m_playSessionStarted) {
                 m_playSessionStarted = true;
                 m_accumulator = 0.0f;
@@ -652,6 +654,7 @@ void Engine::MainLoop() {
         // 3) 热键：文本输入时不要抢键盘（审核 P2-17/P2-19）
         const bool wantKeyboard = m_showEditor && ImGui::GetIO().WantCaptureKeyboard;
         if (!wantKeyboard) {
+            // F11 只切换编辑器 UI 可见性，不改变播放会话（ERMAO-AUDIT-002）。
             if (Input::IsKeyPressed(VK_F11)) m_showEditor = !m_showEditor;
             if (Input::IsKeyPressed(VK_F12)) {
                 CaptureScreenshot("screenshot_" + std::to_string(m_frameIndex) + ".png");
@@ -666,7 +669,7 @@ void Engine::MainLoop() {
         }
 
         // 4) 决定本帧相机
-        const bool playing = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
+        const bool playing = m_editor.IsPlaying();
         Camera viewCamera = m_editorCamera;
         if (playing) {
             if (Camera* gameCamera = m_world.GetActiveCamera()) {
@@ -675,23 +678,24 @@ void Engine::MainLoop() {
         }
         // PIE 里点击“运行”后鼠标通常还在工具栏上；玩法输入不应因此被禁用。
         // 只在暂停或正在输入文字时关闭，避免 WASD 抢输入框。
-        const bool paused = m_showEditor && m_editor.IsPaused();
+        const bool paused = m_editor.IsPaused();
+        const bool advanceGameplay = playing && !paused;
         bool gameplayInput = playing && !paused && !ImGui::GetIO().WantTextInput;
         // 编辑器模式下也在这里把 UI 用的相机对齐到游戏视口（血条投影要一致）
         if (m_survivors3dLevel && playing) AimSurvivors3DCamera(m_world, viewCamera);
         if (m_waveLevel) {
-            if (playing) m_waveGame.Update(m_world, dt, gameplayInput);
+            if (advanceGameplay) m_waveGame.Update(m_world, dt, gameplayInput);
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
             if (!playing) m_waveGame.ReturnToMenu();
         }
         if (m_survivors3dLevel) {
-            if (playing) m_survivors3d.Update(m_world, dt);
+            if (advanceGameplay) m_survivors3d.Update(m_world, dt);
             if (m_survivors3d.GetState() != Survivors3DDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors3d.ReturnToMenu();
             Survivors3DPlayerComponent::SetInputEnabled(gameplayInput);
         }
         if (m_survivorsLevel) {
-            if (playing) m_survivors.Update(m_world, dt);
+            if (advanceGameplay) m_survivors.Update(m_world, dt);
             if (m_survivors.GetState() != SurvivorsDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors.ReturnToMenu();
             SurvivorsPlayerComponent::SetInputEnabled(gameplayInput);

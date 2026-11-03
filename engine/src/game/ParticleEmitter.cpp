@@ -125,10 +125,15 @@ void CollectParticles(World& world, RenderScene& scene) {
 void ParticleEmitterComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<ParticleEmitterComponent>(); };
     t.Field("rate", FieldType::Float, &ParticleEmitterComponent::rate, "发射率(个/秒)", 0.0f, 500.0f);
+    t.Field("spawnExtent", FieldType::Vec3, &ParticleEmitterComponent::spawnExtent, "生成范围");
     t.Field("lifetime", FieldType::Float, &ParticleEmitterComponent::lifetime, "寿命", 0.1f, 10.0f);
+    t.Field("lifetimeJitter", FieldType::Float, &ParticleEmitterComponent::lifetimeJitter, "寿命抖动", 0.0f, 5.0f);
     t.Field("spread", FieldType::Float, &ParticleEmitterComponent::spread, "速度抖动", 0.0f, 3.0f);
+    t.Field("initialVelocity", FieldType::Vec3, &ParticleEmitterComponent::initialVelocity, "初速度");
     t.Field("drag", FieldType::Float, &ParticleEmitterComponent::drag, "阻力", 0.0f, 5.0f);
+    t.Field("gravity", FieldType::Vec3, &ParticleEmitterComponent::gravity, "重力");
     t.Field("sizeStart", FieldType::Float, &ParticleEmitterComponent::sizeStart, "初始大小", 0.01f, 2.0f);
+    t.Field("sizeEnd", FieldType::Float, &ParticleEmitterComponent::sizeEnd, "结束大小", 0.001f, 2.0f);
     t.Field("colorStart", FieldType::Color, &ParticleEmitterComponent::colorStart, "起始颜色");
     t.Field("colorEnd", FieldType::Color, &ParticleEmitterComponent::colorEnd, "结束颜色");
     t.Field("texture", FieldType::String, &ParticleEmitterComponent::texture, "贴图（particles/…）");

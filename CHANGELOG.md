@@ -45,6 +45,12 @@
 
 ### Fixed
 
+- 编辑器暂停时玩法导演仍在推进（ERMAO-AUDIT-065）：暂停时主循环不再 tick 刷怪/2D/3D 幸存者导演，`WaveGame` 只在该帧玩法输入可用时处理 Esc；HUD 时间与刷怪计时不再继续走，恢复后不会跳变
+- F11 只切换编辑器 UI 可见性，不再改变播放会话：编辑模式隐藏 UI 不会开始仿真，Play 中隐藏/恢复 UI 也不会停掉并重开玩法导演
+- 文档同步：讲义总目录的 L22 链接改用 `%20` 转义空格；L24 的 OBJ 三角化说明改为“已按扇形三角化”，凹/非平面多边形仍是教学简化，排查表与实验步骤同步；课程映射的 08 改为已实现骨骼蒙皮并补 Skeleton/SkinnedMesh 落点
+- 编辑器补齐 F2 线框 / F4 阴影热键（菜单标签此前只显示快捷键，实际未处理按键）
+- 文档同步：固定步长上限改为 5、L25 量化信噪比改为 98.1/146.2 dB、L05 点光上限按实际分支描述、L08 删除编辑过程用语、补充 2D 关卡 `V`/`--editor-view` 不生效的限制
+- 补全组件反射字段：敌人 `maxHp`、2D 精灵 `rotation`、粒子发射器 `spawnExtent`/`lifetimeJitter`/`initialVelocity`/`gravity`/`sizeEnd`；保存/加载与 PIE 回滚不再丢失这些值
 - 第三人称地面检测与相机弹簧臂射线现在通过 `World::Raycast(..., ignore)` 在求交前跳过角色自身：射线起点位于角色 AABB 内时 `IntersectRayAABB` 返回 `tmin=0`，原先“命中后再比较 `hit.object`”无法找到平台，导致站上平台/台阶时 `grounded=false`、角色下沉
 - 组件预注册不完整：补齐 `Sprite Renderer` / `Sprite Animator` 与 9 个 Survivors/Survivors3D 玩法组件（共 27 种），
   新进程 `component.add` / `scene.load` 不再因 `Reflection::Find` 查不到类型而丢组件；同步 AI 开发指南的组件显示名，
