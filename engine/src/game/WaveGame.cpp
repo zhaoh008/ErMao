@@ -347,12 +347,10 @@ void WaveGame::StartRun(World& world) {
 void WaveGame::Reset(World& world) { StartRun(world); }
 
 void WaveGame::Update(World& world, float dt, bool inputEnabled) {
-    (void)inputEnabled;
-
     if (m_state == State::Menu || m_state == State::GameOver) return;
 
     // Esc 暂停 / 继续
-    if (Input::IsKeyPressed(VK_ESCAPE)) {
+    if (inputEnabled && Input::IsKeyPressed(VK_ESCAPE)) {
         m_state = (m_state == State::Playing) ? State::Paused : State::Playing;
     }
     if (m_state != State::Playing) return;
