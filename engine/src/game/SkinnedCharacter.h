@@ -32,6 +32,7 @@ public:
     float roughness = 0.45f;
     float metallic = 0.05f;
 
+    void OnStart() override;
     void OnUpdate(float dt) override;
 
     // 填充渲染数据（世界矩阵由 GameObject 提供）
