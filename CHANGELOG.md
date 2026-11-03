@@ -36,6 +36,7 @@
 
 ### Fixed
 
+- 修复 demo 关卡 `PlayerController` 的 A/D 左右反向：相机右向量由 `(forward.z, 0, -forward.x)` 改为 `(-forward.z, 0, forward.x)`（即 `forward × up`），与 `Camera::Right()` 和第三人称控制器一致
 - 第三人称地面检测与相机弹簧臂射线现在通过 `World::Raycast(..., ignore)` 在求交前跳过角色自身：射线起点位于角色 AABB 内时 `IntersectRayAABB` 返回 `tmin=0`，原先“命中后再比较 `hit.object`”无法找到平台，导致站上平台/台阶时 `grounded=false`、角色下沉
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用

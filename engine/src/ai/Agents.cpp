@@ -144,7 +144,8 @@ void PlayerController::OnUpdate(float dt) {
         forward = camera->Forward();
         forward.y = 0.0f;
         if (LengthSq(forward) > 0.0001f) forward = Normalize(forward);
-        right = Vec3(forward.z, 0.0f, -forward.x);
+        // 相机右向量 = forward × up（右手系，Y 向上）；forward.z/-x 的旧式叉乘方向相反，会让 A/D 左右颠倒。
+        right = Vec3(-forward.z, 0.0f, forward.x);
     }
 
     Vec3 move{0, 0, 0};
