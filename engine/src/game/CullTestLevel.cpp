@@ -1,6 +1,6 @@
 // ErMao Engine - GPU 剔除压测关卡（GAMES104 第 22 讲）
 //
-// 40 x 50 = 2000 个立方体，全部共用 "cube" + "noise"，因此在 CPU 侧是 **一个批次**。
+// 80 x 80 = 6400 个立方体，全部共用 "cube" + "noise"，因此在 CPU 侧是 **一个批次**。
 // 用途：对比 "CPU 全量提交" 与 "GPU compute 剔除 + 间接绘制" 的实例数差异。
 #include "game/Levels.h"
 #include "core/Log.h"
@@ -37,7 +37,7 @@ void BuildCullTestLevel(World& world) {
     groundRenderer->texture = "grid";
     groundRenderer->uvScale = 60.0f;
 
-    // 2000 个立方体：同一个网格 + 同一张贴图 -> BuildBatches 会合成一个批次
+    // 6400 个立方体：同一个网格 + 同一张贴图 -> BuildBatches 会合成一个批次
     int index = 0;
     for (int z = 0; z < 80; ++z) {
         for (int x = 0; x < 80; ++x) {
