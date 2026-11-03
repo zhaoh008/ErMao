@@ -13,4 +13,8 @@
    作者：artisticdude
    许可：CC0 1.0
 
+3) engine/assets/audio/{lightning,blade,frost,poison,fireball,bgm_survivors}.wav
+   来源：本项目脚本程序化生成（正弦/噪声/包络合成，无第三方采样）。
+   许可：可按 CC0 1.0 使用、修改、再分发。
+
 说明：素材原始格式为 WAV（PCM 16bit），引擎用 XAudio2 直接播放，无需解码器。
