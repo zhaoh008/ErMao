@@ -993,7 +993,9 @@ void Editor::DrawAssets(World& world, AssetManager& assets, Renderer& renderer, 
 
         if (ImGui::BeginTable("##assetTiles", columns, ImGuiTableFlags_SizingStretchSame)) {
             for (int i = 0; i < static_cast<int>(list.size()); ++i) {
-                const auto& asset = list[i];
+                // 资源浏览器遍历期间可能加载关卡，向 AssetManager 注册新资源并导致 m_registry 扩容；
+                // list 本身（vector 对象）仍有效，但元素引用会失效，必须按值快照后再继续使用。
+                const AssetManager::AssetInfo asset = list[i];
                 if (m_assetCategory == 1 && asset.type != AssetManager::AssetType::Mesh) continue;
                 if (m_assetCategory == 2 && asset.type != AssetManager::AssetType::Texture) continue;
                 if (m_assetCategory == 3 && asset.type != AssetManager::AssetType::Scene) continue;
