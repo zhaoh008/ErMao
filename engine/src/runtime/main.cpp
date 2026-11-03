@@ -8,8 +8,11 @@
 #include "runtime/Engine.h"
 
 #include <windows.h>
+#include <shellapi.h>
 
 #include <cstdlib>
+#include <string>
+#include <vector>
 
 namespace {
 
@@ -22,9 +25,35 @@ int ErmMain(int argc, char** argv) {
     return engine.Run(argc, argv);
 }
 
+std::string WideToUtf8(const wchar_t* text) {
+    if (!text || !*text) return {};
+    const int size = ::WideCharToMultiByte(CP_UTF8, 0, text, -1, nullptr, 0, nullptr, nullptr);
+    if (size <= 1) return {};
+    std::string out(static_cast<size_t>(size) - 1, '\0');
+    ::WideCharToMultiByte(CP_UTF8, 0, text, -1, out.data(), size, nullptr, nullptr);
+    return out;
+}
+
+// 从 GetCommandLineW 重新解析参数并转成 UTF-8，避免中文 Windows（ACP=936）
+// 下 CRT 的 ANSI argv/__argv 把中文路径变成非 UTF-8 字节，导致 --screenshot /
+// --script / --json-out / --import 等参数在 FileSystem 的 CP_UTF8 转换处失效。
+int ErmMainFromCommandLine() {
+    int argc = 0;
+    LPWSTR* wargv = ::CommandLineToArgvW(::GetCommandLineW(), &argc);
+    if (!wargv) return ErmMain(__argc, __argv); // 解析失败时退回 CRT 参数
+    std::vector<std::string> args;
+    args.reserve(static_cast<size_t>(argc));
+    for (int i = 0; i < argc; ++i) args.push_back(WideToUtf8(wargv[i]));
+    ::LocalFree(wargv);
+    std::vector<char*> argv;
+    argv.reserve(args.size());
+    for (auto& arg : args) argv.push_back(arg.data());
+    return ErmMain(static_cast<int>(argv.size()), argv.data());
+}
+
 } // namespace
 
-int main(int argc, char** argv) { return ErmMain(argc, argv); }
+int main() { return ErmMainFromCommandLine(); }
 
 // GUI 子系统入口（CMake WIN32_EXECUTABLE）。
-int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) { return ErmMain(__argc, __argv); }
+int WINAPI WinMain(HINSTANCE, HINSTANCE, LPSTR, int) { return ErmMainFromCommandLine(); }

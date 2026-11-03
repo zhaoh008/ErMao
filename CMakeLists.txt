@@ -105,7 +105,8 @@ if(ERMAO_VULKAN_SDK AND EXISTS "${ERMAO_VULKAN_SDK}/Include/vulkan/vulkan.h")
 else()
     message(STATUS "Vulkan SDK 未安装：跳过 Vulkan 后端（D3D11 仍可用）")
 endif()
-target_link_libraries(ErMao PRIVATE ErMaoEngine)
+# shell32: runtime/main.cpp 用 CommandLineToArgvW 从 GetCommandLineW 还原 UTF-8 参数。
+target_link_libraries(ErMao PRIVATE ErMaoEngine shell32)
 # GUI 子系统：发布版双击/run.bat 不再额外弹一个 CMD 控制台。
 # 开发版（run.bat dev / --dev）在运行时自己挂接或新建控制台并输出日志，入口见 main.cpp 的 WinMain。
 set_target_properties(ErMao PROPERTIES
