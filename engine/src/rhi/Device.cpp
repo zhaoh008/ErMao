@@ -157,12 +157,24 @@ void Device::Resize(u32 width, u32 height) {
 
     HRESULT hr = m_swapChain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
     if (FAILED(hr)) {
-        LogError("ResizeBuffers 失败 (0x%08X)", (unsigned)hr);
+        LogError("ResizeBuffers 失败 (0x%08X)，交换链保持旧尺寸，重建后备缓冲视图", (unsigned)hr);
+        // ResizeBuffers 失败时交换链仍是旧尺寸；视图已在上面释放，必须按旧尺寸重建，
+        // 否则 BeginFrame 会绑定空 RTV/DSV 持续黑屏。重建失败则清尺寸，允许下次 Resize 重试。
+        if (!CreateBackbufferViews()) {
+            LogError("后备缓冲视图按旧尺寸重建失败，等待下一次窗口尺寸变化重试");
+            m_width = 0;
+            m_height = 0;
+        }
         return;
     }
     m_width = width;
     m_height = height;
-    CreateBackbufferViews();
+    if (!CreateBackbufferViews()) {
+        LogError("后备缓冲视图创建失败 %ux%u，等待下一次窗口尺寸变化重试", width, height);
+        m_width = 0;
+        m_height = 0;
+        return;
+    }
     LogInfo("交换链尺寸更新为 %ux%u", width, height);
 }
 

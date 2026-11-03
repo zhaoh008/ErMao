@@ -37,6 +37,7 @@
 ### Fixed
 
 - 渲染目标创建失败后不再留下“尺寸已就绪”的假状态：`RenderTarget::Create` 仅在颜色/深度纹理与全部视图创建成功后写入宽高，失败时释放半成品并清零尺寸，`EnsureSceneTarget`/`EnsureViewportTarget` 下一帧会重试，而不是把空 RTV/SRV 当作有效目标
+- 交换链 `ResizeBuffers` 失败后按旧尺寸重建后备缓冲 RTV/DSV，避免已释放视图导致窗口持续黑屏；重建失败则清零缓存尺寸，使下一次 `Resize` 不再被旧尺寸短路
 - 第三人称地面检测与相机弹簧臂射线现在通过 `World::Raycast(..., ignore)` 在求交前跳过角色自身：射线起点位于角色 AABB 内时 `IntersectRayAABB` 返回 `tmin=0`，原先“命中后再比较 `hit.object`”无法找到平台，导致站上平台/台阶时 `grounded=false`、角色下沉
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
