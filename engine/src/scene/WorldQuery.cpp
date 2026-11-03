@@ -79,7 +79,7 @@ void World::CollectMeshAABBs(std::vector<std::pair<GameObject*, AABB>>& out) con
     }
 }
 
-bool World::Raycast(const Ray& ray, float maxDistance, RaycastHit& out) const {
+bool World::Raycast(const Ray& ray, float maxDistance, RaycastHit& out, const GameObject* ignore) const {
     out = RaycastHit{};
     float best = maxDistance;
     bool  found = false;
@@ -89,6 +89,8 @@ bool World::Raycast(const Ray& ray, float maxDistance, RaycastHit& out) const {
     for (const auto& root : m_roots) {
         root->ForEach([&](GameObject* object) {
             if (!object->Active()) return;
+            // 在构造 AABB / 求交之前跳过，避免起点在自身盒内时 tmin=0 先占住最近命中。
+            if (object == ignore) return;
             AABB bounds;
             if (!BuildWorldAABB(m_assets, object, bounds, true)) return;
 

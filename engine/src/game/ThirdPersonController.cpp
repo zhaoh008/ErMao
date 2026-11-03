@@ -137,7 +137,7 @@ void ThirdPersonController::OnFixedUpdate(float dt) {
     groundRay.direction = Vec3(0, -1, 0);
     World::RaycastHit hit;
     const float      groundProbe = height * 0.5f + 0.35f;
-    if (world->Raycast(groundRay, groundProbe, hit) && hit.object != m_owner) {
+    if (world->Raycast(groundRay, groundProbe, hit, m_owner)) {
         const float targetY = hit.point.y + height * 0.5f;
         if (position.y <= targetY + 0.05f) {
             position.y = targetY;
@@ -232,7 +232,7 @@ void ThirdPersonController::UpdateCamera() {
         armRay.origin = head;
         armRay.direction = -forward;
         World::RaycastHit hit;
-        if (world->Raycast(armRay, distance + 0.3f, hit) && hit.object != m_owner) {
+        if (world->Raycast(armRay, distance + 0.3f, hit, m_owner)) {
             distance = (std::max)(cameraMinDistance, hit.distance - 0.35f);
         }
     }
