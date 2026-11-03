@@ -101,24 +101,31 @@ AnimationClip AnimationClip::MakeWindmill(const std::string& name, const std::st
     return clip;
 }
 
-void AnimatorComponent::OnStart() {
+bool AnimatorComponent::ResolveTarget() {
     m_targetObject = nullptr;
     m_targetObjectId = 0;
-    if (m_owner) {
-        if (!target.empty()) {
-            for (auto* child : m_owner->Children()) {
-                if (child->Name() == target) {
-                    m_targetObject = child;
-                    break;
-                }
+    if (!m_owner) return false;
+    if (!target.empty()) {
+        for (auto* child : m_owner->Children()) {
+            if (child->Name() == target) {
+                m_targetObject = child;
+                break;
             }
         }
-        if (!m_targetObject && !m_owner->Children().empty()) {
-            m_targetObject = m_owner->Children().front();
-            target = m_targetObject->Name();
-        }
     }
-    if (m_targetObject) m_targetObjectId = m_targetObject->Id();
+    if (!m_targetObject && !m_owner->Children().empty()) {
+        m_targetObject = m_owner->Children().front();
+        target = m_targetObject->Name();
+    }
+    if (!m_targetObject) return false;
+    m_targetObjectId = m_targetObject->Id();
+    return true;
+}
+
+void AnimatorComponent::OnStart() {
+    // 一次性初始化：目标解析失败（例如对象暂时没有子物体）也只执行到这里，
+    // 后续由 OnUpdate 做轻量重试，不再重复 RebuildClip/写启动日志。
+    ResolveTarget();
     RebuildClip();
     LogInfo("Animator 启动：clip=%s target=%s", clip.c_str(), target.c_str());
 }
@@ -141,8 +148,12 @@ void AnimatorComponent::OnUpdate(float dt) {
         m_targetObjectId = 0;
     }
     if (!m_targetObject) {
-        OnStart();
-        if (!m_targetObject) return;
+        // 目标缺失时只做轻量解析；解析成功后才重建 clip 并记录一次恢复日志。
+        // 不能在这里调用 OnStart()：它包含一次性初始化、RebuildClip 与日志，
+        // 无子物体的对象会每帧重跑，导致重复分配和日志膨胀。
+        if (!ResolveTarget()) return;
+        RebuildClip();
+        LogInfo("Animator 目标恢复：clip=%s target=%s", clip.c_str(), target.c_str());
     }
     if (!playing) return;
     time += dt * speed;

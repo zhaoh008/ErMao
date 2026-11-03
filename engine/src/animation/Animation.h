@@ -54,6 +54,7 @@ public:
     void OnUpdate(float dt) override;
 
 private:
+    bool ResolveTarget();
     void RebuildClip();
 
     AnimationClip m_clip;
