@@ -857,8 +857,11 @@ bool Editor::DrawField(const FieldDesc& field, void* object, AssetManager& asset
             changed = ImGui::DragFloat(field.label.c_str(), value, 0.01f, field.min, field.max, "%.3f");
             break;
         }
-        case FieldType::Vec2:
+        case FieldType::Vec2: {
+            Vec2* value = static_cast<Vec2*>(object);
+            changed = ImGui::DragFloat2(field.label.c_str(), &value->x, 0.01f, field.min, field.max, "%.3f");
             break;
+        }
         case FieldType::Vec3: {
             Vec3* value = static_cast<Vec3*>(object);
             changed = ImGui::DragFloat3(field.label.c_str(), &value->x, 0.02f);
