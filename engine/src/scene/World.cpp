@@ -390,7 +390,7 @@ JsonValue World::ToJson() const {
     return root;
 }
 
-bool World::FromJson(const JsonValue& root) {
+bool World::FromJson(const JsonValue& root, bool verbose) {
     if (!root.IsObject() || !root.Has("objects")) {
         LogError("场景 JSON 格式不正确（缺少 objects）");
         return false;
@@ -476,7 +476,7 @@ bool World::FromJson(const JsonValue& root) {
 
     m_started = true;
     RebuildNavigation();
-    LogInfo("场景加载完成：%zu 个对象", m_idToObject.size());
+    if (verbose) LogInfo("场景加载完成：%zu 个对象", m_idToObject.size());
     return true;
 }
 

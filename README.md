@@ -29,7 +29,7 @@ run.bat dev                      :: 开发版：Debug + 控制台日志（排错
 |---|---|
 | 视口 | 透视：右键拖动 + WASD/QE 移动相机 · 正/俯视：右键拖动平移 + 滚轮缩放 · 左键拾取 · **W/E/R 位移/旋转/缩放 Gizmo** · F 聚焦 · V 切换视角（仅 3D；2D 固定正视图） |
 | 运行模式 | WASD 移动 · Shift 奔跑 · 空格跳跃 · 右键拖动转视角 · 左键射击 · Esc 暂停 |
-| 编辑器 | Ctrl+S/O/N 保存/打开/新建 · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
+| 编辑器 | Ctrl+S/O/N 保存/打开/新建 · **Ctrl+Z 撤销 / Ctrl+Y 重做** · Ctrl+D 复制 · Delete 删除 · F2 线框 · F4 阴影 · F11 隐藏 UI · F12 截图 |
 
 ## 现在能做什么（v0.8.7）
 
@@ -85,6 +85,7 @@ third_party/imgui/  Dear ImGui（docking，仅保留编译必需文件）
 
 ```bat
 ErMao.exe --test-serialize --frames 3      :: 场景 JSON 往返（字节级）
+ErMao.exe --test-undo --noeditor           :: 编辑器撤销/重做自检
 ErMao.exe --smoke --frames 200             :: 脚本化移动/跳跃
 ErMao.exe --import engine\assets\models\crystal.obj --frames 3
 ErMao.exe --demo --frames 420 --screenshot demo.png

@@ -65,7 +65,8 @@ public:
 
     // ------------------------------------------------ 序列化
     JsonValue ToJson() const;
-    bool      FromJson(const JsonValue& root);
+    // verbose=false 时不打印“场景加载完成”，供编辑器撤销/重做等高频恢复使用。
+    bool      FromJson(const JsonValue& root, bool verbose = true);
     // 场景来自哪个内置关卡（"survivors" / "survivors3d" / ...），用于读档后恢复 2D/3D 模式
     void               SetLevelKind(const std::string& kind) { m_levelKind = kind; }
     const std::string& LevelKind() const { return m_levelKind; }

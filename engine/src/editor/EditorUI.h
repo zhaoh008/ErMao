@@ -10,6 +10,7 @@
 #include "core/Math.h"
 #include "core/Types.h"
 #include "editor/ImGuiLayer.h"
+#include "editor/UndoHistory.h"
 #include "renderer/Camera.h"
 
 #include <functional>
@@ -78,6 +79,9 @@ public:
 
     void SetStatus(const std::string& text, bool error = false);
 
+    // 场景被整体替换（切关卡 / 新建 / 读档）后重置撤销历史，避免撤销到上一个场景。
+    void ResetUndoHistory(World& world);
+
 private:
     void DrawMenuBar(World& world, Renderer& renderer, AssetManager& assets, Camera& editorCamera);
     void DrawToolbar(World& world, Renderer& renderer, Camera& editorCamera);
@@ -97,6 +101,9 @@ private:
     bool DrawField(const FieldDesc& field, void* object, AssetManager& assets);
 
     void HandleShortcuts(World& world, Camera& editorCamera, Renderer& renderer);
+    void Undo(World& world);
+    void Redo(World& world);
+    void CaptureUndo(World& world);
     void DrawGizmo(World& world, Camera& editorCamera, const ImVec2& viewportMin, const ImVec2& viewportSize);
     void FocusSelected(World& world, Camera& editorCamera);
     void PickObject(World& world, Camera& editorCamera, const ImVec2& viewportPos, const ImVec2& viewportSize);
@@ -134,6 +141,7 @@ private:
 
     std::string m_scenePath = "assets/scenes/survivors.ermao.json";
     std::string m_snapshot;
+    UndoHistory m_undo;
     std::string m_statusMessage = "就绪";
     bool        m_statusIsError = false;
     double      m_statusTime = 0.0;
