@@ -55,6 +55,7 @@
 - 修复无头 `screenshot` 未复用视口场景准备：按关卡设置 `is2D`/`camera2D`，收集蒙皮与粒子，并在关卡构建时预计算蒙皮骨骼，确保无 `World::Update` 的截图也能看到角色（ERMAO-AUDIT-031）
 - 修复编辑器编辑模式下 Delete 只标记延迟销毁、对象仍被渲染并写回场景文件：删除后立即处理待销毁队列（ERMAO-AUDIT-034）
 - 修复无头自检失败仍退出 0：`--screenshot` 自动截图失败、`--import` 导入失败、`--test-serialize` 往返解析失败或二次往返不稳定时置 `m_headlessFailed`，进程返回 1（ERMAO-AUDIT-036）
+- 无头 `--script` 的 `component.set` / `object.set` / `camera.set` 校验参数类型、向量长度与元素类型：字符串/`null` 写入数值字段、短数组或含非数字元素的向量、错误类型的标量现在返回 `ok:false`，且不修改组件、对象或相机，不再静默写成 0 或空串
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
 - 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
