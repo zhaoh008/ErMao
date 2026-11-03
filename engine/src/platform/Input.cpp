@@ -22,6 +22,17 @@ void Input::BeginFrame() {
     s_wheel = 0.0f;
 }
 
+void Input::Reset() {
+    std::memset(s_down, 0, sizeof(s_down));
+    std::memset(s_pressed, 0, sizeof(s_pressed));
+    std::memset(s_released, 0, sizeof(s_released));
+    std::memset(s_mouseDown, 0, sizeof(s_mouseDown));
+    std::memset(s_mousePressed, 0, sizeof(s_mousePressed));
+    std::memset(s_mouseReleased, 0, sizeof(s_mouseReleased));
+    s_mouseDelta = Vec2(0, 0);
+    s_wheel = 0.0f;
+}
+
 void Input::Shutdown() {
     std::memset(s_down, 0, sizeof(s_down));
     std::memset(s_mouseDown, 0, sizeof(s_mouseDown));

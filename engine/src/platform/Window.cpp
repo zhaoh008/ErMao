@@ -1,5 +1,6 @@
 // ErMao Engine - Win32 窗口实现
 #include "platform/Window.h"
+#include "platform/Input.h"
 #include "core/Log.h"
 
 #include <windows.h>
@@ -156,6 +157,8 @@ long long Window::HandleMessage(void* hwnd, unsigned int msg, unsigned long long
         case WM_KILLFOCUS:
             m_focused = false;
             if (m_mouseCaptured) SetMouseCaptured(false);
+            // Alt+Tab 时系统不会补发 WM_KEYUP/WM_LBUTTONUP；不清空会让角色持续移动。
+            Input::Reset();
             return 0;
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN: {

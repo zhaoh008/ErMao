@@ -14,6 +14,7 @@ namespace erm {
 class Input {
 public:
     static void BeginFrame(); // 帧首：清空边沿、滚轮、鼠标增量
+    static void Reset();      // 失焦/停用时清空全部按键与鼠标按键状态
     static void Shutdown();
 
     // 由窗口回调调用
