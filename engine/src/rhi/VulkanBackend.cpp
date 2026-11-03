@@ -427,13 +427,27 @@ struct VulkanDemo::Impl {
         std::vector<u8> readback;
         VkBuffer stagingBuffer = VK_NULL_HANDLE;
         VkDeviceMemory stagingMemory = VK_NULL_HANDLE;
+        bool stagingCoherent = false;
+        auto releaseStaging = [&]() {
+            if (stagingBuffer != VK_NULL_HANDLE) {
+                vkDestroyBuffer(device, stagingBuffer, nullptr);
+                stagingBuffer = VK_NULL_HANDLE;
+            }
+            if (stagingMemory != VK_NULL_HANDLE) {
+                vkFreeMemory(device, stagingMemory, nullptr);
+                stagingMemory = VK_NULL_HANDLE;
+            }
+        };
         if (!screenshotPath.empty()) {
             VkBufferCreateInfo bufferInfo{};
             bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
             bufferInfo.size = static_cast<VkDeviceSize>(extent.width) * extent.height * 4;
             bufferInfo.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-            vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer);
+            if (vkCreateBuffer(device, &bufferInfo, nullptr, &stagingBuffer) != VK_SUCCESS) {
+                LogError("[Vulkan] 截图 staging buffer 创建失败");
+                return false;
+            }
             VkMemoryRequirements req{};
             vkGetBufferMemoryRequirements(device, stagingBuffer, &req);
             VkMemoryAllocateInfo alloc{};
@@ -441,15 +455,40 @@ struct VulkanDemo::Impl {
             alloc.allocationSize = req.size;
             VkPhysicalDeviceMemoryProperties memProps{};
             vkGetPhysicalDeviceMemoryProperties(physical, &memProps);
+            u32 fallbackIndex = ~0u;
+            bool found = false;
             for (u32 i = 0; i < memProps.memoryTypeCount; ++i) {
-                if ((req.memoryTypeBits & (1u << i)) &&
-                    (memProps.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) {
+                if (!(req.memoryTypeBits & (1u << i))) continue;
+                const VkMemoryPropertyFlags flags = memProps.memoryTypes[i].propertyFlags;
+                if (!(flags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT)) continue;
+                if (flags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) {
                     alloc.memoryTypeIndex = i;
+                    stagingCoherent = true;
+                    found = true;
                     break;
                 }
+                if (fallbackIndex == ~0u) fallbackIndex = i;
             }
-            vkAllocateMemory(device, &alloc, nullptr, &stagingMemory);
-            vkBindBufferMemory(device, stagingBuffer, stagingMemory, 0);
+            if (!found && fallbackIndex != ~0u) {
+                alloc.memoryTypeIndex = fallbackIndex;
+                stagingCoherent = false;
+                found = true;
+            }
+            if (!found) {
+                LogError("[Vulkan] 找不到 HOST_VISIBLE 的截图 staging 内存类型");
+                releaseStaging();
+                return false;
+            }
+            if (vkAllocateMemory(device, &alloc, nullptr, &stagingMemory) != VK_SUCCESS) {
+                LogError("[Vulkan] 截图 staging 内存分配失败");
+                releaseStaging();
+                return false;
+            }
+            if (vkBindBufferMemory(device, stagingBuffer, stagingMemory, 0) != VK_SUCCESS) {
+                LogError("[Vulkan] 截图 staging 内存绑定失败");
+                releaseStaging();
+                return false;
+            }
         }
 
         u32 imageIndex = 0;
@@ -461,6 +500,7 @@ struct VulkanDemo::Impl {
                                                            VK_NULL_HANDLE, &imageIndex);
             if (acquire != VK_SUCCESS) {
                 LogError("[Vulkan] vkAcquireNextImageKHR 失败: %d", acquire);
+                releaseStaging();
                 return false;
             }
 
@@ -511,6 +551,7 @@ struct VulkanDemo::Impl {
             submit.pSignalSemaphores = signalSemaphores;
             if (vkQueueSubmit(queue, 1, &submit, inFlight) != VK_SUCCESS) {
                 LogError("[Vulkan] vkQueueSubmit 失败");
+                releaseStaging();
                 return false;
             }
 
@@ -527,17 +568,34 @@ struct VulkanDemo::Impl {
 
         if (stagingBuffer != VK_NULL_HANDLE) {
             void* mapped = nullptr;
-            vkMapMemory(device, stagingMemory, 0, VK_WHOLE_SIZE, 0, &mapped);
+            if (vkMapMemory(device, stagingMemory, 0, VK_WHOLE_SIZE, 0, &mapped) != VK_SUCCESS || !mapped) {
+                LogError("[Vulkan] 截图 staging 内存映射失败");
+                releaseStaging();
+                return false;
+            }
+            if (!stagingCoherent) {
+                VkMappedMemoryRange range{};
+                range.sType = VK_STRUCTURE_TYPE_MAPPED_MEMORY_RANGE;
+                range.memory = stagingMemory;
+                range.offset = 0;
+                range.size = VK_WHOLE_SIZE;
+                if (vkInvalidateMappedMemoryRanges(device, 1, &range) != VK_SUCCESS) {
+                    LogError("[Vulkan] 截图 staging 内存失效（invalidate）失败");
+                    vkUnmapMemory(device, stagingMemory);
+                    releaseStaging();
+                    return false;
+                }
+            }
             readback.assign(static_cast<u8*>(mapped), static_cast<u8*>(mapped) + extent.width * extent.height * 4);
             vkUnmapMemory(device, stagingMemory);
-            vkDestroyBuffer(device, stagingBuffer, nullptr);
-            vkFreeMemory(device, stagingMemory, nullptr);
+            releaseStaging();
             if (!readback.empty() && !screenshotPath.empty()) {
                 // Vulkan 的 swapchain 常见格式是 BGRA，WIC 直接按 BGRA 写
                 if (SaveBgraPng(screenshotPath, extent.width, extent.height, readback.data())) {
                     LogInfo("[Vulkan] 截图已保存: %s (%ux%u)", screenshotPath.c_str(), extent.width, extent.height);
                 } else {
-                    LogWarn("[Vulkan] 截图保存失败");
+                    LogError("[Vulkan] 截图保存失败: %s", screenshotPath.c_str());
+                    return false;
                 }
             }
         }
@@ -588,6 +646,8 @@ struct VulkanDemo::Impl {
     }
 };
 
+bool VulkanDemo::IsAvailable() { return true; }
+
 bool VulkanDemo::Init(Window& window) {
     if (!m_impl) m_impl = new Impl();
     HWND hwnd = static_cast<HWND>(window.NativeHandle());
@@ -620,6 +680,8 @@ void VulkanDemo::Shutdown() {
 #include "core/Log.h"
 
 namespace erm {
+
+bool VulkanDemo::IsAvailable() { return false; }
 
 bool VulkanDemo::Init(Window&) {
     LogWarn("[Vulkan] 本机未安装 Vulkan SDK，--vulkan-test 不可用（引擎仍走 D3D11）");

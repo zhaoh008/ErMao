@@ -15,6 +15,8 @@ class Window;
 
 class VulkanDemo {
 public:
+    // 当前构建是否真正启用了 Vulkan 后端（无 SDK 的构建返回 false）
+    static bool IsAvailable();
     bool Init(Window& window);
     // 渲染 frames 帧；screenshotPath 非空时把最后一帧存成 PNG
     bool Run(u32 frames, const std::string& screenshotPath);

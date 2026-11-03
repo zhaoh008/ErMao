@@ -216,15 +216,22 @@ bool Engine::Init() {
 
     if (!m_window.Create("ErMao Engine 0.2 — GAMES104 教学引擎", 1600, 900)) return false;
     if (m_vulkanTest) {
+        if (!VulkanDemo::IsAvailable()) {
+            LogWarn("[Vulkan] 当前构建未启用 Vulkan 后端，--vulkan-test 跳过（不算失败）");
+            m_window.Destroy();
+            std::exit(0);
+        }
+        bool ok = false;
         VulkanDemo demo;
         if (demo.Init(m_window)) {
-            demo.Run(120, "文档/screenshots/vulkan.png");
+            ok = demo.Run(120, "文档/screenshots/vulkan.png");
+            if (!ok) LogError("[Vulkan] 渲染或截图失败");
         } else {
             LogError("[Vulkan] 初始化失败");
         }
         demo.Shutdown();
         m_window.Destroy();
-        std::exit(0);
+        std::exit(ok ? 0 : 1);
     }
 
     // 输入：窗口回调负责产生边沿，Application 只做一次鼠标状态快照
