@@ -105,9 +105,12 @@ bool LoadObjMesh(const std::string& path, MeshData& out, std::string* error) {
 
     for (const auto& corner : cornerIndices) {
         const int vi = ResolveIndex(corner.v, positions.size());
-        const int ti = hasUvs ? ResolveIndex(corner.vt, uvs.size()) : -1;
-        const int ni = hasNormals ? ResolveIndex(corner.vn, normals.size()) : -1;
+        int ti = hasUvs ? ResolveIndex(corner.vt, uvs.size()) : -1;
+        int ni = hasNormals ? ResolveIndex(corner.vn, normals.size()) : -1;
         if (vi < 0 || vi >= static_cast<int>(positions.size())) continue;
+        // 越界的 vt/vn 与缺省索引一样回退到默认 UV/法线，避免越界读取
+        if (ti < 0 || ti >= static_cast<int>(uvs.size())) ti = -1;
+        if (ni < 0 || ni >= static_cast<int>(normals.size())) ni = -1;
 
         Key key{vi, ti, ni};
         const u64 hash = keyHash(key);
