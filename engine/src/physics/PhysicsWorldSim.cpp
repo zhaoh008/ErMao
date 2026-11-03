@@ -48,7 +48,8 @@ bool SphereVsBox(const Vec3& center, float radius, const AABB& box, Vec3& normal
 }
 
 bool SphereVsSphere(const Vec3& a, float ra, const Vec3& b, float rb, Vec3& normal, float& depth) {
-    const Vec3  delta = a - b;
+    // 法线从 a 指向 b，与 L10 §4.4 的冲量约定（n: a→b、v_rel = v_b - v_a）一致。
+    const Vec3  delta = b - a;
     const float distSq = Dot(delta, delta);
     const float sum = ra + rb;
     if (distSq > sum * sum || distSq < 1e-8f) return false;
@@ -257,8 +258,9 @@ void PhysicsWorld::ResolveSpherePairs(World& world) {
             if (!SphereVsSphere(ga->WorldPosition(), a->radius, gb->WorldPosition(), b->radius, normal, depth))
                 continue;
 
-            corrections[i] += normal * (depth * invA / invSum);
-            corrections[j] -= normal * (depth * invB / invSum);
+            // normal 从 a 指向 b：分离时 a 沿 -normal、b 沿 +normal 推开。
+            corrections[i] -= normal * (depth * invA / invSum);
+            corrections[j] += normal * (depth * invB / invSum);
 
             const Vec3  relative = b->velocity - a->velocity;
             const float vn = Dot(relative, normal);
