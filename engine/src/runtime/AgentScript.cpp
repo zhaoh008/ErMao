@@ -9,6 +9,7 @@
 
 #include "asset/AssetManager.h"
 #include "core/FileSystem.h"
+#include "core/Json.h"
 #include "core/Log.h"
 #include "renderer/Renderer.h"
 #include "game/Levels.h"

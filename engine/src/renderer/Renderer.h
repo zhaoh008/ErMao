@@ -23,8 +23,11 @@
 #include "rhi/Device.h"
 #include "rhi/RenderTarget.h"
 #include "rhi/Shader.h"
+#include "rhi/Texture.h"
 
 namespace erm {
+
+class Mesh;
 
 class Renderer {
 public:

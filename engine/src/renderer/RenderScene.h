@@ -4,10 +4,14 @@
 #include "core/Math.h"
 #include "core/Types.h"
 #include "renderer/Camera.h"
-#include "renderer/Mesh.h"
-#include "rhi/Texture.h"
 
 namespace erm {
+
+// 渲染输入只持有资源指针，不拥有 GPU 资源，也不需要它们的完整定义。
+// 这样 scene/game 层 include RenderScene.h 时不会顺带把 d3d11.h 拉进来。
+class Mesh;
+class Texture;
+class SkinnedMesh;
 
 // 一个可绘制对象：网格 + 世界矩阵 + 材质参数
 struct RenderItem {

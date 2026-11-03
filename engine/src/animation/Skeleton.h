@@ -78,20 +78,4 @@ struct SkeletonClip {
 void BlendPoses(const std::vector<BoneTransform>& a, const std::vector<BoneTransform>& b, float alpha,
                 std::vector<BoneTransform>& out);
 
-// 程序化生成的蒙皮网格（本工程的"资产"就是代码生成的）
-struct SkinVertex {
-    Vec3  position;
-    Vec3  normal;
-    Vec2  uv;
-    u32   boneIndices[4] = {0, 0, 0, 0};
-    float boneWeights[4] = {0, 0, 0, 0};
-};
-
-struct SkinnedMeshData {
-    std::vector<SkinVertex> vertices;
-    std::vector<u32>        indices;
-    AABB                    bounds;
-    void ComputeBounds();
-};
-
 } // namespace erm

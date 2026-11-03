@@ -1,5 +1,6 @@
 // ErMao Engine - 刷怪 Demo 实现
 #include "game/WaveGame.h"
+#include "ai/NavGrid.h"
 #include "core/Log.h"
 #include "game/ThirdPersonController.h"
 #include "platform/Input.h"
@@ -7,6 +8,8 @@
 #include "scene/Components.h"
 #include "scene/GameObject.h"
 #include "scene/World.h"
+
+#include <windows.h>
 
 #include <imgui.h>
 
