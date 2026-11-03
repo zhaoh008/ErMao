@@ -65,22 +65,43 @@ bool SaveBackbufferToPng(ID3D11Device* device, ID3D11DeviceContext* context, IDX
 
     const std::wstring wpath = FileSystem::Utf8ToWide(path);
     ComPtr<IWICStream> stream;
-    factory->CreateStream(&stream);
+    if (FAILED(factory->CreateStream(&stream))) {
+        LogError("截图失败：WIC 流创建失败");
+        return false;
+    }
     if (FAILED(stream->InitializeFromFilename(wpath.c_str(), GENERIC_WRITE))) {
         LogError("截图失败：无法写入 %s", path.c_str());
         return false;
     }
 
     ComPtr<IWICBitmapEncoder> encoder;
-    factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder);
-    encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache);
+    if (FAILED(factory->CreateEncoder(GUID_ContainerFormatPng, nullptr, &encoder))) {
+        LogError("截图失败：PNG 编码器创建失败");
+        return false;
+    }
+    if (FAILED(encoder->Initialize(stream.Get(), WICBitmapEncoderNoCache))) {
+        LogError("截图失败：PNG 编码器初始化失败");
+        return false;
+    }
 
     ComPtr<IWICBitmapFrameEncode> frame;
-    encoder->CreateNewFrame(&frame, nullptr);
-    frame->Initialize(nullptr);
-    frame->SetSize(width, height);
+    if (FAILED(encoder->CreateNewFrame(&frame, nullptr))) {
+        LogError("截图失败：创建编码帧失败");
+        return false;
+    }
+    if (FAILED(frame->Initialize(nullptr))) {
+        LogError("截图失败：编码帧初始化失败");
+        return false;
+    }
+    if (FAILED(frame->SetSize(width, height))) {
+        LogError("截图失败：设置图像尺寸失败");
+        return false;
+    }
     WICPixelFormatGUID format = GUID_WICPixelFormat32bppRGBA;
-    frame->SetPixelFormat(&format);
+    if (FAILED(frame->SetPixelFormat(&format))) {
+        LogError("截图失败：设置像素格式失败");
+        return false;
+    }
 
     // PNG 编码器经常把格式协商成 BGRA；此时必须交换 R/B，否则截图的颜色会整体偏色。
     if (IsEqualGUID(format, GUID_WICPixelFormat32bppBGRA)) {
@@ -93,8 +114,14 @@ bool SaveBackbufferToPng(ID3D11Device* device, ID3D11DeviceContext* context, IDX
         LogError("截图失败：WritePixels 失败");
         return false;
     }
-    frame->Commit();
-    encoder->Commit();
+    if (FAILED(frame->Commit())) {
+        LogError("截图失败：提交编码帧失败");
+        return false;
+    }
+    if (FAILED(encoder->Commit())) {
+        LogError("截图失败：提交 PNG 编码失败");
+        return false;
+    }
 
     LogInfo("截图已保存: %s (%ux%u)", path.c_str(), width, height);
     return true;

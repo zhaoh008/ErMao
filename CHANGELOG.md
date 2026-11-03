@@ -43,6 +43,7 @@
 - OBJ 导入的多边形面（四边形/五边形等）按扇形三角化，不再只渲染每个面的第一个三角形
 - 修复非 ASCII（中文等）路径下纹理加载、截图保存与 WAV 音频加载失败：进入 WIC / 文件读取前统一使用
   UTF-8→UTF-16 转换（`FileSystem::Utf8ToWide` / `ReadBinaryFile`）
+- 截图编码不再忽略 WIC 流/编码器/帧的创建、初始化、SetSize/SetPixelFormat、Commit 返回值：任一步失败即记录错误并返回 false，不再留下无效 PNG 或对空流解引用
 - Play/PIE 删除动画目标或第三人称主相机后，`Animator` / `ThirdPersonController` 仍解引用缓存裸指针导致 use-after-free；现在按对象 id 向 `World` 校验，失效后安全重解析
 - 程序化圆柱（`primitives::Cylinder`）上下端盖三角形绕序与侧面相反，主不透明通道背面剔除后顶盖不可见（第三人称油桶呈开口管状）
 - 新建场景未清除当前场景路径，Ctrl+S 会用空场景覆盖旧文件；从资源浏览器打开普通场景后路径未更新，保存会写回上一个文件
