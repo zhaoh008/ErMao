@@ -396,6 +396,19 @@ bool World::FromJson(const JsonValue& root) {
         return false;
     }
 
+    // 先完成结构校验，任何失败都不得修改当前 World
+    const JsonValue& objects = root["objects"];
+    if (!objects.IsArray()) {
+        LogError("场景 JSON 格式不正确（objects 必须是数组）");
+        return false;
+    }
+    for (size_t i = 0; i < objects.Size(); ++i) {
+        if (!objects[i].IsObject()) {
+            LogError("场景 JSON 格式不正确（objects[%zu] 必须是对象）", i);
+            return false;
+        }
+    }
+
     Clear();
     m_levelKind = root["levelKind"].AsString();
 
@@ -409,7 +422,6 @@ bool World::FromJson(const JsonValue& root) {
         ambientIntensity = sun["ambientIntensity"].AsFloat(ambientIntensity);
     }
 
-    const JsonValue& objects = root["objects"];
     std::unordered_map<u64, GameObject*> byId;
     std::vector<std::pair<GameObject*, u64>> parents;
 
