@@ -769,7 +769,14 @@ void BuildSurvivors3DLevel(World& world, AssetManager& assets) {
     LogInfo("3D 幸存者关卡：%zu 个对象（外部模型 + 粒子特效）", world.ObjectCount());
 }
 
-void RegisterSurvivors3DComponents() {}
+void RegisterSurvivors3DComponents() {
+    Reflection::Register<Survivors3DPlayerComponent>("Survivors3D Player");
+    Reflection::Register<Survivors3DEnemyComponent>("Survivors3D Enemy");
+    Reflection::Register<Survivors3DProjectileComponent>("Survivors3D Projectile");
+    Reflection::Register<Survivors3DGemComponent>("Survivors3D Gem");
+    // 特效组件定义在本 TU 的匿名命名空间，注册函数也放在这里
+    Reflection::Register<Survivors3DEffectComponent>("Survivors3D Effect");
+}
 
 } // namespace erm
 
@@ -797,6 +804,7 @@ void Survivors3DEnemyComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<Survivors3DEnemyComponent>(); };
     t.Field("speed", FieldType::Float, &Survivors3DEnemyComponent::speed, "移动速度", 0.2f, 12.0f);
     t.Field("hp", FieldType::Float, &Survivors3DEnemyComponent::hp, "生命", 1.0f, 500.0f);
+    t.Field("maxHp", FieldType::Float, &Survivors3DEnemyComponent::maxHp, "最大生命", 1.0f, 999.0f);
     t.Field("damage", FieldType::Float, &Survivors3DEnemyComponent::damage, "伤害", 1.0f, 100.0f);
     t.Field("xpValue", FieldType::Float, &Survivors3DEnemyComponent::xpValue, "经验值", 1.0f, 50.0f);
 }

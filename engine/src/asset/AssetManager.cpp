@@ -279,7 +279,7 @@ Texture* AssetManager::ImportTexture(const std::string& sourcePath, std::string*
     const std::string fileName = FileSystem::FileNameOf(sourcePath);
     const std::string ext = FileSystem::ExtensionOf(fileName);
     if (ext != "png" && ext != "jpg" && ext != "jpeg" && ext != "bmp" && ext != "tga") {
-        if (error) *error = "不支持的贴图格式（支持 png/jpg/bmp）";
+        if (error) *error = "不支持的贴图格式（支持 png/jpg/bmp/tga）";
         return nullptr;
     }
     const std::string destination =
@@ -291,7 +291,7 @@ Texture* AssetManager::ImportTexture(const std::string& sourcePath, std::string*
 
     const std::string assetName = "textures/" + fileName;
     m_textures.erase(assetName);
-    Texture* texture = GetTexture(assetName);
+    Texture* texture = GetTextureAsset(assetName);
     if (!texture) {
         if (error) *error = "解码贴图失败";
         return nullptr;

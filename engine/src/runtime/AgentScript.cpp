@@ -13,6 +13,8 @@
 #include "core/Log.h"
 #include "renderer/Renderer.h"
 #include "game/Levels.h"
+#include "game/ParticleEmitter.h"
+#include "game/SkinningDemo.h"
 #include "runtime/Packager.h"
 #include <fstream>
 #include "scene/Components.h"
@@ -41,12 +43,16 @@ JsonValue QuatJson(const Quat& q) {
 
 bool ReadVec3(const JsonValue& value, Vec3& out) {
     if (!value.IsArray() || value.Size() < 3) return false;
+    for (size_t i = 0; i < 3; ++i)
+        if (!value[i].IsNumber()) return false;
     out = Vec3(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat());
     return true;
 }
 
 bool ReadQuat(const JsonValue& value, Quat& out) {
     if (!value.IsArray() || value.Size() < 4) return false;
+    for (size_t i = 0; i < 4; ++i)
+        if (!value[i].IsNumber()) return false;
     out = Quat(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat(), value[3].AsFloat());
     return true;
 }
@@ -87,14 +93,28 @@ JsonValue FieldToJson(const FieldDesc& field, void* object) {
 bool JsonToField(const FieldDesc& field, void* object, const JsonValue& value) {
     void* ptr = field.access(object);
     switch (field.type) {
-        case FieldType::Bool: *static_cast<bool*>(ptr) = value.AsBool(); return true;
-        case FieldType::Int: *static_cast<int*>(ptr) = value.AsInt(); return true;
-        case FieldType::Float: *static_cast<float*>(ptr) = value.AsFloat(); return true;
+        case FieldType::Bool:
+            if (!value.IsBool()) return false;
+            *static_cast<bool*>(ptr) = value.AsBool();
+            return true;
+        case FieldType::Int:
+            if (!value.IsNumber()) return false;
+            *static_cast<int*>(ptr) = value.AsInt();
+            return true;
+        case FieldType::Float:
+            if (!value.IsNumber()) return false;
+            *static_cast<float*>(ptr) = value.AsFloat();
+            return true;
         case FieldType::String:
         case FieldType::MeshAsset:
-        case FieldType::TextureAsset: *static_cast<std::string*>(ptr) = value.AsString(); return true;
+        case FieldType::TextureAsset:
+            if (!value.IsString()) return false;
+            *static_cast<std::string*>(ptr) = value.AsString();
+            return true;
         case FieldType::Vec2: {
             if (!value.IsArray() || value.Size() < 2) return false;
+            for (size_t i = 0; i < 2; ++i)
+                if (!value[i].IsNumber()) return false;
             *static_cast<Vec2*>(ptr) = Vec2(value[0].AsFloat(), value[1].AsFloat());
             return true;
         }
@@ -107,6 +127,8 @@ bool JsonToField(const FieldDesc& field, void* object, const JsonValue& value) {
         case FieldType::Vec4:
         case FieldType::Color: {
             if (!value.IsArray() || value.Size() < 4) return false;
+            for (size_t i = 0; i < 4; ++i)
+                if (!value[i].IsNumber()) return false;
             *static_cast<Vec4*>(ptr) =
                 Vec4(value[0].AsFloat(), value[1].AsFloat(), value[2].AsFloat(), value[3].AsFloat());
             return true;
@@ -143,6 +165,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 场景
     if (cmd == "scene.new") {
         m_world.Clear();
+        // scene.new 是"清空世界"，也必须把引擎侧的关卡模式状态复位；否则从 2D 关卡
+        // 建空场景后 m_is2D/m_survivorsLevel 仍为 true，截图与运行会沿用上一关。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
+        m_is2D = false;
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         return Ok();
     }
     if (cmd == "scene.save") {
@@ -214,17 +246,27 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     if (cmd == "object.set") {
         GameObject* object = m_world.FindByName(command["name"].AsString());
         if (!object) return Error("找不到对象");
-        if (command.Has("position")) object->SetPosition(Vec3(command["position"][0].AsFloat(),
-                                                              command["position"][1].AsFloat(),
-                                                              command["position"][2].AsFloat()));
-        if (command.Has("scale")) object->SetScale(Vec3(command["scale"][0].AsFloat(),
-                                                        command["scale"][1].AsFloat(),
-                                                        command["scale"][2].AsFloat()));
-        if (command.Has("rotation")) {
-            Quat rotation;
-            if (ReadQuat(command["rotation"], rotation)) object->SetRotation(rotation);
+
+        // 先全部校验，再统一应用，避免部分字段已写入后才发现类型错误。
+        Vec3 position;
+        Vec3 scale;
+        Quat rotation;
+        bool active = false;
+        if (command.Has("position") && !ReadVec3(command["position"], position))
+            return Error("position 需要 3 个数字");
+        if (command.Has("scale") && !ReadVec3(command["scale"], scale))
+            return Error("scale 需要 3 个数字");
+        if (command.Has("rotation") && !ReadQuat(command["rotation"], rotation))
+            return Error("rotation 需要 4 个数字");
+        if (command.Has("active")) {
+            if (!command["active"].IsBool()) return Error("active 需要布尔值");
+            active = command["active"].AsBool();
         }
-        if (command.Has("active")) object->SetActive(command["active"].AsBool());
+
+        if (command.Has("position")) object->SetPosition(position);
+        if (command.Has("scale")) object->SetScale(scale);
+        if (command.Has("rotation")) object->SetRotation(rotation);
+        if (command.Has("active")) object->SetActive(active);
         return Ok();
     }
 
@@ -251,18 +293,43 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
             result.Set("value", FieldToJson(*field, component));
             return result;
         }
-        if (!JsonToField(*field, component, command["value"])) return Error("值类型不匹配");
+        if (!JsonToField(*field, component, command["value"])) {
+            switch (field->type) {
+                case FieldType::Vec2: return Error("需要 2 个数字");
+                case FieldType::Vec3: return Error("需要 3 个数字");
+                case FieldType::Vec4:
+                case FieldType::Color: return Error("需要 4 个数字");
+                default: return Error("值类型不匹配");
+            }
+        }
         return Ok();
     }
 
     if (cmd == "camera.set") {
-        if (command.Has("position")) {
-            Vec3 position;
-            if (ReadVec3(command["position"], position)) m_editorCamera.position = position;
+        // 先全部校验，再统一应用，避免部分字段已写入后才发现类型错误。
+        Vec3 position;
+        float yaw = 0.0f;
+        float pitch = 0.0f;
+        float fov = 0.0f;
+        if (command.Has("position") && !ReadVec3(command["position"], position))
+            return Error("position 需要 3 个数字");
+        if (command.Has("yaw")) {
+            if (!command["yaw"].IsNumber()) return Error("yaw 需要数字");
+            yaw = command["yaw"].AsFloat();
         }
-        if (command.Has("yaw")) m_editorCamera.yaw = command["yaw"].AsFloat();
-        if (command.Has("pitch")) m_editorCamera.pitch = command["pitch"].AsFloat();
-        if (command.Has("fov")) m_editorCamera.fovY = command["fov"].AsFloat();
+        if (command.Has("pitch")) {
+            if (!command["pitch"].IsNumber()) return Error("pitch 需要数字");
+            pitch = command["pitch"].AsFloat();
+        }
+        if (command.Has("fov")) {
+            if (!command["fov"].IsNumber()) return Error("fov 需要数字");
+            fov = command["fov"].AsFloat();
+        }
+
+        if (command.Has("position")) m_editorCamera.position = position;
+        if (command.Has("yaw")) m_editorCamera.yaw = yaw;
+        if (command.Has("pitch")) m_editorCamera.pitch = pitch;
+        if (command.Has("fov")) m_editorCamera.fovY = fov;
         return Ok();
     }
 
@@ -305,6 +372,16 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
     // ---------------------------------------------------------------- 关卡
     if (cmd == "level.build") {
         const std::string kind = command["kind"].AsString();
+        // 关卡切换后同步全部模式状态（与 Engine::LoadLevel 一致），避免无头截图
+        // 或后续命令沿用上一关的 2D 标记与玩法导演。
+        m_survivorsLevel = false;
+        m_survivors3dLevel = false;
+        m_waveLevel = false;
+        m_is2D = (kind == "survivors");
+        m_playSessionStarted = false;
+        m_waveGame.ReturnToMenu();
+        m_survivors.ReturnToMenu();
+        m_survivors3d.ReturnToMenu();
         m_world.Clear();
         if (kind == "survivors3d") {
             BuildSurvivors3DLevel(m_world, m_assets);
@@ -312,7 +389,6 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
         } else if (kind == "survivors") {
             BuildSurvivorsLevel(m_world, m_assets);
             m_survivorsLevel = true;
-            m_is2D = true;
         } else if (kind == "skinning") {
             game::BuildSkinningLevel(m_world, m_renderer);
         } else if (kind == "thirdperson") {
@@ -358,8 +434,27 @@ JsonValue Engine::ExecuteAgentCommand(const JsonValue& command) {
 bool Engine::RenderAgentScreenshot(const std::string& path) {
     m_renderer.Debug().Begin();
     m_world.BuildRenderScene(m_scene, m_editorCamera);
+    // 无头截图复用视口渲染的场景准备：2D 关卡必须用与运行时一致的 Camera2D。
+    m_scene.is2D = m_is2D;
+    if (m_is2D) {
+        Camera2D camera2D;
+        // 与 RenderViewportScene / MainLoop 的运行时 2D 相机保持一致（#25 已把半高改为 7.2、
+        // 视野按 SurvivorsPlayerComponent::arenaHalf 跟随），无头截图不能再用旧的固定常量。
+        camera2D.halfHeight = 7.2f;
+        if (GameObject* player = m_world.FindByName("玩家")) {
+            const Vec3 position = player->Position();
+            Vec2 half(20.0f, 8.0f);
+            if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+            camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                     Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
+        }
+        m_scene.camera2D = camera2D;
+    }
+    // 与 RenderViewportScene / MainLoop 的视口路径保持一致：蒙皮与粒子在 BuildRenderScene 之后收集。
+    game::CollectSkinnedDraws(m_world, m_scene);
+    CollectParticles(m_world, m_scene);
     m_renderer.Render(m_editorCamera, m_scene, m_time, false);
-    CaptureScreenshot(path);
+    if (!CaptureScreenshot(path)) return false;
     return FileSystem::Exists(path);
 }
 
@@ -369,22 +464,46 @@ JsonValue Engine::ValidateWorld() {
     u32 objectCount = 0;
     u32 componentCount = 0;
 
+    // GetMesh / GetTexture 对未知名字会回退到 cube / white，不能只看返回值；
+    // 先触发加载，再按注册表里的 name + type 判断资产是否真的存在。
+    auto hasAsset = [this](const std::string& name, AssetManager::AssetType type) {
+        for (const auto& asset : m_assets.Assets()) {
+            if (asset.name == name && asset.type == type) return true;
+        }
+        return false;
+    };
+    auto checkTexture = [&](GameObject* object, const std::string& texture, const char* label) {
+        if (texture.empty()) return;
+        if (texture.find('/') != std::string::npos) {
+            m_assets.GetTextureAsset(texture);
+        } else {
+            m_assets.GetTexture(texture);
+        }
+        if (!hasAsset(texture, AssetManager::AssetType::Texture)) {
+            errors.Push(JsonValue("对象 " + object->Name() + " 的" + label + "不存在: " + texture));
+        }
+    };
+
     for (GameObject* root : m_world.RootObjects()) {
         root->ForEach([&](GameObject* object) {
             ++objectCount;
             for (const auto& component : object->Components()) {
                 ++componentCount;
-                auto* renderer = dynamic_cast<MeshRenderer*>(component.get());
-                if (!renderer) continue;
-                if (!renderer->mesh.empty() && !m_assets.GetMesh(renderer->mesh)) {
-                    // 允许路径式网格
-                    if (renderer->mesh.find('/') == std::string::npos) {
-                        errors.Push(JsonValue("对象 " + object->Name() + " 的网格不存在: " + renderer->mesh));
+                if (auto* renderer = dynamic_cast<MeshRenderer*>(component.get())) {
+                    if (!renderer->mesh.empty()) {
+                        if (renderer->mesh.find('/') != std::string::npos) {
+                            m_assets.GetMeshAsset(renderer->mesh);
+                        } else {
+                            m_assets.GetMesh(renderer->mesh);
+                        }
+                        if (!hasAsset(renderer->mesh, AssetManager::AssetType::Mesh)) {
+                            errors.Push(JsonValue("对象 " + object->Name() + " 的网格不存在: " + renderer->mesh));
+                        }
                     }
+                    checkTexture(object, renderer->texture, "贴图");
                 }
-                if (!renderer->texture.empty() && renderer->texture.find('/') == std::string::npos &&
-                    !m_assets.GetTexture(renderer->texture)) {
-                    errors.Push(JsonValue("对象 " + object->Name() + " 的贴图不存在: " + renderer->texture));
+                if (auto* sprite = dynamic_cast<SpriteRendererComponent*>(component.get())) {
+                    checkTexture(object, sprite->texture, "精灵贴图");
                 }
             }
         });
@@ -431,7 +550,16 @@ bool Engine::RunAgentScript(const std::string& path, const std::string& outputPa
     const std::string json = report.Dump(2);
     if (!outputPath.empty()) {
         std::ofstream out(outputPath, std::ios::binary);
+        if (!out.is_open()) {
+            LogError("[AI] 结果写入失败（无法打开）: %s", outputPath.c_str());
+            return false;
+        }
         out << json;
+        out.flush();
+        if (!out.good()) {
+            LogError("[AI] 结果写入失败: %s", outputPath.c_str());
+            return false;
+        }
         LogInfo("[AI] 结果写入 %s", outputPath.c_str());
     }
     LogInfo("[AI] 脚本完成：%d/%d 条命令成功", okCount, static_cast<int>(root["commands"].Size()));

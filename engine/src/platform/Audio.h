@@ -45,6 +45,18 @@ public:
     void  SetMuted(bool muted);
     bool  Muted() const { return m_muted; }
 
+    // 背景音乐 / 游戏音效可分别开关和调音量（2D 幸存者的设置面板用）
+    void  SetMusicEnabled(bool enabled);
+    bool  MusicEnabled() const { return m_musicEnabled; }
+    void  SetSfxEnabled(bool enabled);
+    bool  SfxEnabled() const { return m_sfxEnabled; }
+    void  SetMusicVolume(float volume);
+    float MusicVolume() const { return m_musicVolume; }
+    void  SetSfxVolume(float volume);
+    float SfxVolume() const { return m_sfxVolume; }
+    bool  IsMusicPlaying() const { return m_music != nullptr; }
+    const std::string& CurrentMusic() const { return m_musicName; }
+
     bool  Ready() const { return m_engine != nullptr; }
     u32   ActiveVoices() const { return static_cast<u32>(m_voices.size()); }
     const std::vector<std::string>& LoadedNames() const { return m_names; }
@@ -69,6 +81,10 @@ private:
 
     IXAudio2SourceVoice* m_music = nullptr;
     float                m_musicVolume = 0.5f;
+    std::string          m_musicName;
+    bool                 m_musicEnabled = true;
+    bool                 m_sfxEnabled = true;
+    float                m_sfxVolume = 1.0f;
 
     std::unordered_map<std::string, Sound> m_sounds;
     std::vector<std::string>                m_names;

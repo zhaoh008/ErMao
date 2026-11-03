@@ -239,6 +239,9 @@ bool Engine::Init() {
 
     m_world.Init(&m_assets);
     game::RegisterGameComponents();
+    // 场景/脚本可能在任意进程启动时读档：先把游戏模块的组件注册进反射表
+    RegisterSurvivorsComponents();
+    RegisterSurvivors3DComponents();
     LogInfo("组件注册完成（共 %zu 种）", Reflection::All().size());
 
     // 资源导入自检：把外部 OBJ 复制进 assets/models 再加载
@@ -250,6 +253,7 @@ bool Engine::Init() {
                     mesh->IndexCount() / 3);
         } else {
             LogError("[自检] 导入失败：%s", error.c_str());
+            m_headlessFailed = true;
         }
     }
     if (m_levelName == "empty") {
@@ -300,9 +304,11 @@ bool Engine::Init() {
 
         if (first.empty() || second.empty()) {
             LogError("[自检] 序列化往返失败：JSON 解析错误");
+            m_headlessFailed = true;
         } else {
             const bool stable = (first == second);
             const bool identical = (original == first);
+            if (!stable) m_headlessFailed = true;
             LogInfo("[自检] 序列化往返: %zu -> %zu 个对象，再次往返稳定=%s，首次字节一致=%s", before,
                     m_world.ObjectCount(), stable ? "是" : "否", identical ? "是" : "否");
             if (!identical) {
@@ -413,7 +419,17 @@ bool Engine::Init() {
             if (!report["ok"].AsBool()) m_headlessFailed = true;
             if (!m_jsonOut.empty()) {
                 std::ofstream out(m_jsonOut, std::ios::binary);
-                out << report.Dump(2);
+                if (!out.is_open()) {
+                    LogError("[校验] 结果写入失败（无法打开）: %s", m_jsonOut.c_str());
+                    m_headlessFailed = true;
+                } else {
+                    out << report.Dump(2);
+                    out.flush();
+                    if (!out.good()) {
+                        LogError("[校验] 结果写入失败: %s", m_jsonOut.c_str());
+                        m_headlessFailed = true;
+                    }
+                }
             }
         } else {
             if (!RunAgentScript(m_scriptPath, m_jsonOut)) m_headlessFailed = true;
@@ -425,6 +441,8 @@ bool Engine::Init() {
 }
 
 void Engine::LoadLevel(const std::string& kind) {
+    // 2D 幸存者的背景音乐只属于 survivors 关卡，切到别的关卡时停掉
+    if (kind != "survivors") AudioSystem::Get().StopMusic();
     // World::Clear 会释放所有 GameObject；先断开编辑器的裸指针选中项，
     // 避免同一帧后续的 DrawInspector/DrawGizmo 解引用悬垂指针。
     m_editor.Select(nullptr);
@@ -464,6 +482,7 @@ void Engine::LoadLevel(const std::string& kind) {
 }
 
 void Engine::ApplyLevelMode(const std::string& kind) {
+    if (kind != "survivors") AudioSystem::Get().StopMusic();
     m_survivorsLevel = (kind == "survivors");
     m_survivors3dLevel = (kind == "survivors3d");
     m_waveLevel = (kind == "arena");
@@ -500,8 +519,10 @@ void Engine::Shutdown() {
 }
 
 void Engine::UpdateGameplay(float dt) {
-    const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
-    const bool paused = m_showEditor ? m_editor.IsPaused() : false;
+    // 播放会话只由 Editor 的 Play/Stop 决定，与编辑器 UI 是否可见无关；
+    // m_startPlay 在 Init 时已转成 m_editor.Play()（ERMAO-AUDIT-002）。
+    const bool playing = m_editor.IsPlaying();
+    const bool paused = m_editor.IsPaused();
     if (!playing || paused) return;
 
     m_accumulator += dt;
@@ -524,21 +545,25 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     viewCamera.aspect = static_cast<float>(width) / static_cast<float>(height);
     if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
     m_world.BuildRenderScene(m_scene, viewCamera); // shadowFocus 由 World 统一决定（审核 P3-42）
+    // scene 是复用成员，BuildRenderScene 不保留 2D 状态；每帧按当前关卡显式同步，3D 必须复位。
+    m_scene.is2D = m_is2D;
     if (m_is2D) {
         // 2D：运行时跟随玩家；编辑时用编辑器正交相机（位置/缩放与 gizmo 严格一致）
-        const bool playing = m_showEditor ? m_editor.IsPlaying() : true;
+        const bool playing = m_editor.IsPlaying();
         Camera2D   camera2D;
-        if (!m_showEditor || playing) {
-            camera2D.halfHeight = 6.4f;
+        if (playing) {
+            camera2D.halfHeight = 7.2f;
             if (GameObject* player = m_world.FindByName("玩家")) {
                 const Vec3 position = player->Position();
-                camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+                Vec2 half(20.0f, 8.0f);
+                if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+                camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                         Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
             }
         } else {
             camera2D.position = Vec2(camera.position.x, camera.position.y);
             camera2D.halfHeight = (std::max)(camera.orthoHeight, 0.1f) * 0.5f;
         }
-        m_scene.is2D = true;
         m_scene.camera2D = camera2D;
     }
     game::CollectSkinnedDraws(m_world, m_scene);
@@ -549,9 +574,9 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
     m_renderer.RenderToViewport(viewCamera, m_scene, m_time, width, height, m_renderer.Wireframe());
 }
 
-void Engine::CaptureScreenshot(const std::string& path) {
+bool Engine::CaptureScreenshot(const std::string& path) {
     // 在 Present 之前读后备缓冲（审核 P2-1）
-    SaveBackbufferToPng(m_device.GetDevice(), m_device.GetContext(), m_device.GetSwapChain(), path);
+    return SaveBackbufferToPng(m_device.GetDevice(), m_device.GetContext(), m_device.GetSwapChain(), path);
 }
 
 void Engine::MainLoop() {
@@ -603,12 +628,17 @@ void Engine::MainLoop() {
         // 2.5) 点击“运行 / F5”即直接开局：幸存者 Demo 不再要求先点一次“开始游戏”。
         //      无编辑器的游戏包（game.cfg play=1）同样走这里。
         {
-            const bool sessionPlaying = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
+            const bool sessionPlaying = m_editor.IsPlaying();
             if (sessionPlaying && !m_playSessionStarted) {
                 m_playSessionStarted = true;
                 m_accumulator = 0.0f;
                 if (m_survivorsLevel) {
-                    m_survivors.Reset(m_world);
+                    // --demo2d 直接开局；普通启动先显示开始界面，由玩家点“开始游戏”。
+                    if (m_demoMode) {
+                        m_survivors.Reset(m_world);
+                    } else {
+                        m_survivors.ReturnToMenu();
+                    }
                 } else if (m_survivors3dLevel) {
                     m_survivors3d.Reset(m_world);
                 } else if (m_waveLevel) {
@@ -624,15 +654,22 @@ void Engine::MainLoop() {
         // 3) 热键：文本输入时不要抢键盘（审核 P2-17/P2-19）
         const bool wantKeyboard = m_showEditor && ImGui::GetIO().WantCaptureKeyboard;
         if (!wantKeyboard) {
+            // F11 只切换编辑器 UI 可见性，不改变播放会话（ERMAO-AUDIT-002）。
             if (Input::IsKeyPressed(VK_F11)) m_showEditor = !m_showEditor;
             if (Input::IsKeyPressed(VK_F12)) {
                 CaptureScreenshot("screenshot_" + std::to_string(m_frameIndex) + ".png");
             }
-            if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) break;
+            if (Input::IsKeyPressed(VK_ESCAPE) && !m_showEditor) {
+                if (m_survivorsLevel) {
+                    m_survivors.TogglePause();
+                } else {
+                    break;
+                }
+            }
         }
 
         // 4) 决定本帧相机
-        const bool playing = m_showEditor ? m_editor.IsPlaying() : m_startPlay;
+        const bool playing = m_editor.IsPlaying();
         Camera viewCamera = m_editorCamera;
         if (playing) {
             if (Camera* gameCamera = m_world.GetActiveCamera()) {
@@ -641,23 +678,24 @@ void Engine::MainLoop() {
         }
         // PIE 里点击“运行”后鼠标通常还在工具栏上；玩法输入不应因此被禁用。
         // 只在暂停或正在输入文字时关闭，避免 WASD 抢输入框。
-        const bool paused = m_showEditor && m_editor.IsPaused();
+        const bool paused = m_editor.IsPaused();
+        const bool advanceGameplay = playing && !paused;
         bool gameplayInput = playing && !paused && !ImGui::GetIO().WantTextInput;
         // 编辑器模式下也在这里把 UI 用的相机对齐到游戏视口（血条投影要一致）
         if (m_survivors3dLevel && playing) AimSurvivors3DCamera(m_world, viewCamera);
         if (m_waveLevel) {
-            if (playing) m_waveGame.Update(m_world, dt, gameplayInput);
+            if (advanceGameplay) m_waveGame.Update(m_world, dt, gameplayInput);
             if (m_waveGame.GetState() != WaveGame::State::Playing) gameplayInput = false;
             if (!playing) m_waveGame.ReturnToMenu();
         }
         if (m_survivors3dLevel) {
-            if (playing) m_survivors3d.Update(m_world, dt);
+            if (advanceGameplay) m_survivors3d.Update(m_world, dt);
             if (m_survivors3d.GetState() != Survivors3DDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors3d.ReturnToMenu();
             Survivors3DPlayerComponent::SetInputEnabled(gameplayInput);
         }
         if (m_survivorsLevel) {
-            if (playing) m_survivors.Update(m_world, dt);
+            if (advanceGameplay) m_survivors.Update(m_world, dt);
             if (m_survivors.GetState() != SurvivorsDirector::State::Playing) gameplayInput = false;
             if (!playing) m_survivors.ReturnToMenu();
             SurvivorsPlayerComponent::SetInputEnabled(gameplayInput);
@@ -727,16 +765,19 @@ void Engine::MainLoop() {
             m_renderer.Debug().Begin();
             if (m_survivors3dLevel) AimSurvivors3DCamera(m_world, viewCamera);
             m_world.BuildRenderScene(m_scene, viewCamera);
+            m_scene.is2D = m_is2D; // 复用 scene：3D 时必须复位，避免沿用上一关的 2D 状态
     game::CollectSkinnedDraws(m_world, m_scene);
     CollectParticles(m_world, m_scene);
             if (m_is2D) {
                 Camera2D camera2D;
-                camera2D.halfHeight = 6.4f;
+                camera2D.halfHeight = 7.2f;
                 if (GameObject* player = m_world.FindByName("玩家")) {
                     const Vec3 position = player->Position();
-                    camera2D.position = Vec2(Clamp(position.x, -20.0f, 20.0f), Clamp(position.y, -8.0f, 8.0f));
+                    Vec2 half(20.0f, 8.0f);
+                    if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
+                    camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
+                                             Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
                 }
-                m_scene.is2D = true;
                 m_scene.camera2D = camera2D;
             }
             m_renderer.Render(viewCamera, m_scene, m_time, m_renderer.Wireframe());
@@ -776,7 +817,10 @@ void Engine::MainLoop() {
         // 6) 自动截图 + 退出
         ++m_frameIndex;
         if (m_autoFrames > 0 && m_frameIndex >= m_autoFrames) {
-            if (!m_screenshotPath.empty()) CaptureScreenshot(m_screenshotPath);
+            if (!m_screenshotPath.empty() && !CaptureScreenshot(m_screenshotPath)) {
+                LogError("自动截图失败: %s", m_screenshotPath.c_str());
+                m_headlessFailed = true;
+            }
             const auto& stats = m_renderer.GetStats();
             LogInfo("自动截图完成：第 %d 帧 | 绘制 %u | 实例 %u | 三角 %u | GPU %.2fms | GPU可见 %u", m_frameIndex,
                     stats.drawCalls, stats.instances, stats.triangles, stats.gpuFrameMs,

@@ -43,7 +43,7 @@ private:
     JsonValue ValidateWorld();
     void UpdateGameplay(float dt);
     void RenderViewportScene(const Camera& camera, u32 width, u32 height);
-    void CaptureScreenshot(const std::string& path);
+    bool CaptureScreenshot(const std::string& path);
 
     Window       m_window;
     Device       m_device;

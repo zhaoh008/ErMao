@@ -2,13 +2,17 @@
 //
 // 设计（代码优先）：
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
-//   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石；
-//   * 主菜单 / 暂停 / 失败界面用 ImGui，HUD 显示生命、经验、时间、击杀数。
+//   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和技能强化道具；
+//   * 箭矢是基础自动技能，击杀掉落可以把它强化成八向散射、加攻速、加攻击、加范围，
+//     血瓶直接回血；另外还有闪电 / 回旋刃 / 霜环 / 毒雾 / 火球五个技能；
+//   * 主菜单 / 设置 / 暂停 / 存档 / 失败界面用 ImGui，HUD 显示生命、经验、时间、击杀与技能。
 #pragma once
 
 #include "core/Math.h"
 #include "core/Types.h"
 #include "scene/Component.h"
+
+#include <string>
 
 namespace erm {
 
@@ -17,6 +21,32 @@ class GameObject;
 class AssetManager;
 struct RenderScene;
 struct Camera2D;
+
+// ---------------------------------------------------------------- 掉落/强化类型
+enum class SurvivorsPickupType : int {
+    ArrowSpread = 0,      // 八向散射（一次性解锁）
+    ArrowAttackSpeed,     // 箭矢攻速
+    ArrowAttackDamage,    // 箭矢攻击力
+    ArrowHealthPotion,    // 血瓶
+    ArrowRange,           // 箭矢攻击范围
+    LightningUpgrade,     // 雷霆强化
+    BladeUpgrade,         // 回旋刃强化
+    FrostUpgrade,         // 霜环强化
+    PoisonUpgrade,        // 毒雾强化
+    FireballUpgrade,      // 火球强化
+    Count
+};
+
+// ---------------------------------------------------------------- 敌人类型
+enum class SurvivorsEnemyType : int {
+    Orc = 0, // 兽人：基础近战
+    Slime,   // 史莱姆：慢、肉
+    Ghost,   // 幽灵：快、脆、穿障碍
+    Spider,  // 蜘蛛：极快、脆
+    Knight,  // 骷髅骑士：高血量
+    Elite,   // 兽人精英：高血量高伤害
+    Count
+};
 
 // ---------------------------------------------------------------- 玩家
 class SurvivorsPlayerComponent : public Component {
@@ -35,24 +65,77 @@ public:
     float attackRange = 9.0f;
     float projectileSpeed = 14.0f;
 
-    // 基础值：升级/击杀加成都乘在它们上面，重开一局时恢复
+    // 基础值：升级/击杀/掉落加成都乘在它们上面，重开一局时恢复
     float baseAttackDamage = 12.0f;
     float baseAttackInterval = 0.75f;
     float baseMaxHp = 100.0f;
+    float baseAttackRange = 9.0f;
+    float baseProjectileLife = 1.6f;
 
     // 击杀越多，攻速越快（每击杀 +3%，递减叠加）
     int killCount = 0;
 
+    // 箭矢的掉落强化
+    bool  arrowSpread = false; // 八向散射
+    int   arrowSpeedLevel = 0;
+    int   arrowDamageLevel = 0;
+    int   arrowRangeLevel = 0;
+    Vec2  facing{1.0f, 0.0f}; // 没有目标时朝这个方向射
+
+    // 其他技能等级（从 1 开始）
+    int lightningLevel = 1;
+    int bladeLevel = 1;
+    int frostLevel = 1;
+    int poisonLevel = 1;
+    int fireballLevel = 1;
+
+    // 最近拾取提示
+    std::string pickupToast;
+    float       pickupToastTimer = 0.0f;
+
     bool  alive = true;
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
-    Vec2  arenaHalf{28.0f, 15.0f};
+    Vec2  arenaHalf{43.0f, 25.0f};
 
     void OnUpdate(float dt) override;
     void AddXp(float amount);
     void ApplyKillCount(int kills);
     float KillAttackSpeedBonus() const; // 0.5 表示 +50% 攻速
-    void ResetCombatStats();
+    float ArrowSpeedBonus() const;      // 击杀 + 掉落攻速的总加成
+    void  ResetCombatStats();
+    void  RefreshDerivedStats();
+    void  ApplyPickup(int type);
+
+    // 当前生效数值（HUD 与投射物共用，避免两处公式不一致）
+    float ArrowDamage() const;
+    float ArrowRange() const;
+    float ArrowProjectileLife() const;
+    float BladeAngle() const;
+
+    float LightningDamage() const;
+    int   LightningTargets() const;
+    int   LightningChains() const;
+    float LightningRadius() const;
+    float LightningCooldown() const;
+
+    float BladeDamage() const;
+    int   BladeCount() const;
+    float BladeRadius() const;
+    float BladeSpeed() const;
+
+    float FrostDamage() const;
+    float FrostRadius() const;
+    float FrostSlow() const;
+    float FrostCooldown() const;
+
+    float PoisonDps() const;
+    float PoisonRadius() const;
+
+    float FireballDamage() const;
+    int   FireballCount() const;
+    float FireballExplosionRadius() const;
+    float FireballCooldown() const;
 
     // 菜单打开时禁止移动（和 3D 的 SetInputEnabled 同思路）
     static void SetInputEnabled(bool enabled);
@@ -62,8 +145,27 @@ private:
     float m_attackTimer = 0.0f;
     float m_levelIntervalScale = 1.0f;
     float m_killIntervalScale = 1.0f;
-    void  FireAtNearestEnemy(const Vec2& origin);
-    void  RecomputeAttackInterval();
+    float m_dropIntervalScale = 1.0f;
+
+    float m_lightningTimer = 0.0f;
+    float m_frostTimer = 0.0f;
+    float m_fireballTimer = 0.0f;
+    float m_poisonTick = 0.0f;
+    float m_bladeTick = 0.0f;
+    float m_bladeAngle = 0.0f;
+    float m_auraSfxTimer = 0.0f;
+
+    void FireAtNearestEnemy(const Vec2& origin);
+    void FireArrow(const Vec2& origin, const Vec2& direction, float damageScale);
+    void UpdateSkills(float dt);
+    bool CastLightning();
+    void CastFrost();
+    void CastFireball();
+    void UpdateBlades(float dt);
+    void UpdateAura(float dt);
+    void RecomputeAttackInterval();
+    void RecomputeAttackDamage();
+    void ShowPickupToast(const std::string& text);
 };
 
 // ---------------------------------------------------------------- 敌人
@@ -71,6 +173,7 @@ class SurvivorsEnemyComponent : public Component {
 public:
     ER_COMPONENT(SurvivorsEnemyComponent, "Survivors Enemy")
 
+    int   type = 0; // SurvivorsEnemyType
     float speed = 1.9f;
     float hp = 18.0f;
     float maxHp = 18.0f;
@@ -78,6 +181,13 @@ public:
     float attackInterval = 0.8f;
     float xpValue = 3.0f;
     float hitFlash = 0.0f;
+    float slowTimer = 0.0f;
+    float slowFactor = 1.0f;
+    float poisonTimer = 0.0f;
+    float bobPhase = 0.0f;
+    float contactRadius = 0.75f;
+    int   dropCount = 1;
+    Vec4  baseColor{1.0f, 1.0f, 1.0f, 1.0f};
 
     void OnUpdate(float dt) override;
     void OnDestroy() override;
@@ -104,13 +214,26 @@ public:
     ER_COMPONENT(SurvivorsGemComponent, "Survivors Gem")
 
     float value = 3.0f;
-    float magnetRange = 4.5f;
+    float magnetRange = 6.0f;
     float age = 0.0f;
 
     void OnUpdate(float dt) override;
 };
 
-// ---------------------------------------------------------------- 导演（波次/菜单/HUD）
+// ---------------------------------------------------------------- 技能强化掉落物
+class SurvivorsPickupComponent : public Component {
+public:
+    ER_COMPONENT(SurvivorsPickupComponent, "Survivors Pickup")
+
+    int   type = 0; // SurvivorsPickupType
+    float age = 0.0f;
+    float magnetRange = 7.0f;
+
+    void OnUpdate(float dt) override;
+    void OnDestroy() override;
+};
+
+// ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
     enum class State { Menu, Playing, Paused, GameOver };
@@ -124,27 +247,47 @@ public:
 
     State GetState() const { return m_state; }
     void  ReturnToMenu() { m_state = State::Menu; }
+    void  TogglePause();
     bool  WantsQuit() const { return m_wantsQuit; }
 
     int   Kills() const { return m_kills; }
     float Time() const { return m_time; }
     void  AddKill() { ++m_kills; }
 
+    // 存档
+    bool HasSave() const;
+    void SaveGame(World& world);
+    bool LoadGame(World& world);
+    void ShowToast(const std::string& text);
+
     // 关卡代码设置：把程序化宝石贴图注入（避免每次清场重建）
     void SetGemTexture(const std::string& name) { m_gemTexture = name; }
 
 private:
     void SpawnWave(World& world);
-    void SpawnEnemy(World& world, const Vec2& position, float hpScale, float speedScale);
+    void SpawnEnemy(World& world, const Vec2& position, int type, float hpScale, float speedScale,
+                    float damageScale);
+    void SpawnElite(World& world);
+    void EnsureMusic();
+    void DrawSettingsPanel();
+    void ApplyAudioSettings();
 
     State       m_state = State::Menu;
     int         m_kills = 0;
     float       m_time = 0.0f;
     float       m_spawnTimer = 2.0f;
+    float       m_eliteTimer = 45.0f;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;
+
+    bool        m_showSettings = false;
+    float       m_toastTimer = 0.0f;
+    std::string m_toastText;
 };
+
+// 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
+void RegisterSurvivorsComponents();
 
 // 关卡
 void BuildSurvivorsLevel(World& world, AssetManager& assets);

@@ -6,6 +6,14 @@
 ## [Unreleased]
 
 ### Added
+- 2D 幸存者：击杀怪物随机掉落技能强化道具（八向散射 / 箭矢攻速 / 箭矢攻击力 / 血瓶 / 箭矢范围），拾取后即时生效
+- 2D 幸存者：新增 **雷霆、回旋刃、霜环、毒雾、火球** 五个自动技能，各自有强化掉落与等级成长
+- 2D 幸存者：兽人 / 史莱姆 / 幽灵 / 蜘蛛 / 骷髅骑士 / 兽人精英 6 种怪物，生命、速度、伤害与经验各不相同，并随游戏时间递增；精英怪定期刷新
+- 2D 幸存者：地图扩大到 90×54，加入带碰撞的石柱、木箱、木桶、书架、围栏、桌子、大锅，以及火把、草丛、石子装饰
+- 2D 幸存者：开始游戏界面、设置面板（背景音乐 / 游戏音效独立开关与音量）、暂停菜单、存档 / 读档（`assets/saves/survivors_save.json`）
+- 2D 幸存者：技能音效与 24 秒循环背景音乐；新增 `lightning` / `blade` / `frost` / `poison` / `fireball` / `bgm_survivors` 音源
+- 音频系统：背景音乐与游戏音效可分别开关、分别调音量；背景音乐播放接口幂等，支持跨关卡停止
+- CI：新增 2D 幸存者 600 帧冒烟步骤，覆盖刷怪、掉落、技能和 HUD 运行
 - 编辑器视角切换：**透视图 / 正视图 / 俯视图**（工具栏按钮、`显示 → 视角`、V 键循环）；正/俯视为正交相机，右键拖动平移、滚轮缩放
 - 设置面板新增 **镜头速度**（1–40 m/s，Shift 加速 4 倍），不再写死 8/22
 - 2D 关卡编辑使用正交正视图，编辑器相机、gizmo 与拾取共用同一投影
@@ -17,7 +25,8 @@
 
 ### Changed
 - 关卡精简为两个 Demo：**2D 幸存者 / 3D 幸存者**；默认启动 2D，关卡菜单与资源浏览器只保留这两项
-- 点击“运行 / F5”直接开局（不再先停在幸存者主菜单）；无编辑器的游戏包 `play=1` 同样直接开局
+- 3D 幸存者 / 刷怪竞技场点击“运行 / F5”直接开局；2D 幸存者改为先显示开始界面（`--demo2d` 仍直接开局，游戏包 `play=1` 也先显示开始界面）
+- 2D 幸存者相机视野从 6.4 调整为 7.2 个世界单位半高，配合扩大后的地图
 - 编辑器相机移动速度改由 `Camera::moveSpeed` 驱动，设置面板实时生效
 - `ErMao.exe` 改为 GUI 子系统：发布版启动不再额外弹 CMD 控制台
 - 发布版默认不写 `ErMao.log`；日志文件固定放在 exe 旁边，自动化参数仍会自动写日志
@@ -36,8 +45,28 @@
 
 ### Fixed
 
+- 编辑器中文输入法提交的汉字会重复一次：ImGui 的 Win32 后端与窗口层都调用了 `DefWindowProcW(WM_IME_COMPOSITION)`，提交字符串经 `WM_IME_CHAR` → `WM_CHAR` 进入输入队列两遍；窗口层不再重复处理该消息
+- 编辑器暂停时玩法导演仍在推进（ERMAO-AUDIT-065）：暂停时主循环不再 tick 刷怪/2D/3D 幸存者导演，`WaveGame` 只在该帧玩法输入可用时处理 Esc；HUD 时间与刷怪计时不再继续走，恢复后不会跳变
+- F11 只切换编辑器 UI 可见性，不再改变播放会话：编辑模式隐藏 UI 不会开始仿真，Play 中隐藏/恢复 UI 也不会停掉并重开玩法导演
+- 文档同步：讲义总目录的 L22 链接改用 `%20` 转义空格；L24 的 OBJ 三角化说明改为“已按扇形三角化”，凹/非平面多边形仍是教学简化，排查表与实验步骤同步；课程映射的 08 改为已实现骨骼蒙皮并补 Skeleton/SkinnedMesh 落点
+- 编辑器补齐 F2 线框 / F4 阴影热键（菜单标签此前只显示快捷键，实际未处理按键）
+- 文档同步：固定步长上限改为 5、L25 量化信噪比改为 98.1/146.2 dB、L05 点光上限按实际分支描述、L08 删除编辑过程用语、补充 2D 关卡 `V`/`--editor-view` 不生效的限制
+- 补全组件反射字段：敌人 `maxHp`、2D 精灵 `rotation`、粒子发射器 `spawnExtent`/`lifetimeJitter`/`initialVelocity`/`gravity`/`sizeEnd`；保存/加载与 PIE 回滚不再丢失这些值
 - 第三人称地面检测与相机弹簧臂射线现在通过 `World::Raycast(..., ignore)` 在求交前跳过角色自身：射线起点位于角色 AABB 内时 `IntersectRayAABB` 返回 `tmin=0`，原先“命中后再比较 `hit.object`”无法找到平台，导致站上平台/台阶时 `grounded=false`、角色下沉
+- 组件预注册不完整：补齐 `Sprite Renderer` / `Sprite Animator` 与 9 个 Survivors/Survivors3D 玩法组件（共 27 种），
+  新进程 `component.add` / `scene.load` 不再因 `Reflection::Find` 查不到类型而丢组件；同步 AI 开发指南的组件显示名，
+  删除不存在的 `Box Collider`、修正 `Rigidbody` 拼写并补全 `Nav Agent` 等已注册名称
+- 2D 幸存者随机数生成器使用浮点 LCG 时会在 `float` 精度下退化成 0 / 0 / 0.655 的短周期，导致掉落类型、刷怪角度和特效几乎固定；改用 `std::mt19937`
+- 修复 `scene.new`/`level.build` 只清空世界或只设 2D 标记、不复位其余关卡模式（玩法导演标志残留），导致无头截图与运行沿用上一关状态
+- 修复 2D→3D 关卡切换后视口只剩清屏色：复用 `RenderScene` 的 `is2D` 每帧与关卡模式同步，3D 时显式复位，`World::BuildRenderScene` 兜底重置（ERMAO-AUDIT-030）
+- 修复无头 `screenshot` 未复用视口场景准备：按关卡设置 `is2D`/`camera2D`，收集蒙皮与粒子，并在关卡构建时预计算蒙皮骨骼，确保无 `World::Update` 的截图也能看到角色（ERMAO-AUDIT-031）
+- 修复编辑器编辑模式下 Delete 只标记延迟销毁、对象仍被渲染并写回场景文件：删除后立即处理待销毁队列（ERMAO-AUDIT-034）
+- 修复无头自检失败仍退出 0：`--screenshot` 自动截图失败、`--import` 导入失败、`--test-serialize` 往返解析失败或二次往返不稳定时置 `m_headlessFailed`，进程返回 1（ERMAO-AUDIT-036）
+- 无头 `--script` 的 `component.set` / `object.set` / `camera.set` 校验参数类型、向量长度与元素类型：字符串/`null` 写入数值字段、短数组或含非数字元素的向量、错误类型的标量现在返回 `ok:false`，且不修改组件、对象或相机，不再静默写成 0 或空串
+- 编辑器与 AI 导入损坏或不受支持的贴图（含缺少 TGA 编解码器的 `.tga`）时不再静默回退为 4x4 白图：`ImportTexture` 改用路径式 `GetTextureAsset`，解码失败返回“解码贴图失败”且不注册资产
+- OBJ 导入只校验位置索引：`vt`/`vn` 的正索引越界时会直接下标读取 `uvs`/`normals`（ASan 报 heap-buffer-overflow）；现在越界索引与缺省索引一致，回退到默认 UV/法线
 - 编辑器视口渲染、gizmo/拾取与 3D 血条/伤害数字统一使用视口宽高比，修复默认停靠布局（非 16:9）下的投影偏移
+- 加载场景 JSON 时先校验 `objects` 必须是数组且每个元素是对象；结构非法时返回失败并保留当前场景，不再静默清空或生成假对象后覆盖原文件（ERMAO-AUDIT-051）
 - 选中对象后切换关卡/新建或加载场景会留下悬垂的编辑器选中项（use-after-free）；现在替换 World 前清空选中，并在帧首先按 id 回查再解引用
 - 2D 精灵视口拾取与 F 聚焦：`WorldQuery` 在没有 `MeshRenderer` 时按 `SpriteRendererComponent` 的尺寸/偏移/旋转构造薄 AABB；同一平面命中按精灵 `layer` 优先，地面不再抢选玩家/敌人
 - OBJ 导入的多边形面（四边形/五边形等）按扇形三角化，不再只渲染每个面的第一个三角形
@@ -48,6 +77,8 @@
 - 新建场景未清除当前场景路径，Ctrl+S 会用空场景覆盖旧文件；从资源浏览器打开普通场景后路径未更新，保存会写回上一个文件
 - 无头接口不再把失败当成功：`package.game` 失败时返回 `ok:false` 与 `error`；`--script` / `--validate` / `--package` / `--package-game` 失败时进程以非 0 退出码结束，CI 可据此失败
 - 修复 `--script --json-out` 的逐条结果被覆盖：报告只含 `script` 字段，现由 `RunAgentScript` 写入完整的 `ok` / `total` / `succeeded` / `results`，逐条失败原因可供 AI/CI 读取
+- 报告与文本写盘失败不再误报成功：`--script` / `--validate` 的 `--json-out` 失败返回非 0；`FileSystem::WriteTextFile` / `WriteBinaryFile` 失败返回 false，场景保存报错，打包文本失败时 `PackageResult.success` 为 false
+- `--validate` / `validate` 未检查带 `/` 的导入网格/贴图与 `SpriteRenderer` 精灵贴图，且内置名拼错会回退到 cube/white 而漏报；现在先触发加载再按资源注册表校验名称与类型，缺失时写入 `errors` 并返回 `ok:false`
 - 旋转 gizmo 改为绕物体**局部 X/Y/Z** 旋转；只命中朝向相机的前半环，并按环的屏幕切线累计角度，不再出现“斜拖一下同时转两轴 / 点错环”的问题
 - 正交（正视图/俯视图/2D）拾取射线从近平面像素位置出发，不再全部从画面中心发射
 - 编辑模式下 2D 精灵把整张序列图当一帧压扁导致玩家“消失”（第一帧 UV 未应用）

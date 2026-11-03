@@ -139,6 +139,9 @@ private:
     bool  m_wantsQuit = false;
 };
 
+// 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
+void RegisterSurvivors3DComponents();
+
 void BuildSurvivors3DLevel(World& world, AssetManager& assets);
 
 } // namespace erm

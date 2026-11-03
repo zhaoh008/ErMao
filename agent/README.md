@@ -2,6 +2,8 @@
 
 无头脚本：`ErMao.exe --script <commands.json> --json-out <report.json>`
 
+`--json-out` 报告无法打开或写入时，命令会记录具体路径并以非 0 退出（`--script` / `--validate` 均适用）。
+
 | 命令 | 关键参数 |
 |---|---|
 | scene.new / scene.save / scene.load / scene.query | path |

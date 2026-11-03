@@ -233,7 +233,7 @@ void Editor::Draw(World& world, Renderer& renderer, AssetManager& assets, Camera
     if (m_showSettings) DrawSettings(world, renderer, editorCamera);
     DrawStatusBar();
 
-    HandleShortcuts(world, editorCamera);
+    HandleShortcuts(world, editorCamera, renderer);
 
     // 帧时间曲线
     m_frameTimes[m_frameTimeOffset] = dt * 1000.0f;
@@ -1317,7 +1317,10 @@ void Editor::DeleteSelected(World& world) {
     if (!m_selected) return;
     const std::string name = m_selected->Name();
     world.DestroyObject(m_selected);
+    // 编辑模式下 World::Update 不运行，延迟销毁队列没人处理；这里立即处理，
+    // 否则 Delete 只是清掉选中项，对象仍会被渲染/保存，直到进入 Play 才消失。
     Select(nullptr);
+    world.ProcessPendingDestruction();
     SetStatus("已删除: " + name);
 }
 
@@ -1702,7 +1705,7 @@ void Editor::NewScene(World& world) {
     if (m_sceneLoaded) m_sceneLoaded(std::string());
 }
 
-void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
+void Editor::HandleShortcuts(World& world, Camera& editorCamera, Renderer& renderer) {
     (void)editorCamera;
     ImGuiIO& io = ImGui::GetIO();
     if (io.WantTextInput) return;
@@ -1716,6 +1719,9 @@ void Editor::HandleShortcuts(World& world, Camera& editorCamera) {
         FocusSelected(world, editorCamera);
         SetStatus("聚焦: " + m_selected->Name());
     }
+
+    if (ImGui::IsKeyPressed(ImGuiKey_F2)) renderer.Wireframe() = !renderer.Wireframe();
+    if (ImGui::IsKeyPressed(ImGuiKey_F4)) renderer.ShadowsEnabled() = !renderer.ShadowsEnabled();
 
     if (ImGui::IsKeyPressed(ImGuiKey_F5)) {
         if (m_playing) {

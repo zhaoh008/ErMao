@@ -182,6 +182,8 @@ void SpawnCharacter(World& world, const std::string& name, const Vec3& position,
     character->phase = phase;
     character->blend = blend;
     character->albedo = color;
+    // Build 阶段 World 尚未 Start；先按 dt=0 计算骨骼/蒙皮矩阵，保证无头截图与编辑器预览能拍到角色。
+    character->OnUpdate(0.0f);
 }
 
 } // namespace
