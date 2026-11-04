@@ -71,6 +71,7 @@
 
 ### Fixed
 
+- 微信小游戏 iOS：WXWebGL 对 `glGetIntegerv(GL_TEXTURE_BINDING_2D)` 返回 undefined 并遗留 `GL_INVALID_ENUM`，ImGui 查询后导致程序化纹理（`gem_proc` 12×12）被 `glGetError()` 误判为 `glTexImage2D` 失败，启动中断；Emscripten 下跳过该查询并在纹理上传前清空旧 GL 错误
 - 微信小游戏 iOS 启动兼容：SDL 创建窗口前补齐 iOS 可能缺失的 `devicePixelRatio` / `canvas.getBoundingClientRect` / `document.body.style` 等最小接口；wasm 初始堆 128MB → 32MB、最大 256MB；诊断包把实时日志 / vConsole / 屏显错误作为首模块注入，并校验 `document.title` 保护，避免 iPhone 再次“程序遇到错误”却没有堆栈
 - 2D 幸存者：兽人水平朝向翻转条件写反，向右追击玩家时会翻成背对玩家、看起来像“倒着走”；现改为向右保持原图、向左才翻转
 - 2D 幸存者毒雾特效：Kenney 烟雾贴图本身是黑底不透明，直接按 alpha 混合会出现大黑方块；改为 `vfx/poison_mist.png`（按亮度转 alpha）并加柔和多层雾圈
