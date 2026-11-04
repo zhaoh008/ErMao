@@ -386,7 +386,12 @@ public:
 
     void Reset(World& world);
     void Update(World& world, float dt);
-    void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight);
+    // safeInsets：左/上/右/下的系统安全区内边距（CSS 像素）。Web/微信宿主传入，
+    // 桌面端保持 0；手机 HUD 据此避开刘海、状态栏与微信胶囊。
+    void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight,
+                const Vec4& safeInsets = Vec4(0.0f, 0.0f, 0.0f, 0.0f));
+    // 触摸命中战斗 HUD 的暂停键（屏幕 CSS 像素，由最近一次 DrawUI 记录）。
+    bool HitPauseButton(float screenX, float screenY) const;
     // 头顶血条（世界坐标 → 屏幕）+ 漂浮伤害数字（2D 版）
     void DrawCombatFeedback(World& world, const Camera2D& camera, float viewportX, float viewportY,
                             float viewportWidth, float viewportHeight);
@@ -444,6 +449,7 @@ private:
     void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
+    void DrawMobileHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawGachaScreen(World& world, float vx, float vy, float vw, float vh);
@@ -480,6 +486,10 @@ private:
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;
+
+    // 手机 HUD：系统安全区（CSS 像素内边距）与暂停键屏幕命中框（x/y/w/h，CSS 像素）。
+    Vec4 m_safeInsets{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4 m_pauseHit{0.0f, 0.0f, 0.0f, 0.0f};
 
     // 增益宝箱抽奖状态（抽奖期间 m_time / 世界更新都冻结，只有这里的时间在走）
     float       m_gachaTime = 0.0f;

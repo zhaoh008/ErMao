@@ -32,7 +32,6 @@ private:
     void Render();
     void ApplyStyle();
     bool LoadFonts();
-    void DrawTouchUI(float width, float height);
     void UpdateTouchInput();
     void ReleaseTouchKeys();
     void Quit();
@@ -63,12 +62,15 @@ private:
     int   m_mouseDeltaY = 0;
     float m_wheel = 0.0f;
 
-    // 触摸摇杆：手指按下后的起点/当前位置（窗口坐标）
+    // 触摸摇杆：手指按下后的起点/当前位置（窗口坐标）；摇杆本身不绘制。
     bool  m_touchActive = false;
     int   m_touchFinger = -1;
     Vec2  m_touchOrigin{};
     Vec2  m_touchPosition{};
     int   m_touchKeys = 0;
+
+    // 系统安全区内边距（左/上/右/下，CSS 像素），供手机 HUD 布局使用。
+    Vec4 m_safeInsets{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 } // namespace erm
