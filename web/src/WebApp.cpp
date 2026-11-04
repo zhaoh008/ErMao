@@ -509,7 +509,9 @@ void WebApp::Render() {
     m_scene.is2D = true;
 
     Camera2D camera2D;
-    camera2D.halfHeight = 7.2f;
+    // 竖屏视口很窄，7.2 的视野宽度只有约 6.6 世界单位，镜头会显得贴脸；竖屏拉远。
+    const bool portrait = windowHeight > windowWidth;
+    camera2D.halfHeight = portrait ? 13.0f : 7.2f;
     if (GameObject* player = m_world.FindByName("玩家")) {
         const Vec3 position = player->Position();
         Vec2 half(20.0f, 8.0f);
