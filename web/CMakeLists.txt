@@ -72,7 +72,10 @@ target_link_options(ErMaoWeb PRIVATE
     -sMAX_WEBGL_VERSION=1
     -sFULL_ES2=1
     -sALLOW_MEMORY_GROWTH=1
-    -sINITIAL_MEMORY=134217728
+    # 128MB 初始堆对 iOS 小游戏的 wasm 运行时过于激进；游戏实际只用十几 MB。
+    # 初始堆降到 32MB，并把最大堆限制在 256MB（避免声明 2GB 上限）。
+    -sINITIAL_MEMORY=33554432
+    -sMAXIMUM_MEMORY=268435456
     -sSTACK_SIZE=2097152
     -sFORCE_FILESYSTEM=1
     -sNO_EXIT_RUNTIME=1

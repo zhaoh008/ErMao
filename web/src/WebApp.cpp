@@ -45,6 +45,94 @@ ImFont* AddFont(ImGuiIO& io, const char* path, float size, const ImWchar* ranges
     return io.Fonts->AddFontFromFileTTF(path, size, &config, ranges);
 }
 
+// 微信小游戏 iOS 与安卓的 DOM/Canvas 适配层并不相同。Emscripten/SDL2 在创建
+// 窗口时依赖若干浏览器 API（全局 devicePixelRatio、canvas.getBoundingClientRect、
+// document.body.style 等），安卓/开发者工具里有，iOS 真机上可能缺失；缺失时
+// SDL 会直接抛异常，微信只显示“程序遇到错误”，没有可读堆栈。
+// 这里在 SDL 之前补齐最小接口；浏览器里什么都不做。返回被补丁的位掩码。
+int InstallWeChatCompatShims() {
+    return EM_ASM_INT({
+        try {
+            if (typeof wx === 'undefined') return 0;
+            var info = {};
+            try { info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (e) {}
+            var dpr = info.pixelRatio || 1;
+            var changed = 0;
+
+            if (typeof devicePixelRatio === 'undefined') {
+                try { window.devicePixelRatio = dpr; changed |= 1; } catch (e) {}
+                try { globalThis.devicePixelRatio = dpr; } catch (e) {}
+            }
+            if (typeof window !== 'undefined') {
+                if (!window.innerWidth) { try { window.innerWidth = info.windowWidth || 1280; changed |= 2; } catch (e) {} }
+                if (!window.innerHeight) { try { window.innerHeight = info.windowHeight || 720; changed |= 4; } catch (e) {} }
+            }
+
+            var cv = null;
+            try { cv = (typeof Module !== 'undefined' && Module.canvas) ? Module.canvas : null; } catch (e) {}
+            if (!cv) { try { cv = (typeof canvas !== 'undefined') ? canvas : null; } catch (e) {} }
+            if (cv) {
+                if (!cv.style) { try { cv.style = {}; changed |= 8; } catch (e) {} }
+                if (!cv.getBoundingClientRect) {
+                    try {
+                        cv.getBoundingClientRect = function () {
+                            var w = cv.width || info.windowWidth || 1280;
+                            var h = cv.height || info.windowHeight || 720;
+                            var r = {};
+                            r.left = 0;
+                            r.top = 0;
+                            r.right = w;
+                            r.bottom = h;
+                            r.width = w;
+                            r.height = h;
+                            return r;
+                        };
+                        changed |= 16;
+                    } catch (e) {}
+                }
+            }
+
+            if (typeof document !== 'undefined') {
+                if (!document.body) { try { document.body = {}; changed |= 32; } catch (e) {} }
+                try { if (document.body && !document.body.style) { document.body.style = {}; changed |= 64; } } catch (e) {}
+                if (!document.documentElement) { try { document.documentElement = {}; changed |= 128; } catch (e) {} }
+                try {
+                    if (document.documentElement && !document.documentElement.style) {
+                        document.documentElement.style = {};
+                        changed |= 256;
+                    }
+                } catch (e) {}
+            }
+
+            try {
+                var cap = 'dpr=' + (typeof devicePixelRatio) + ' canvas=' + (cv ? 'yes' : 'no') +
+                    ' rect=' + (cv && cv.getBoundingClientRect ? 'yes' : 'no') +
+                    ' body=' + ((typeof document !== 'undefined' && document.body) ? 'yes' : 'no');
+                if (typeof GameGlobal !== 'undefined' && GameGlobal.__ermaoStage) {
+                    GameGlobal.__ermaoStage('caps.post ' + cap);
+                }
+            } catch (e) {}
+
+            return changed;
+        } catch (e) {
+            return -1;
+        }
+    });
+}
+
+// 把启动阶段发到实时日志：iOS 真机没有 vConsole 时，至少能从运维中心看到
+// 卡在 SDL/GL/字体/资源中的哪一步。由微信调试包注入的 ermao-logger.js 接收；
+// 浏览器/普通包里是 no-op。
+void WeChatDebugStage(const char* stage) {
+    EM_ASM({
+        try {
+            if (typeof GameGlobal !== 'undefined' && GameGlobal.__ermaoStage) {
+                GameGlobal.__ermaoStage(UTF8ToString($0));
+            }
+        } catch (e) {}
+    }, stage);
+}
+
 } // namespace
 
 WebApp::WebApp() = default;
@@ -57,6 +145,14 @@ WebApp::~WebApp() {
 bool WebApp::Init() {
     Log::Init("");
     Timer::Init();
+
+    const int shims = InstallWeChatCompatShims();
+    if (shims != 0) {
+        LogInfo("[Web] 微信 DOM/Canvas 兼容补丁: mask=0x%X（0 表示浏览器/无需补）", static_cast<unsigned>(shims));
+    }
+    char shimStage[64];
+    std::snprintf(shimStage, sizeof(shimStage), "shim.done mask=0x%X", static_cast<unsigned>(shims));
+    WeChatDebugStage(shimStage);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         LogError("[Web] SDL_Init 失败: %s", SDL_GetError());
@@ -83,12 +179,14 @@ bool WebApp::Init() {
         LogError("[Web] 创建窗口失败: %s", SDL_GetError());
         return false;
     }
+    WeChatDebugStage("sdl.window");
 
     m_glContext = SDL_GL_CreateContext(m_window);
     if (!m_glContext) {
         LogError("[Web] 创建 GLES2 上下文失败: %s", SDL_GetError());
         return false;
     }
+    WeChatDebugStage("gl.context");
     SDL_GL_MakeCurrent(m_window, m_glContext);
     SDL_GL_SetSwapInterval(1);
 
@@ -111,6 +209,7 @@ bool WebApp::Init() {
         LogError("[Web] ImGui OpenGL3 后端初始化失败");
         return false;
     }
+    WeChatDebugStage("imgui.init");
 
     // 2D UI 会用平台回调切换采样器；OpenGL 后端没有该回调时补一个空实现，
     // 避免 ImDrawList::AddCallback(nullptr)。
@@ -122,6 +221,7 @@ bool WebApp::Init() {
         LogError("[Web] 2D 渲染器初始化失败");
         return false;
     }
+    WeChatDebugStage("renderer.init");
 
     m_assets.Init();
     RegisterSurvivorsComponents();
@@ -131,6 +231,7 @@ bool WebApp::Init() {
     m_survivors = new SurvivorsDirector();
     m_survivors->InitializeUI(m_assets, m_bodyFont, m_largeFont, m_displayFont);
     m_survivors->ReturnToMenu();
+    WeChatDebugStage("game.ready");
 
     m_camera.aspect = 16.0f / 9.0f;
     m_camera.position = Vec3(0.0f, 0.0f, 10.0f);
@@ -164,7 +265,9 @@ bool WebApp::Init() {
     if (search && std::strstr(search, "mobile=1")) m_mobile = true;
     if (isWeChat) {
         // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
+        WeChatDebugStage("game.autostart.before");
         m_survivors->Reset(m_world);
+        WeChatDebugStage("game.autostart.after");
     }
 
     // 截图/自动化：在进入 requestAnimationFrame 前同步推进 N 个固定步。
@@ -190,6 +293,7 @@ bool WebApp::Init() {
     }
 
     m_initialised = true;
+    WeChatDebugStage("init.done");
     LogInfo("[Web] 初始化完成（%s，触摸 %s）", "WebGL 1.0 / GLES2", m_mobile ? "是" : "否");
     return true;
 }
