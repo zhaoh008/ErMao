@@ -109,6 +109,7 @@ private:
     bool        m_editorSettings = false; // --editor-settings（自动截图用）
     std::string m_uiPreview;              // --ui-preview <page>（2D UI 截图/走查）
     bool        m_uiPreviewApplied = false;
+    bool        m_fixedDt = false;        // --balance-test：固定 1/60 步长，保证对照可复现
     int         m_windowWidth = 1600;
     int         m_windowHeight = 900;
 };

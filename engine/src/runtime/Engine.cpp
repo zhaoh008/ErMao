@@ -158,6 +158,25 @@ int Engine::Run(int argc, char** argv) {
             m_showEditor = false;
             m_startPlay = true;
             m_demoMode = true;
+        } else if (arg == "--balance-test" && i + 3 < argc) {
+            // 数值对照：固定种子/步长，脚本走位（stand=站桩，kite=正常走位），
+            // 逐秒把真实玩法指标写到 CSV；窗口缩小、关垂直同步以便无头快速跑完。
+            const std::string mode = argv[++i];
+            const int         seconds = std::atoi(argv[++i]);
+            const std::string csv = argv[++i];
+            const SurvivorsBalanceMode balanceMode = mode == "stand"  ? SurvivorsBalanceMode::Stand
+                                                     : mode == "kite" ? SurvivorsBalanceMode::Kite
+                                                                      : SurvivorsBalanceMode::None;
+            SetSurvivorsBalanceTest(balanceMode, seconds, csv);
+            m_levelName = "survivors";
+            m_showEditor = false;
+            m_startPlay = true;
+            m_demoMode = true;
+            m_autoFrames = (std::max)(1, seconds) * 60;
+            m_fixedDt = true;
+            m_vsync = false;
+            m_windowWidth = 960;
+            m_windowHeight = 540;
         } else if (arg == "--demo2d") {
             // 一键 2D 演示：幸存者关卡 + 自动开局 + 无编辑器
             m_levelName = "survivors";
@@ -723,7 +742,7 @@ void Engine::MainLoop() {
         }
         if (m_window.Width() == 0 || m_window.Height() == 0) continue;
 
-        const float dt = (std::min)(Timer::Delta(), 0.1f);
+        const float dt = m_fixedDt ? kFixedDt : (std::min)(Timer::Delta(), 0.1f);
         m_time += dt;
 
         // 2) 玩法更新（编辑器模式下不 tick AI/物理）

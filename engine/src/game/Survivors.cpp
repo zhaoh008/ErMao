@@ -23,6 +23,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <random>
 #include <string>
 #include <utility>
@@ -35,16 +36,26 @@ namespace {
 // ================================================================ 全局状态
 std::vector<GameObject*> g_enemies; // 敌人注册表（技能/投射物用，避免遍历整个场景）
 std::vector<GameObject*> g_pickups; // 技能强化掉落物（HUD 标签用）
+std::vector<GameObject*> g_chests;  // 地图抽奖补给箱（小地图/上限用）
+
+// --balance-test：固定种子 + 固定步长 + 脚本走位；None 表示正常游戏。
+SurvivorsBalanceMode g_balanceMode = SurvivorsBalanceMode::None;
+int                  g_balanceSeconds = 0;
+std::string          g_balanceCsvPath;
+Vec2                 g_autoMove{0.0f, 0.0f};
+bool                 g_autoMoveEnabled = false;
 
 bool  g_inputEnabled = true;
 int   g_kills = 0;
 int   g_killsSinceDrop = 0;
 int   g_killsSinceSkillDrop = 0;
+float g_elapsedTime = 0.0f; // 本局真实时间（秒），掉落节奏按阶段取
 
 // 不要用浮点 LCG：float 乘加后取模会退化成 0 / 0 / 0.655 的短周期，
 // 导致掉落类型、刷怪角度和特效几乎固定。mt19937 的 24 位结果足够用。
 std::mt19937 g_rng(0x12345u);
 std::mt19937 g_fxRng(0x271828u);
+std::mt19937 g_chestRng(0xC0FFEEu); // 补给箱独立随机流，不扰动战斗/掉落随机序列
 
 struct MapObstacle {
     Vec2 center;
@@ -410,8 +421,10 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
             default: break;
         }
     }
+    // 血瓶仍留在强化池：低血时权重更高，但总掉率已压到 0.6–6%，
+    // 因此它只提供早期容错，不会像旧版 16% 掉率那样把站桩养成不死。
     pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowHealthPotion),
-                    player.hp < player.maxHp * 0.65f ? 22.0f : 7.0f});
+                    player.hp < player.maxHp * 0.65f ? 26.0f : 8.0f});
 
     float total = 0.0f;
     for (const WeightedPickup& entry : pool) total += entry.weight;
@@ -420,7 +433,7 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
         roll -= entry.weight;
         if (roll <= 0.0f) return entry.type;
     }
-    return static_cast<int>(SurvivorsPickupType::ArrowHealthPotion);
+    return static_cast<int>(SurvivorsPickupType::ArrowHealthPotion); // 池空时兜底
 }
 
 void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemyComponent& enemy) {
@@ -433,13 +446,23 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
     ++g_killsSinceSkillDrop;
 
     // 技能掉落优先：一局最多 4 个额外技能，掉在地上必须走过去捡，不会被吸走。
-    // 第一个技能 3 杀保底，之后随拥有数量逐步拉长保底间隔，避免开局只有 1 个技能时被怪潮压死。
+    // 用“时间闸门 + 保底”把 5 个技能摊到约 4–5 分钟，而不是开局 20 秒凑齐。
     if (player->SelectedSkillCount() < kSurvivorsMaxLoadout) {
         const int owned = player->SelectedSkillCount();
-        const int pityKills = owned <= 1 ? 3 : (owned == 2 ? 5 : 7);
-        const bool  pity = g_killsSinceSkillDrop >= pityKills;
-        const float chance = pity ? 1.0f : 0.18f;
-        if (Random01() < chance) {
+        static const float kUnlockGate[kSurvivorsMaxLoadout] = {0.0f, 15.0f, 45.0f, 90.0f, 150.0f};
+        static const int   kUnlockPity[kSurvivorsMaxLoadout] = {3, 6, 10, 14, 20};
+        // 地上还没捡的新技能也要算进“已拥有”，否则同一时间闸会连续掉多个，
+        // 玩家一次捡起就跳级拿到 5 个技能。
+        int pendingDrops = 0;
+        for (GameObject* pickup : g_pickups) {
+            if (!pickup || !pickup->Active()) continue;
+            const auto* pickupComponent = pickup->GetComponent<SurvivorsPickupComponent>();
+            if (pickupComponent && IsSkillUnlockType(pickupComponent->type)) ++pendingDrops;
+        }
+        const int  index = Clamp(owned + pendingDrops, 0, kSurvivorsMaxLoadout - 1);
+        const bool timeReady = g_elapsedTime >= kUnlockGate[index];
+        const bool pity = g_killsSinceSkillDrop >= kUnlockPity[index];
+        if (timeReady && (pity || Random01() < 0.30f)) {
             const int skill = PickSkillUnlockType(*player);
             if (skill >= 0) {
                 // 远程击杀时把技能掉落拉回玩家 6 单位内，保证手动拾取目标始终在镜头内。
@@ -457,12 +480,25 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
         }
     }
 
-    // 强化只从已拥有且未满级的技能里掉落。
-    if (Random01() < 0.16f || g_killsSinceDrop >= 6) {
+    // 强化只从已拥有且未满级的技能里掉落。击杀数会随时间暴涨，固定 16% 会让
+    // 中后期每分钟掉几十个强化；改成按阶段衰减的掉率 + 保底，把毕业拉到 9–12 分钟。
+    // 前 2 分钟保持接近旧版的强化反馈（15% + 6 杀保底），但用充能费用把“升级”拉长；
+    // 2 分钟后掉率快速衰减，避免击杀数暴涨时每分钟掉几十个强化。
+    float upgradeChance = 0.150f;
+    int   upgradePity = 6;
+    if (g_elapsedTime >= 300.0f) {
+        upgradeChance = 0.0100f;
+        upgradePity = 150;
+    } else if (g_elapsedTime >= 120.0f) {
+        upgradeChance = 0.0200f;
+        upgradePity = 80;
+    }
+    if (Random01() < upgradeChance || g_killsSinceDrop >= upgradePity) {
         SpawnPickup(world, position + Vec2(RandomRange(-0.35f, 0.35f), RandomRange(-0.28f, 0.28f)),
                     PickUpgradePickupType(*player));
         g_killsSinceDrop = 0;
     }
+
 }
 
 // ---------------------------------------------------------------- 碰撞
@@ -673,6 +709,13 @@ int PickEnemyType(float time) {
 
 }
 
+// --balance-test 的入口：参数在引擎解析命令行时写入，开局 Reset 时接管。
+void SetSurvivorsBalanceTest(SurvivorsBalanceMode mode, int seconds, const std::string& csvPath) {
+    g_balanceMode = mode;
+    g_balanceSeconds = (std::max)(0, seconds);
+    g_balanceCsvPath = csvPath;
+}
+
 // ================================================================ 玩家：设置/数值
 void SurvivorsPlayerComponent::SetInputEnabled(bool enabled) { g_inputEnabled = enabled; }
 bool SurvivorsPlayerComponent::InputEnabled() { return g_inputEnabled; }
@@ -683,7 +726,8 @@ void SurvivorsPlayerComponent::RecomputeAttackInterval() {
     const float killBonus = (std::min)(0.5f, 0.005f * static_cast<float>(killCount));
     m_killIntervalScale = 1.0f / (1.0f + killBonus);
     m_dropIntervalScale = std::pow(0.96f, static_cast<float>(arrowSpeedLevel));
-    attackInterval = Clamp(baseAttackInterval * m_levelIntervalScale * m_killIntervalScale * m_dropIntervalScale,
+    attackInterval = Clamp(baseAttackInterval * m_levelIntervalScale * m_killIntervalScale * m_dropIntervalScale /
+                               buffCooldown,
                            0.16f, baseAttackInterval);
 }
 
@@ -731,6 +775,7 @@ bool SurvivorsPlayerComponent::SkillMaxed(int skill) const {
 bool SurvivorsPlayerComponent::UnlockSkill(int skill) {
     if (skill < 0 || skill >= kSurvivorsSkillCount || HasSkill(skill)) return false;
     if (SelectedSkillCount() >= kSurvivorsMaxLoadout) return false;
+    ++skillDropsPicked;
 
     loadoutMask |= (1 << skill);
     switch (skill) {
@@ -761,11 +806,12 @@ float SurvivorsPlayerComponent::ArrowSpeedBonus() const {
 
 float SurvivorsPlayerComponent::ArrowDamage() const {
     // 线性成长：等级 + 箭矢攻击强化，不再用乘法叠乘，避免几十级后一枝箭秒掉整屏。
-    return baseAttackDamage + 1.5f * static_cast<float>(level - 1) + 3.0f * static_cast<float>(arrowDamageLevel);
+    return (baseAttackDamage + 1.5f * static_cast<float>(level - 1) + 3.0f * static_cast<float>(arrowDamageLevel)) *
+           buffDamage;
 }
 
 float SurvivorsPlayerComponent::ArrowRange() const {
-    return baseAttackRange + 0.8f * static_cast<float>(arrowRangeLevel);
+    return (baseAttackRange + 0.8f * static_cast<float>(arrowRangeLevel)) * buffRange;
 }
 
 float SurvivorsPlayerComponent::ArrowProjectileLife() const {
@@ -774,10 +820,10 @@ float SurvivorsPlayerComponent::ArrowProjectileLife() const {
 
 float SurvivorsPlayerComponent::BladeAngle() const { return m_bladeAngle; }
 
-// 所有技能最多 6 级：伤害走线性成长，冷却只做小幅递减并设下限。
+// 所有技能最多 12 级：伤害走线性成长，冷却只做小幅递减并设下限。
 float SurvivorsPlayerComponent::LightningDamage() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 16.0f + 5.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (16.0f + 5.0f * static_cast<float>(level - 1)) * buffDamage;
 }
 int SurvivorsPlayerComponent::LightningTargets() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
@@ -789,16 +835,16 @@ int SurvivorsPlayerComponent::LightningChains() const {
 }
 float SurvivorsPlayerComponent::LightningRadius() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return 7.5f + 0.35f * static_cast<float>((std::max)(0, level - 1));
+    return (7.5f + 0.35f * static_cast<float>((std::max)(0, level - 1))) * buffRange;
 }
 float SurvivorsPlayerComponent::LightningCooldown() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return (std::max)(2.0f, 2.8f * std::pow(0.95f, static_cast<float>((std::max)(0, level - 1))));
+    return (std::max)(2.0f, 2.8f * std::pow(0.95f, static_cast<float>((std::max)(0, level - 1)))) / buffCooldown;
 }
 
 float SurvivorsPlayerComponent::BladeDamage() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 8.0f + 2.5f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (8.0f + 2.5f * static_cast<float>(level - 1)) * buffDamage;
 }
 int SurvivorsPlayerComponent::BladeCount() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
@@ -806,20 +852,20 @@ int SurvivorsPlayerComponent::BladeCount() const {
 }
 float SurvivorsPlayerComponent::BladeRadius() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return 2.1f + 0.18f * static_cast<float>((std::max)(0, level - 1));
+    return (2.1f + 0.18f * static_cast<float>((std::max)(0, level - 1))) * buffRange;
 }
 float SurvivorsPlayerComponent::BladeSpeed() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return 4.2f + 0.10f * static_cast<float>((std::max)(1, level));
+    return (4.2f + 0.10f * static_cast<float>((std::max)(1, level))) * buffCooldown;
 }
 
 float SurvivorsPlayerComponent::FrostDamage() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 12.0f + 3.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (12.0f + 3.0f * static_cast<float>(level - 1)) * buffDamage;
 }
 float SurvivorsPlayerComponent::FrostRadius() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
-    return 4.2f + 0.30f * static_cast<float>((std::max)(0, level - 1));
+    return (4.2f + 0.30f * static_cast<float>((std::max)(0, level - 1))) * buffRange;
 }
 float SurvivorsPlayerComponent::FrostSlow() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
@@ -827,21 +873,21 @@ float SurvivorsPlayerComponent::FrostSlow() const {
 }
 float SurvivorsPlayerComponent::FrostCooldown() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
-    return (std::max)(2.5f, 4.5f * std::pow(0.96f, static_cast<float>((std::max)(0, level - 1))));
+    return (std::max)(2.5f, 4.5f * std::pow(0.96f, static_cast<float>((std::max)(0, level - 1)))) / buffCooldown;
 }
 
 float SurvivorsPlayerComponent::PoisonDps() const {
     const int level = (std::min)(poisonLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 7.0f + 2.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (7.0f + 2.0f * static_cast<float>(level - 1)) * buffDamage;
 }
 float SurvivorsPlayerComponent::PoisonRadius() const {
     const int level = (std::min)(poisonLevel, kSurvivorsMaxSkillLevel);
-    return 2.8f + 0.25f * static_cast<float>((std::max)(0, level - 1));
+    return (2.8f + 0.25f * static_cast<float>((std::max)(0, level - 1))) * buffRange;
 }
 
 float SurvivorsPlayerComponent::FireballDamage() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 22.0f + 5.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (22.0f + 5.0f * static_cast<float>(level - 1)) * buffDamage;
 }
 int SurvivorsPlayerComponent::FireballCount() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
@@ -849,11 +895,11 @@ int SurvivorsPlayerComponent::FireballCount() const {
 }
 float SurvivorsPlayerComponent::FireballExplosionRadius() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
-    return 1.8f + 0.08f * static_cast<float>((std::max)(1, level));
+    return (1.8f + 0.08f * static_cast<float>((std::max)(1, level))) * buffRange;
 }
 float SurvivorsPlayerComponent::FireballCooldown() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
-    return (std::max)(1.8f, 3.4f * std::pow(0.95f, static_cast<float>((std::max)(0, level - 1))));
+    return (std::max)(1.8f, 3.4f * std::pow(0.95f, static_cast<float>((std::max)(0, level - 1)))) / buffCooldown;
 }
 
 void SurvivorsPlayerComponent::ApplyKillCount(int kills) {
@@ -891,6 +937,14 @@ void SurvivorsPlayerComponent::ResetCombatStats() {
     m_levelIntervalScale = 1.0f;
     m_killIntervalScale = 1.0f;
     m_dropIntervalScale = 1.0f;
+    buffDamage = 1.0f;
+    buffCooldown = 1.0f;
+    buffMoveSpeed = 1.0f;
+    buffRange = 1.0f;
+    buffDamageTimer = 0.0f;
+    buffCooldownTimer = 0.0f;
+    buffMoveTimer = 0.0f;
+    for (int skill = 0; skill < kSurvivorsSkillCount; ++skill) upgradeCharge[skill] = 0;
     m_attackTimer = 0.0f;
     m_lightningTimer = 0.8f;
     m_frostTimer = 1.8f;
@@ -907,8 +961,44 @@ void SurvivorsPlayerComponent::ShowPickupToast(const std::string& text) {
     pickupToastTimer = 2.3f;
 }
 
+bool SurvivorsPlayerComponent::AddSkillUpgrade(int skill) {
+    if (skill < 1 || skill >= kSurvivorsSkillCount || !HasSkill(skill) || SkillMaxed(skill)) return false;
+    static const char* kNames[kSurvivorsSkillCount] = {"箭矢", "雷霆", "回旋刃", "霜环", "毒雾", "火球"};
+    int*               level = nullptr;
+    switch (skill) {
+        case 1: level = &lightningLevel; break;
+        case 2: level = &bladeLevel; break;
+        case 3: level = &frostLevel; break;
+        case 4: level = &poisonLevel; break;
+        case 5: level = &fireballLevel; break;
+        default: return false;
+    }
+    if (!level) return false;
+
+    const int cost = kSurvivorsUpgradeCost[Clamp(*level, 0, kSurvivorsMaxSkillLevel)];
+    ++upgradeCharge[skill];
+    if (upgradeCharge[skill] >= cost) {
+        upgradeCharge[skill] = 0;
+        ++(*level);
+        if (skill == 1) m_lightningTimer = 0.0f;
+        if (skill == 3) m_frostTimer = 0.0f;
+        if (skill == 4) m_poisonTick = 0.0f;
+        if (skill == 5) m_fireballTimer = 0.0f;
+        ShowPickupToast(std::string(kNames[skill]) + " 升到 Lv." + std::to_string(*level));
+        PlaySfx("levelup", 0.50f, 1.18f);
+        return true;
+    }
+    char text[64];
+    std::snprintf(text, sizeof(text), "%s 强化 %d/%d", kNames[skill], upgradeCharge[skill], cost);
+    ShowPickupToast(text);
+    PlaySfx("pickup", 0.50f, 1.10f);
+    return false;
+}
+
 void SurvivorsPlayerComponent::ApplyPickup(int type) {
     const SurvivorsPickupType pickupType = static_cast<SurvivorsPickupType>(type);
+    // 遥测：血瓶是补给不算“强化”，其他拾取都计入实际强化次数。
+    if (pickupType != SurvivorsPickupType::ArrowHealthPotion && !IsSkillUnlockType(type)) ++upgradesPicked;
     switch (pickupType) {
         case SurvivorsPickupType::ArrowSpread:
             if (!HasSkill(0)) break;
@@ -939,7 +1029,9 @@ void SurvivorsPlayerComponent::ApplyPickup(int type) {
             break;
         case SurvivorsPickupType::ArrowHealthPotion:
             if (hp < maxHp) {
-                hp = (std::min)(maxHp, hp + maxHp * 0.25f + 6.0f);
+                const float beforeHeal = hp;
+                hp = (std::min)(maxHp, hp + maxHp * 0.22f + 4.0f);
+                healingDone += hp - beforeHeal;
                 ShowPickupToast("获得血瓶：恢复生命");
                 PlaySfx("pickup", 0.70f, 0.85f);
             } else {
@@ -955,42 +1047,80 @@ void SurvivorsPlayerComponent::ApplyPickup(int type) {
             PlaySfx("pickup", 0.55f, 1.35f);
             break;
         case SurvivorsPickupType::LightningUpgrade:
-            if (!HasSkill(1) || lightningLevel >= kSurvivorsMaxSkillLevel) break;
-            ++lightningLevel;
-            m_lightningTimer = 0.0f;
-            ShowPickupToast("雷霆强化 Lv." + std::to_string(lightningLevel));
-            PlaySfx("levelup", 0.50f, 1.22f);
+            AddSkillUpgrade(1);
             break;
         case SurvivorsPickupType::BladeUpgrade:
-            if (!HasSkill(2) || bladeLevel >= kSurvivorsMaxSkillLevel) break;
-            ++bladeLevel;
-            ShowPickupToast("回旋刃强化 Lv." + std::to_string(bladeLevel));
-            PlaySfx("levelup", 0.48f, 1.10f);
+            AddSkillUpgrade(2);
             break;
         case SurvivorsPickupType::FrostUpgrade:
-            if (!HasSkill(3) || frostLevel >= kSurvivorsMaxSkillLevel) break;
-            ++frostLevel;
-            m_frostTimer = 0.0f;
-            ShowPickupToast("霜环强化 Lv." + std::to_string(frostLevel));
-            PlaySfx("levelup", 0.48f, 1.35f);
+            AddSkillUpgrade(3);
             break;
         case SurvivorsPickupType::PoisonUpgrade:
-            if (!HasSkill(4) || poisonLevel >= kSurvivorsMaxSkillLevel) break;
-            ++poisonLevel;
-            m_poisonTick = 0.0f;
-            ShowPickupToast("毒雾强化 Lv." + std::to_string(poisonLevel));
-            PlaySfx("levelup", 0.48f, 0.92f);
+            AddSkillUpgrade(4);
             break;
         case SurvivorsPickupType::FireballUpgrade:
-            if (!HasSkill(5) || fireballLevel >= kSurvivorsMaxSkillLevel) break;
-            ++fireballLevel;
-            m_fireballTimer = 0.0f;
-            ShowPickupToast("火球强化 Lv." + std::to_string(fireballLevel));
-            PlaySfx("levelup", 0.48f, 1.05f);
+            AddSkillUpgrade(5);
             break;
         default: break;
     }
     LogInfo("[2D] 拾取强化: %s", GetPickupInfo(type).label);
+}
+
+void SurvivorsPlayerComponent::ApplyMapBuff(int type, int rarity) {
+    const int r = Clamp(rarity, 0, 2);
+    static const char* kRarityName[3] = {"普通", "稀有", "史诗"};
+    static const float kAttack[3] = {0.20f, 0.30f, 0.45f};
+    static const float kCooldown[3] = {0.15f, 0.25f, 0.35f};
+    static const float kMove[3] = {0.20f, 0.30f, 0.40f};
+    static const float kMaxHp[3] = {20.0f, 30.0f, 45.0f};
+    char               text[96];
+    switch (static_cast<SurvivorsBuffType>(type)) {
+        case SurvivorsBuffType::Attack:
+            buffDamage = (std::min)(2.0f, (std::max)(buffDamage, 1.0f + kAttack[r]));
+            buffDamageTimer = 30.0f;
+            std::snprintf(text, sizeof(text), "获得%s补给：攻击 +%.0f%%（30s）", kRarityName[r], kAttack[r] * 100.0f);
+            break;
+        case SurvivorsBuffType::Cooldown:
+            buffCooldown = (std::min)(1.6f, (std::max)(buffCooldown, 1.0f + kCooldown[r]));
+            buffCooldownTimer = 25.0f;
+            RecomputeAttackInterval();
+            std::snprintf(text, sizeof(text), "获得%s补给：冷却 -%.0f%%（25s）", kRarityName[r], kCooldown[r] * 100.0f);
+            break;
+        case SurvivorsBuffType::MoveSpeed:
+            buffMoveSpeed = (std::min)(1.6f, (std::max)(buffMoveSpeed, 1.0f + kMove[r]));
+            buffMoveTimer = 30.0f;
+            std::snprintf(text, sizeof(text), "获得%s补给：移速 +%.0f%%（30s）", kRarityName[r], kMove[r] * 100.0f);
+            break;
+        case SurvivorsBuffType::MaxHp:
+            maxHp += kMaxHp[r];
+            hp = (std::min)(maxHp, hp + kMaxHp[r]);
+            std::snprintf(text, sizeof(text), "获得%s补给：生命上限 +%.0f", kRarityName[r], kMaxHp[r]);
+            break;
+        default: return;
+    }
+    ShowPickupToast(text);
+    PlaySfx("levelup", 0.55f, 1.28f);
+}
+
+std::string SurvivorsPlayerComponent::BuffSummary() const {
+    std::string text;
+    char        part[48];
+    if (buffDamage > 1.001f) {
+        std::snprintf(part, sizeof(part), "攻击 +%.0f%%(%ds)", (buffDamage - 1.0f) * 100.0f,
+                      static_cast<int>(buffDamageTimer + 0.5f));
+        text += part;
+    }
+    if (buffCooldown > 1.001f) {
+        std::snprintf(part, sizeof(part), "%s冷却 +%.0f%%(%ds)", text.empty() ? "" : "  ",
+                      (buffCooldown - 1.0f) * 100.0f, static_cast<int>(buffCooldownTimer + 0.5f));
+        text += part;
+    }
+    if (buffMoveSpeed > 1.001f) {
+        std::snprintf(part, sizeof(part), "%s移速 +%.0f%%(%ds)", text.empty() ? "" : "  ",
+                      (buffMoveSpeed - 1.0f) * 100.0f, static_cast<int>(buffMoveTimer + 0.5f));
+        text += part;
+    }
+    return text;
 }
 
 void SurvivorsPlayerComponent::AddXp(float amount) {
@@ -1035,31 +1165,11 @@ void SurvivorsPlayerComponent::ApplyLevelUpUpgrade(int skill, int sub) {
             }
             break;
         case 1:
-            if (lightningLevel < kSurvivorsMaxSkillLevel) {
-                ++lightningLevel;
-                m_lightningTimer = 0.0f;
-            }
-            break;
         case 2:
-            if (bladeLevel < kSurvivorsMaxSkillLevel) ++bladeLevel;
-            break;
         case 3:
-            if (frostLevel < kSurvivorsMaxSkillLevel) {
-                ++frostLevel;
-                m_frostTimer = 0.0f;
-            }
-            break;
         case 4:
-            if (poisonLevel < kSurvivorsMaxSkillLevel) {
-                ++poisonLevel;
-                m_poisonTick = 0.0f;
-            }
-            break;
         case 5:
-            if (fireballLevel < kSurvivorsMaxSkillLevel) {
-                ++fireballLevel;
-                m_fireballTimer = 0.0f;
-            }
+            AddSkillUpgrade(skill);
             break;
         case 6: // 满级后的额外补给
             if (sub == 0) {
@@ -1079,7 +1189,9 @@ void SurvivorsPlayerComponent::CompleteLevelUp() {
     if (pendingLevelUps > 0) --pendingLevelUps;
     ++level;
     maxHp += 6.0f;
-    hp = (std::min)(maxHp, hp + 6.0f);
+    // 升级回复从固定 +6 改成“15% 最大生命 + 4”：前期每次升级都是可感知的续航，
+    // 但不改变技能/强化的毕业节奏（升级本身只加血量和少量攻速）。
+    hp = (std::min)(maxHp, hp + maxHp * 0.15f + 4.0f);
     RefreshDerivedStats();
     PlaySfx("levelup", 0.48f, 1.12f);
 }
@@ -1091,9 +1203,27 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
     invulnerable = (std::max)(0.0f, invulnerable - dt);
     hitFlash = (std::max)(0.0f, hitFlash - dt * 3.0f);
     pickupToastTimer = (std::max)(0.0f, pickupToastTimer - dt);
+    // 地图抽奖 buff 是限时的：到期后回到 1.0；再次拾取只刷新/覆盖更强的档位。
+    if (buffDamageTimer > 0.0f) {
+        buffDamageTimer -= dt;
+        if (buffDamageTimer <= 0.0f) buffDamage = 1.0f;
+    }
+    if (buffCooldownTimer > 0.0f) {
+        buffCooldownTimer -= dt;
+        if (buffCooldownTimer <= 0.0f) {
+            buffCooldown = 1.0f;
+            RecomputeAttackInterval();
+        }
+    }
+    if (buffMoveTimer > 0.0f) {
+        buffMoveTimer -= dt;
+        if (buffMoveTimer <= 0.0f) buffMoveSpeed = 1.0f;
+    }
 
     Vec2 move(0.0f, 0.0f);
-    if (g_inputEnabled) {
+    if (g_autoMoveEnabled) {
+        move = g_autoMove;
+    } else if (g_inputEnabled) {
         if (Input::IsKeyDown('A')) move.x -= 1.0f;
         if (Input::IsKeyDown('D')) move.x += 1.0f;
         if (Input::IsKeyDown('W')) move.y += 1.0f;
@@ -1108,7 +1238,7 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
         const Vec2 direction = SafeDir(move);
         Vec3       position = m_owner->Position();
         const Vec2 oldPosition(position.x, position.y);
-        Vec2       next = MoveWithObstacles(oldPosition, direction * speed * dt, 0.45f);
+        Vec2       next = MoveWithObstacles(oldPosition, direction * speed * buffMoveSpeed * dt, 0.45f);
         next.x = Clamp(next.x, -arenaHalf.x, arenaHalf.x);
         next.y = Clamp(next.y, -arenaHalf.y, arenaHalf.y);
         position.x = next.x;
@@ -1460,6 +1590,7 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
         if (m_attackTimer <= 0.0f) {
             if (playerComponent->invulnerable <= 0.0f) {
                 playerComponent->hp -= damage;
+                playerComponent->damageTaken += damage;
                 playerComponent->invulnerable = 0.35f;
                 playerComponent->hitFlash = 1.0f;
                 PlaySfx("hit", 0.40f, 0.72f + Random01() * 0.10f);
@@ -1605,6 +1736,50 @@ void SurvivorsPickupComponent::OnDestroy() {
     g_pickups.erase(std::remove(g_pickups.begin(), g_pickups.end(), m_owner), g_pickups.end());
 }
 
+// ================================================================ 地图抽奖补给箱
+void SurvivorsChestComponent::OnUpdate(float dt) {
+    if (!m_owner) return;
+    World* world = GetWorld();
+    if (!world) return;
+
+    age += dt;
+    if (age > kSurvivorsChestLifetime) {
+        world->DestroyObject(m_owner);
+        return;
+    }
+
+    static const Vec4 kRarityColor[3] = {Vec4(1.00f, 0.82f, 0.30f, 1.0f), Vec4(0.78f, 0.58f, 1.00f, 1.0f),
+                                         Vec4(1.00f, 0.55f, 0.18f, 1.0f)};
+    if (auto* sprite = m_owner->GetComponent<SpriteRendererComponent>()) {
+        Vec4 color = kRarityColor[Clamp(rarity, 0, 2)];
+        color.w = 0.80f + 0.20f * (0.5f + 0.5f * std::sin(age * 5.0f));
+        sprite->color = color;
+        sprite->offset = Vec2(0.0f, std::sin(age * 3.0f) * 0.12f);
+        sprite->rotation = std::sin(age * 1.6f) * 0.08f;
+    }
+
+    GameObject* player = FindPlayer(*world);
+    if (!player) return;
+    auto* playerComponent = player->GetComponent<SurvivorsPlayerComponent>();
+    if (!playerComponent) return;
+
+    const Vec2  position(m_owner->Position().x, m_owner->Position().y);
+    const Vec2  target(player->Position().x, player->Position().y);
+    const float distance = Length(target - position);
+    if (distance < kSurvivorsChestPickupRadius) {
+        const int type = static_cast<int>(g_chestRng() % static_cast<unsigned>(kSurvivorsBuffCount));
+        playerComponent->ApplyMapBuff(type, rarity);
+        ++playerComponent->chestsPicked;
+        LogInfo("[2D] 拾取补给箱：稀有度 %d / 类型 %d", rarity, type);
+        world->DestroyObject(m_owner);
+    }
+}
+
+void SurvivorsChestComponent::OnDestroy() {
+    if (!m_owner) return;
+    g_chests.erase(std::remove(g_chests.begin(), g_chests.end(), m_owner), g_chests.end());
+}
+
 // ================================================================ 导演：刷怪
 void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type, float hpScale, float speedScale,
                                    float damageScale) {
@@ -1657,13 +1832,15 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
 }
 
 void SurvivorsDirector::SpawnWave(World& world) {
-    if (g_enemies.size() > 140) return; // 上限，避免刷爆
+    if (g_enemies.size() > 90) return; // 上限，避免刷爆；也给走位留出穿过的缝
     GameObject* player = FindPlayer(world);
     const Vec2  center = player ? Vec2(player->Position().x, player->Position().y) : Vec2(0.0f, 0.0f);
 
-    const int count = 2 + (std::min)(12, static_cast<int>(m_time / 10.0f));
+    const int count = 2 + (std::min)(6, static_cast<int>(m_time / 40.0f));
     const float hpScale = 1.0f + m_time / 55.0f + std::pow(m_time / 150.0f, 2.0f);
-    const float speedScale = 1.0f + (std::min)(0.8f, m_time / 420.0f);
+    // 玩家移速 4.6；怪速成长封顶 +20%，保证蜘蛛（3.8）也不会永久快过玩家。
+    // 否则后期所有构筑都只能站桩拼回血，走位失去意义。
+    const float speedScale = 1.0f + (std::min)(0.20f, m_time / 420.0f);
     const float damageScale = 1.0f + m_time / 110.0f;
 
     for (int i = 0; i < count; ++i) {
@@ -1681,11 +1858,61 @@ void SurvivorsDirector::SpawnElite(World& world) {
     const Vec2  position(center.x + std::cos(angle) * 12.0f, center.y + std::sin(angle) * 12.0f);
 
     const float hpScale = 1.0f + m_time / 45.0f + std::pow(m_time / 150.0f, 2.0f);
-    const float speedScale = 1.0f + (std::min)(0.8f, m_time / 420.0f);
+    // 玩家移速 4.6；怪速成长封顶 +20%，保证蜘蛛（3.8）也不会永久快过玩家。
+    // 否则后期所有构筑都只能站桩拼回血，走位失去意义。
+    const float speedScale = 1.0f + (std::min)(0.20f, m_time / 420.0f);
     const float damageScale = 1.0f + m_time / 100.0f;
     SpawnEnemy(world, position, static_cast<int>(SurvivorsEnemyType::Elite), hpScale, speedScale, damageScale);
     ShowToast("兽人精英出现了！");
     PlaySfx("death", 0.60f, 0.55f);
+}
+
+void SurvivorsDirector::SpawnBuffChest(World& world) {
+    if (static_cast<int>(g_chests.size()) >= kSurvivorsChestMaxAlive) return;
+    GameObject* player = FindPlayer(world);
+    if (!player) return;
+
+    const Vec2 center(player->Position().x, player->Position().y);
+    Vec2       position = center;
+    bool       placed = false;
+    for (int attempt = 0; attempt < 24 && !placed; ++attempt) {
+        const unsigned roll = g_chestRng();
+        const float    angle = static_cast<float>(roll & 0xFFFFu) / 65535.0f * kTwoPi;
+        const float    radius = 12.0f + static_cast<float>((roll >> 16) & 0xFFFFu) / 65535.0f * 13.0f;
+        Vec2           candidate(center.x + std::cos(angle) * radius, center.y + std::sin(angle) * radius);
+        candidate.x = Clamp(candidate.x, -40.0f, 40.0f);
+        candidate.y = Clamp(candidate.y, -22.0f, 22.0f);
+        if (CircleHitsObstacle(candidate, 0.8f)) continue;
+        bool tooClose = false;
+        for (GameObject* chest : g_chests) {
+            if (!chest || !chest->Active()) continue;
+            const Vec2 offset(chest->Position().x - candidate.x, chest->Position().y - candidate.y);
+            if (Length(offset) < 7.0f) tooClose = true;
+        }
+        if (tooClose) continue;
+        position = candidate;
+        placed = true;
+    }
+    if (!placed) return;
+
+    static const Vec4 kRarityColor[3] = {Vec4(1.00f, 0.82f, 0.30f, 1.0f), Vec4(0.78f, 0.58f, 1.00f, 1.0f),
+                                         Vec4(1.00f, 0.55f, 0.18f, 1.0f)};
+    const float    distance = Length(position - center);
+    const int      farBonus = distance > 20.0f ? 8 : 0; // 跑远路更容易抽到稀有/史诗
+    const unsigned rarityRoll = g_chestRng() % 100u;
+    const int      rarity = rarityRoll < static_cast<unsigned>(10 + farBonus)
+                                ? 2
+                                : (rarityRoll < static_cast<unsigned>(38 + farBonus) ? 1 : 0);
+    GameObject*    chest = SpawnSprite(world, "补给箱", "chest_proc", position, Vec2(1.3f, 1.3f), 3);
+    if (auto* sprite = chest->GetComponent<SpriteRendererComponent>()) sprite->color = kRarityColor[rarity];
+    auto* component = chest->AddComponent<SurvivorsChestComponent>();
+    component->rarity = rarity;
+    g_chests.push_back(chest);
+
+    static const char* kRarityName[3] = {"普通", "稀有", "史诗"};
+    ShowToast(std::string(kRarityName[rarity]) + "补给箱出现在地图上（小地图见方向）");
+    PlaySfx("levelup", 0.45f, 1.32f);
+    LogInfo("[2D] 刷新%s补给箱，位置 (%.1f, %.1f)", kRarityName[rarity], position.x, position.y);
 }
 
 // ================================================================ 导演：生命周期
@@ -1697,7 +1924,8 @@ void SurvivorsDirector::Reset(World& world) {
             if (object->GetComponent<SurvivorsEnemyComponent>() ||
                 object->GetComponent<SurvivorsProjectileComponent>() ||
                 object->GetComponent<SurvivorsGemComponent>() ||
-                object->GetComponent<SurvivorsPickupComponent>()) {
+                object->GetComponent<SurvivorsPickupComponent>() ||
+                object->GetComponent<SurvivorsChestComponent>()) {
                 toDestroy.push_back(object);
             }
         });
@@ -1706,9 +1934,11 @@ void SurvivorsDirector::Reset(World& world) {
     world.ProcessPendingDestruction();
     g_enemies.clear();
     g_pickups.clear();
+    g_chests.clear();
     ClearSkillEffects();
     g_killsSinceDrop = 0;
     g_killsSinceSkillDrop = 0;
+    g_elapsedTime = 0.0f;
     g_kills = 0;
     g_lastHitSfxTime = -10.0;
     g_lastGemSfxTime = -10.0;
@@ -1723,12 +1953,30 @@ void SurvivorsDirector::Reset(World& world) {
 
     g_rng.seed(0x12345u);
     g_fxRng.seed(0x271828u);
+    g_chestRng.seed(0xC0FFEEu);
+    m_balanceMode = g_balanceMode;
+    m_balanceSeconds = g_balanceSeconds;
+    m_balanceCsvPath = g_balanceCsvPath;
+    m_balanceSampleTimer = 0.0f;
+    m_balanceSamples = 0;
+    m_balanceHeaderWritten = false;
+    m_balanceFinished = false;
+    m_balanceFirstMaxLogged = false;
+    m_balanceFullBuildLogged = false;
+    m_balanceFirstMaxTime = -1.0f;
+    m_balanceFullBuildTime = -1.0f;
+    g_autoMove = Vec2(0.0f, 0.0f);
+    g_autoMoveEnabled = (m_balanceMode != SurvivorsBalanceMode::None);
+    if (m_balanceMode != SurvivorsBalanceMode::None && !m_balanceCsvPath.empty()) {
+        std::ofstream truncate(m_balanceCsvPath, std::ios::trunc); // 每局从空文件开始
+    }
     m_state = State::Playing;
     m_kills = 0;
     m_time = 0.0f;
     m_difficulty = 0.0f;
     m_spawnTimer = 1.0f;
     m_eliteTimer = 45.0f;
+    m_chestTimer = kSurvivorsChestFirstSpawn;
     m_showSettings = false;
     m_settingsReturn = State::Menu;
     m_selectedSkill = -1;
@@ -1740,15 +1988,181 @@ void SurvivorsDirector::Reset(World& world) {
     ShowToast("猎杀开始：击杀怪物拾取强化；Esc 暂停");
 }
 
+// ================================================================ 平衡对照测试
+void SurvivorsDirector::UpdateBalanceTest(World& world, float dt) {
+    if (m_balanceMode == SurvivorsBalanceMode::None || m_balanceFinished) return;
+
+    GameObject* playerObject = FindPlayer(world);
+    auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+    if (!playerObject || !player) return;
+
+    const Vec2 position(playerObject->Position().x, playerObject->Position().y);
+    g_autoMove = Vec2(0.0f, 0.0f);
+    g_autoMoveEnabled = true;
+
+    if (m_balanceMode == SurvivorsBalanceMode::Kite) {
+        // 目标：优先地上的新技能，其次地图补给箱。
+        Vec2  targetPosition(0.0f, 0.0f);
+        float targetDistance = -1.0f;
+        for (GameObject* pickup : g_pickups) {
+            if (!pickup || !pickup->Active()) continue;
+            const auto* component = pickup->GetComponent<SurvivorsPickupComponent>();
+            if (!component || !IsSkillUnlockType(component->type)) continue;
+            const Vec2  offset = Vec2(pickup->Position().x, pickup->Position().y) - position;
+            const float distance = Length(offset);
+            if (targetDistance < 0.0f || distance < targetDistance) {
+                targetDistance = distance;
+                targetPosition = Vec2(pickup->Position().x, pickup->Position().y);
+            }
+        }
+        for (GameObject* chest : g_chests) {
+            if (!chest || !chest->Active()) continue;
+            const Vec2  offset = Vec2(chest->Position().x, chest->Position().y) - position;
+            const float distance = Length(offset);
+            if (targetDistance < 0.0f || distance < targetDistance) {
+                targetDistance = distance;
+                targetPosition = Vec2(chest->Position().x, chest->Position().y);
+            }
+        }
+
+        // 16 方向采样：选“前方 3 单位最空旷 + 朝向目标”的方向。比固定切向更接近人类
+        // 绕大圈：怪群围上来时会主动往缺口走，而不是贴着最近的怪转。全程不使用随机数。
+        const Vec2  targetDirection = targetDistance > 0.5f ? SafeDir(targetPosition - position) : Vec2(0.0f, 0.0f);
+        const Vec2  half = player->arenaHalf;
+        Vec2        bestDirection(0.0f, 0.0f);
+        float       bestScore = -1.0e9f;
+        for (int i = 0; i < 16; ++i) {
+            const float angle = static_cast<float>(i) * kTwoPi / 16.0f;
+            const Vec2  direction(std::cos(angle), std::sin(angle));
+            const Vec2  probe = position + direction * 3.0f;
+            float       clearance = 8.0f;
+            for (GameObject* enemy : g_enemies) {
+                if (!enemy || !enemy->Active()) continue;
+                const Vec2 offset(enemy->Position().x - probe.x, enemy->Position().y - probe.y);
+                clearance = (std::min)(clearance, Length(offset));
+            }
+            float score = clearance;
+            if (targetDistance > 0.5f) score += Dot(direction, targetDirection) * 1.6f;
+            if (std::abs(probe.x) > half.x - 3.0f || std::abs(probe.y) > half.y - 3.0f) score -= 3.5f;
+            if (CircleHitsObstacle(probe, 0.5f)) score -= 3.0f;
+            if (score > bestScore) {
+                bestScore = score;
+                bestDirection = direction;
+            }
+        }
+        g_autoMove = bestDirection;
+    }
+
+    m_balanceSampleTimer += dt;
+    while (m_balanceSampleTimer >= 1.0f) {
+        m_balanceSampleTimer -= 1.0f;
+        ++m_balanceSamples;
+        WriteBalanceSample(world);
+        if (m_balanceSamples >= m_balanceSeconds) {
+            FinishBalanceTest();
+            return;
+        }
+    }
+}
+
+void SurvivorsDirector::WriteBalanceSample(World& world) {
+    GameObject* playerObject = FindPlayer(world);
+    auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+    if (!playerObject || !player) return;
+
+    const Vec2 position(playerObject->Position().x, playerObject->Position().y);
+    int        inContact = 0;
+    for (GameObject* enemy : g_enemies) {
+        if (!enemy || !enemy->Active()) continue;
+        const Vec2 offset(enemy->Position().x - position.x, enemy->Position().y - position.y);
+        if (Length(offset) < 1.8f) ++inContact;
+    }
+
+    float nearestChest = -1.0f;
+    for (GameObject* chest : g_chests) {
+        if (!chest || !chest->Active()) continue;
+        const Vec2  offset(chest->Position().x - position.x, chest->Position().y - position.y);
+        const float distance = Length(offset);
+        if (nearestChest < 0.0f || distance < nearestChest) nearestChest = distance;
+    }
+
+    // 首次满级 / 整套构筑毕业：任一已拥有技能满级，与全部已拥有技能都满级。
+    bool ownedAny = false;
+    bool allMaxed = true;
+    const bool fullLoadout = player->SelectedSkillCount() >= kSurvivorsMaxLoadout;
+    for (int skill = 0; skill < kSurvivorsSkillCount; ++skill) {
+        if (!player->HasSkill(skill)) continue;
+        ownedAny = true;
+        if (!player->SkillMaxed(skill)) allMaxed = false;
+        // 首个满级按“非箭矢技能到 6 级”统计：箭矢是 4 条强化合计，HUD 显示 Lv.17，
+        // 单独统计会把首个满级误报成 1:30。
+        if (!m_balanceFirstMaxLogged && skill != 0 && player->SkillMaxed(skill)) {
+            m_balanceFirstMaxLogged = true;
+            m_balanceFirstMaxTime = m_time;
+            LogInfo("[BAL] 首次技能满级：t=%.1fs skill=%d", m_time, skill);
+        }
+    }
+    if (!m_balanceFullBuildLogged && ownedAny && fullLoadout && allMaxed) {
+        m_balanceFullBuildLogged = true;
+        m_balanceFullBuildTime = m_time;
+        LogInfo("[BAL] 整套构筑毕业：t=%.1fs", m_time);
+    }
+
+    std::ofstream out(m_balanceCsvPath, std::ios::app);
+    if (!out) return;
+    if (!m_balanceHeaderWritten) {
+        out << "t,hp,max_hp,level,kills,skills,skill0,skill1,skill2,skill3,skill4,skill5,"
+               "aspd,dmg,range,spread,upgrades,skill_pickups,damage_taken,healing,enemies,in_contact,chests,chest_dist\n";
+        m_balanceHeaderWritten = true;
+    }
+    char line[512];
+    std::snprintf(line, sizeof(line), "%.1f,%.1f,%.1f,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%d,%.1f,%.1f,%d,%d,%d,%.1f\n",
+                  m_time, player->hp, player->maxHp, player->level, m_kills, player->SelectedSkillCount(),
+                  player->SkillLevel(0), player->SkillLevel(1), player->SkillLevel(2), player->SkillLevel(3),
+                  player->SkillLevel(4), player->SkillLevel(5), player->arrowSpeedLevel, player->arrowDamageLevel,
+                  player->arrowRangeLevel, player->arrowSpread ? 1 : 0, player->upgradesPicked,
+                  player->skillDropsPicked, player->damageTaken, player->healingDone,
+                  static_cast<int>(g_enemies.size()), inContact, player->chestsPicked, nearestChest);
+    out << line;
+
+    if (m_balanceSamples > 0 && m_balanceSamples % 60 == 0) {
+        LogInfo("[BAL] t=%ds level=%d kills=%d skills=%d hp=%.0f/%.0f contact=%d damage=%.0f heal=%.0f",
+                m_balanceSamples, player->level, m_kills, player->SelectedSkillCount(), player->hp, player->maxHp,
+                inContact, player->damageTaken, player->healingDone);
+    }
+}
+
+void SurvivorsDirector::FinishBalanceTest() {
+    if (m_balanceFinished) return;
+    m_balanceFinished = true;
+    g_autoMoveEnabled = false;
+
+    const char* modeName = m_balanceMode == SurvivorsBalanceMode::Stand ? "stand" : "kite";
+    std::string summaryPath = m_balanceCsvPath + ".summary.txt";
+    std::ofstream summary(summaryPath, std::ios::trunc);
+    summary << "mode=" << modeName << "\n";
+    summary << "samples=" << m_balanceSamples << "\n";
+    summary << "first_max=" << m_balanceFirstMaxTime << "\n";
+    summary << "full_build=" << m_balanceFullBuildTime << "\n";
+    summary << "kills=" << m_kills << "\n";
+    summary << "played_seconds=" << m_time << "\n";
+
+    LogInfo("[BAL] 结束 mode=%s t=%.1fs samples=%d kills=%d first_max=%.1f full_build=%.1f", modeName, m_time,
+            m_balanceSamples, m_kills, m_balanceFirstMaxTime, m_balanceFullBuildTime);
+}
+
 void SurvivorsDirector::Update(World& world, float dt) {
     if (m_state != State::Playing) return;
 
     m_time += dt;
+    g_elapsedTime = m_time;
     m_difficulty = m_time / 60.0f;
     m_kills = g_kills;
     UpdateDamageNumbers(dt);
     UpdateSkillEffects(dt);
     m_toastTimer = (std::max)(0.0f, m_toastTimer - dt);
+    UpdateBalanceTest(world, dt);
+    if (m_balanceFinished) return;
 
     if (GameObject* player = FindPlayer(world)) {
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) component->ApplyKillCount(m_kills);
@@ -1757,13 +2171,20 @@ void SurvivorsDirector::Update(World& world, float dt) {
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
         SpawnWave(world);
-        m_spawnTimer = (std::max)(0.55f, 2.4f - m_time * 0.012f);
+        m_spawnTimer = (std::max)(1.5f, 2.4f - m_time * 0.005f);
     }
 
     m_eliteTimer -= dt;
     if (m_eliteTimer <= 0.0f) {
         SpawnElite(world);
         m_eliteTimer = (std::max)(32.0f, 55.0f - m_time * 0.03f);
+    }
+
+    // 地图补给箱：固定节奏刷在玩家附近的地图上，不吸附，必须走位拾取。
+    m_chestTimer -= dt;
+    if (m_chestTimer <= 0.0f) {
+        SpawnBuffChest(world);
+        m_chestTimer = kSurvivorsChestInterval;
     }
 
     GameObject* player = FindPlayer(world);
@@ -1775,6 +2196,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
         component->alive = false;
         m_state = State::GameOver;
         PlaySfx("death", 0.70f, 0.75f);
+        FinishBalanceTest();
         LogInfo("[2D] 游戏结束：存活 %.1f 秒，击杀 %d", m_time, m_kills);
     }
 }
@@ -2405,6 +2827,7 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     world.Clear();
     g_enemies.clear();
     g_pickups.clear();
+    g_chests.clear();
     g_obstacles.clear();
     g_torches.clear();
     ClearSkillEffects();
@@ -2413,6 +2836,8 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     g_kills = 0;
     g_killsSinceDrop = 0;
     g_killsSinceSkillDrop = 0;
+    g_elapsedTime = 0.0f;
+    g_chestRng.seed(0xC0FFEEu);
     LoadSurvivorsSettings();
 
     // 程序化宝石贴图（12x12 菱形）
@@ -2456,6 +2881,37 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
             }
         }
         assets.CreateTextureRGBA("pickup_proc", size, size, pixels.data());
+    }
+
+    // 程序化补给箱贴图（20x20 木箱 + 金边，稀有度靠精灵染色区分）
+    {
+        const int size = 20;
+        std::vector<u8> pixels(size * size * 4, 0);
+        for (int y = 0; y < size; ++y) {
+            for (int x = 0; x < size; ++x) {
+                u8* p = &pixels[(y * size + x) * 4];
+                const bool body = x >= 2 && x <= 17 && y >= 5 && y <= 17;
+                const bool lid = x >= 2 && x <= 17 && y >= 3 && y <= 6;
+                const bool bandX = x == 9 || x == 10;
+                const bool bandY = y == 5 || y == 11;
+                if (!body && !lid) continue;
+                p[3] = 255;
+                if (bandX || bandY) {
+                    p[0] = 245;
+                    p[1] = 196;
+                    p[2] = 76;
+                } else if (lid) {
+                    p[0] = 150;
+                    p[1] = 92;
+                    p[2] = 52;
+                } else {
+                    p[0] = 118;
+                    p[1] = 70;
+                    p[2] = 40;
+                }
+            }
+        }
+        assets.CreateTextureRGBA("chest_proc", size, size, pixels.data());
     }
 
     // 程序化地面装饰：小石子和草
@@ -2633,11 +3089,33 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
 }
 
 // ================================================================ 反射
+void GetSurvivorsMinimapSnapshot(World& world, std::vector<SurvivorsMinimapRect>& obstacles,
+                                 std::vector<SurvivorsMinimapMarker>& markers) {
+    obstacles.clear();
+    markers.clear();
+    for (const MapObstacle& obstacle : g_obstacles) obstacles.push_back({obstacle.center, obstacle.half});
+    if (GameObject* player = FindPlayer(world)) {
+        markers.push_back({Vec2(player->Position().x, player->Position().y), 0, 0});
+    }
+    for (GameObject* chest : g_chests) {
+        if (!chest || !chest->Active()) continue;
+        const auto* component = chest->GetComponent<SurvivorsChestComponent>();
+        markers.push_back({Vec2(chest->Position().x, chest->Position().y), 1, component ? component->rarity : 0});
+    }
+    for (GameObject* enemy : g_enemies) {
+        if (!enemy || !enemy->Active()) continue;
+        const auto* component = enemy->GetComponent<SurvivorsEnemyComponent>();
+        const bool  elite = component && component->type == static_cast<int>(SurvivorsEnemyType::Elite);
+        markers.push_back({Vec2(enemy->Position().x, enemy->Position().y), elite ? 2 : 3, 0});
+    }
+}
+
 void RegisterSurvivorsComponents() {
     Reflection::Register<SurvivorsPlayerComponent>("Survivors Player");
     Reflection::Register<SurvivorsEnemyComponent>("Survivors Enemy");
     Reflection::Register<SurvivorsProjectileComponent>("Survivors Projectile");
     Reflection::Register<SurvivorsGemComponent>("Survivors Gem");
+    Reflection::Register<SurvivorsChestComponent>("Survivors Chest");
 }
 
 void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
@@ -2658,6 +3136,16 @@ void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
     t.Field("frostLevel", FieldType::Int, &SurvivorsPlayerComponent::frostLevel, "霜环等级", 1.0f, 99.0f);
     t.Field("poisonLevel", FieldType::Int, &SurvivorsPlayerComponent::poisonLevel, "毒雾等级", 1.0f, 99.0f);
     t.Field("fireballLevel", FieldType::Int, &SurvivorsPlayerComponent::fireballLevel, "火球等级", 1.0f, 99.0f);
+    // 充能进度是局内瞬时状态，不写入存档；等级本身会保存。
+    t.Field("buffDamage", FieldType::Float, &SurvivorsPlayerComponent::buffDamage, "地图攻击增益", 1.0f, 2.0f);
+    t.Field("buffCooldown", FieldType::Float, &SurvivorsPlayerComponent::buffCooldown, "地图冷却增益", 1.0f, 1.6f);
+    t.Field("buffMoveSpeed", FieldType::Float, &SurvivorsPlayerComponent::buffMoveSpeed, "地图移速增益", 1.0f, 1.5f);
+    t.Field("buffRange", FieldType::Float, &SurvivorsPlayerComponent::buffRange, "地图范围增益", 1.0f, 1.6f);
+}
+
+void SurvivorsChestComponent::Describe(TypeInfo& t) {
+    t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SurvivorsChestComponent>(); };
+    t.Field("rarity", FieldType::Int, &SurvivorsChestComponent::rarity, "稀有度", 0.0f, 2.0f);
 }
 
 void SurvivorsEnemyComponent::Describe(TypeInfo& t) {

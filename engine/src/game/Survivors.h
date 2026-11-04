@@ -4,7 +4,7 @@
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
 //   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和血瓶；
 //   * 职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
-//     击杀同时掉落已拥有技能的强化，技能最高 6 级；
+//     击杀同时掉落已拥有技能的强化，技能最高 6 级（非箭矢技能用充能升级）；
 //   * 技能有独立的序列帧特效（CC0 贴图，见 engine/assets/vfx/LICENSE-VFX.txt）；
 //   * 八页界面用自绘 ImGui 图层，九宫格切图来自用户提供的 ermao-ui-v2 UI 原型。
 #pragma once
@@ -15,6 +15,7 @@
 #include "scene/Component.h"
 
 #include <string>
+#include <vector>
 
 namespace erm {
 
@@ -40,6 +41,35 @@ enum class SurvivorsPickupType : int {
     SkillUnlockEnd = 26,
     Count = 26
 };
+
+// ---------------------------------------------------------------- 地图抽奖补给
+// 补给箱固定刷在离玩家 10–17 单位的地图上（不吸附），走位拾取后随机获得一种增益。
+enum class SurvivorsBuffType : int {
+    Attack = 0, // 攻击力（全技能伤害）
+    Cooldown,   // 冷却缩减（箭矢攻速 + 技能冷却）
+    MoveSpeed,  // 移动速度
+    MaxHp,      // 生命上限并回血
+    Count
+};
+constexpr int   kSurvivorsBuffCount = 4;
+constexpr float kSurvivorsChestFirstSpawn = 45.0f;
+constexpr float kSurvivorsChestInterval = 50.0f;
+constexpr float kSurvivorsChestLifetime = 100.0f;
+constexpr int   kSurvivorsChestMaxAlive = 3;
+// 非箭矢技能升到下一级所需强化次数（下标为当前等级；1→2 为 1 次，5→6 为 4 次）。
+constexpr int   kSurvivorsUpgradeCost[6] = {0, 1, 1, 2, 3, 4};
+constexpr float kSurvivorsChestPickupRadius = 0.90f;
+
+// ---------------------------------------------------------------- 平衡对照测试
+// --balance-test <stand|kite> <秒> <csv>：固定步长、固定种子、脚本走位，
+// 用真实玩法代码跑对照并输出逐秒遥测；正常游戏不会进入这些模式。
+enum class SurvivorsBalanceMode : int {
+    None = 0,
+    Stand = 1, // 站桩：玩家不移动
+    Kite = 2,  // 走位：远离近身敌人，顺路去捡地图补给
+};
+
+void SetSurvivorsBalanceTest(SurvivorsBalanceMode mode, int seconds, const std::string& csvPath);
 
 // ---------------------------------------------------------------- 数值上限
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
@@ -107,6 +137,22 @@ public:
     // 击杀越多，攻速越快（每击杀 +3%，递减叠加）
     int killCount = 0;
 
+    // 地图抽奖增益（乘区；1.0 为未获得）
+    float buffDamage = 1.0f;
+    float buffCooldown = 1.0f;
+    float buffMoveSpeed = 1.0f;
+    float buffRange = 1.0f;
+    float buffDamageTimer = 0.0f;
+    float buffCooldownTimer = 0.0f;
+    float buffMoveTimer = 0.0f;
+
+    // 平衡遥测：实际受伤 / 回血 / 实际拾取的强化与技能数量
+    float damageTaken = 0.0f;
+    float healingDone = 0.0f;
+    int   upgradesPicked = 0;
+    int   skillDropsPicked = 0;
+    int   chestsPicked = 0;
+
     // 箭矢的掉落强化
     bool  arrowSpread = false; // 八向散射
     int   arrowSpeedLevel = 0;
@@ -131,6 +177,8 @@ public:
     int frostLevel = 1;
     int poisonLevel = 1;
     int fireballLevel = 1;
+    // 非箭矢技能的充能进度：拾取一次 +1，达到 kSurvivorsUpgradeCost[当前等级] 才升 1 级。
+    int upgradeCharge[kSurvivorsSkillCount] = {0, 0, 0, 0, 0, 0};
 
     // 最近拾取提示
     std::string pickupToast;
@@ -149,6 +197,9 @@ public:
     void  ResetCombatStats();
     void  RefreshDerivedStats();
     void  ApplyPickup(int type);
+    bool  AddSkillUpgrade(int skill); // 充能升级；返回是否真的升了一级
+    void  ApplyMapBuff(int type, int rarity); // 地图抽奖：0/1/2 = 普通/稀有/史诗
+    std::string BuffSummary() const;          // HUD 一行字，没有增益时为空
 
     // 强化拾取/旧预览页共用：技能未拥有或已满级时不会生效。
     void ApplyLevelUpUpgrade(int skill, int sub);
@@ -281,6 +332,18 @@ public:
     void OnDestroy() override;
 };
 
+// ---------------------------------------------------------------- 地图补给箱
+class SurvivorsChestComponent : public Component {
+public:
+    ER_COMPONENT(SurvivorsChestComponent, "Survivors Chest")
+
+    int   rarity = 0; // 0 普通 / 1 稀有 / 2 史诗
+    float age = 0.0f;
+
+    void OnUpdate(float dt) override;
+    void OnDestroy() override;
+};
+
 // ---------------------------------------------------------------- 三选一候选
 struct SurvivorsLevelUpChoice {
     int skill = 0; // 0=箭矢 1=雷霆 2=回旋刃 3=霜环 4=毒雾 5=火球
@@ -337,6 +400,7 @@ private:
     void SpawnEnemy(World& world, const Vec2& position, int type, float hpScale, float speedScale,
                     float damageScale);
     void SpawnElite(World& world);
+    void SpawnBuffChest(World& world);
     void EnsureMusic();
     void ApplyAudioSettings();
 
@@ -360,9 +424,26 @@ private:
     float       m_time = 0.0f;
     float       m_spawnTimer = 2.0f;
     float       m_eliteTimer = 45.0f;
+    float       m_chestTimer = kSurvivorsChestFirstSpawn;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;
+
+    // 平衡对照测试（--balance-test）：固定种子 + 固定步长 + 脚本走位
+    SurvivorsBalanceMode m_balanceMode = SurvivorsBalanceMode::None;
+    int                  m_balanceSeconds = 0;
+    std::string          m_balanceCsvPath;
+    float                m_balanceSampleTimer = 0.0f;
+    int                  m_balanceSamples = 0;
+    bool                 m_balanceHeaderWritten = false;
+    bool                 m_balanceFinished = false;
+    bool                 m_balanceFirstMaxLogged = false;
+    bool                 m_balanceFullBuildLogged = false;
+    float                m_balanceFirstMaxTime = -1.0f;
+    float                m_balanceFullBuildTime = -1.0f;
+    void                 UpdateBalanceTest(World& world, float dt);
+    void                 WriteBalanceSample(World& world);
+    void                 FinishBalanceTest();
 
     bool        m_showSettings = false;
     State       m_settingsReturn = State::Menu;
@@ -377,6 +458,19 @@ private:
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;
 };
+
+// 小地图快照：UI 层只拿数据，不直接依赖玩法内部注册表。
+struct SurvivorsMinimapRect {
+    Vec2 center;
+    Vec2 half;
+};
+struct SurvivorsMinimapMarker {
+    Vec2 position;
+    int  kind = 0;   // 0 玩家 / 1 补给箱 / 2 精英 / 3 普通敌人
+    int  rarity = 0; // 补给箱稀有度
+};
+void GetSurvivorsMinimapSnapshot(World& world, std::vector<SurvivorsMinimapRect>& obstacles,
+                                 std::vector<SurvivorsMinimapMarker>& markers);
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
 void RegisterSurvivorsComponents();

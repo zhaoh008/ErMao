@@ -741,6 +741,90 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
 
 
 // ================================================================ 战斗 HUD
+// 小地图：只读取玩法层快照；玩家白点、补给箱彩色菱形 + 最近补给方向线、精英红点。
+void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world, float time) {
+    std::vector<SurvivorsMinimapRect>   obstacles;
+    std::vector<SurvivorsMinimapMarker> markers;
+    GetSurvivorsMinimapSnapshot(world, obstacles, markers);
+
+    const float panelW = 232.0f;
+    const float panelX = c.w - 24.0f - panelW;
+    const float panelY = 78.0f;
+    const float panelH = 168.0f;
+    DrawPanel(draw, ui, c, panelX, panelY, panelW, panelH);
+    DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 8.0f, kTextDim, "地图");
+
+    const float mapX = panelX + 12.0f;
+    const float mapY = panelY + 30.0f;
+    const float mapW = panelW - 24.0f;
+    const float mapH = 116.0f;
+    draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(14, 16, 22, 235), c.V(4.0f));
+
+    auto mapPoint = [&](const Vec2& p) {
+        const float nx = Clamp01((p.x + 43.0f) / 86.0f);
+        const float ny = Clamp01((p.y + 25.0f) / 50.0f);
+        return c.P(mapX + nx * mapW, mapY + (1.0f - ny) * mapH);
+    };
+
+    for (const SurvivorsMinimapRect& obstacle : obstacles) {
+        const Vec2 lo(obstacle.center.x - obstacle.half.x, obstacle.center.y - obstacle.half.y);
+        const Vec2 hi(obstacle.center.x + obstacle.half.x, obstacle.center.y + obstacle.half.y);
+        draw->AddRectFilled(mapPoint(lo), mapPoint(hi), IM_COL32(82, 76, 96, 190));
+    }
+    draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(120, 96, 72, 200), c.V(4.0f), 0,
+                  c.V(1.2f));
+
+    Vec2  playerPosition(0.0f, 0.0f);
+    bool  hasPlayer = false;
+    Vec2  nearestChest(0.0f, 0.0f);
+    bool  hasChest = false;
+    float nearestChestDistance = 0.0f;
+    for (const SurvivorsMinimapMarker& marker : markers) {
+        if (marker.kind == 3) {
+            draw->AddCircleFilled(mapPoint(marker.position), c.V(1.3f), IM_COL32(190, 86, 86, 80));
+        } else if (marker.kind == 2) {
+            draw->AddCircleFilled(mapPoint(marker.position), c.V(3.0f), IM_COL32(255, 96, 80, 230));
+        }
+    }
+    for (const SurvivorsMinimapMarker& marker : markers) {
+        if (marker.kind == 0) {
+            playerPosition = marker.position;
+            hasPlayer = true;
+        } else if (marker.kind == 1) {
+            if (hasPlayer) {
+                const float distance = Length(marker.position - playerPosition);
+                if (!hasChest || distance < nearestChestDistance) {
+                    hasChest = true;
+                    nearestChestDistance = distance;
+                    nearestChest = marker.position;
+                }
+            }
+            static const ImU32 kRarityColor[3] = {IM_COL32(255, 205, 80, 255), IM_COL32(196, 150, 255, 255),
+                                                  IM_COL32(255, 140, 50, 255)};
+            const ImVec2 center = mapPoint(marker.position);
+            const float  pulse = 3.6f + 1.1f * (0.5f + 0.5f * std::sin(time * 5.0f));
+            const float  r = c.V(pulse);
+            const ImU32  color = kRarityColor[Clamp(marker.rarity, 0, 2)];
+            draw->AddQuadFilled(ImVec2(center.x, center.y - r), ImVec2(center.x + r, center.y),
+                                ImVec2(center.x, center.y + r), ImVec2(center.x - r, center.y), color);
+            draw->AddCircle(center, r + c.V(2.0f), color, 12, c.V(1.2f));
+        }
+    }
+    if (hasPlayer && hasChest) {
+        draw->AddLine(mapPoint(playerPosition), mapPoint(nearestChest), IM_COL32(255, 205, 120, 110), c.V(1.1f));
+    }
+    if (hasPlayer) {
+        const ImVec2 center = mapPoint(playerPosition);
+        draw->AddCircleFilled(center, c.V(3.4f), IM_COL32(255, 255, 255, 245));
+        draw->AddCircle(center, c.V(5.0f), IM_COL32(125, 214, 194, 220), 14, c.V(1.2f));
+    }
+
+    char info[64];
+    if (hasChest) std::snprintf(info, sizeof(info), "最近补给 %.1f", nearestChestDistance);
+    else std::snprintf(info, sizeof(info), "补给箱刷新中…");
+    DrawTextCentered(draw, ui, c, 12.5f, panelX + panelW * 0.5f, panelY + panelH - 24.0f, kGold, info);
+}
+
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
@@ -791,6 +875,17 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawTextCentered(draw, m_ui, c, 17.0f, pauseX + pauseW * 0.5f, 33.0f, kText, "Esc 暂停");
     }
 
+    // 小地图 + 当前地图增益
+    DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
+    if (player) {
+        const std::string buffs = player->BuffSummary();
+        if (!buffs.empty()) {
+            DrawText(draw, m_ui, c, 13.0f, 30.0f, 154.0f, kGold, buffs.c_str());
+        } else {
+            DrawText(draw, m_ui, c, 12.0f, 30.0f, 154.0f, kTextMuted, "走位拾取补给箱 → 随机增益");
+        }
+    }
+
     // 底部技能槽：只显示本局已拥有的技能（职业基础 1 个 + 最多 4 个掉落）
     int slotSkills[kSurvivorsMaxLoadout] = {-1, -1, -1, -1, -1};
     int slotCount = 0;
@@ -818,9 +913,15 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawNineSlice(draw, c, m_ui.slot, x, slotY, slotSize, slotSize, 12.0f);
         if (m_ui.icon[skill]) DrawImage(draw, c, m_ui.icon[skill], x + 14.0f, slotY + 7.0f, 42.0f, 42.0f);
         const int skillLevel = player ? SkillLevel(*player, skill) : 0;
-        char      slotLabel[32];
-        std::snprintf(slotLabel, sizeof(slotLabel), "Lv.%d", skillLevel);
-        DrawTextCentered(draw, m_ui, c, 11.0f, x + slotSize * 0.5f, slotY + 54.0f, kSlotText, slotLabel);
+        char      slotLabel[40];
+        if (player && skill != 0 && !player->SkillMaxed(skill)) {
+            const int cost = kSurvivorsUpgradeCost[Clamp(skillLevel, 0, kSurvivorsMaxSkillLevel)];
+            std::snprintf(slotLabel, sizeof(slotLabel), "Lv.%d %d/%d", skillLevel,
+                          Clamp(player->upgradeCharge[skill], 0, cost), cost);
+        } else {
+            std::snprintf(slotLabel, sizeof(slotLabel), "Lv.%d", skillLevel);
+        }
+        DrawTextCentered(draw, m_ui, c, 10.5f, x + slotSize * 0.5f, slotY + 54.0f, kSlotText, slotLabel);
     }
     if (interactive && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) m_selectedSkill = -1;
 
