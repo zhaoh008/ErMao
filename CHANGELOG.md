@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Added
+- Web/微信小游戏第一阶段：Emscripten + WebGL 1.0 后端复用 2D 幸存者的 C++ 玩法与 ImGui UI，提供 H5 页面、微信 `wx-transformer` 打包脚本、触控摇杆与移动端缩放；CI 新增 Web 构建与包体检查
 - 2D 幸存者：新增小地图（右下角，显示玩家/怪物/掉落/障碍/宝箱）与顶部最近宝箱罗盘
 - 2D 幸存者：新增地图抽奖宝箱——约 30 秒首个，之后 35–45 秒一个、场上最多 2 个；普通/稀有/史诗随机攻击力、攻速、移速、生命、范围、技能等级、恢复或全屏雷击；伤害/攻速/移速/范围倍率分别封顶 2.0/1.8/1.35/1.30
 - 2D 幸存者：增益宝箱改用 OpenGameArt CC0 16×16 宝箱开启序列帧与 Kenney Tiny Dungeon 图标（来源见 `engine/assets/sprites/LICENSE-chest.txt`）；拾取后暂停游戏并播放开箱抽奖动画（宝箱抖动、旋转光束、光爆、冲击波、粒子与稀有度卡面），翻牌后可点击/空格提前收取；新增 `--ui-preview chest|gacha|gacha-burst` 截图走查页

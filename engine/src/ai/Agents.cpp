@@ -7,7 +7,14 @@
 #include "scene/GameObject.h"
 #include "scene/World.h"
 
+#ifndef ERMAO_WEB
 #include <windows.h>
+#else
+// Web/微信没有 Win32 虚拟键常量；PlayerController 只用到 Shift 奔跑。
+#ifndef VK_SHIFT
+#define VK_SHIFT 16
+#endif
+#endif
 
 #include <cstdlib>
 

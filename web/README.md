@@ -1,0 +1,91 @@
+# ErMao Web / 微信小游戏后端
+
+这是 ErMao 引擎的第一阶段**跨平台运行时**：同一份 C++ 玩法（`engine/src/game/Survivors.cpp`、
+`SurvivorsUI.cpp`、`scene/`、`asset/`）通过 Emscripten 编译成 WebAssembly，
+图形走 OpenGL ES 2.0 / **WebGL 1.0**（优先兼容微信小游戏），平台层由 SDL2（浏览器）
+或微信小游戏转换工具接管。
+
+玩法代码没有第二份实现——这里是渲染/平台后端，不是重写过的 Web 游戏。
+
+## 构建
+
+需要 Emscripten **3.1.51**（微信官方自研引擎导出文档推荐的版本）和 CMake：
+
+```bash
+source ~/emsdk/emsdk_env.sh
+
+# 可选但推荐：固定 SDL2 端口源码，避免 Emscripten 的 GitHub archive 端口下载失败
+curl -fsSL https://www.libsdl.org/release/SDL2-2.24.2.tar.gz -o /tmp/SDL2.tar.gz
+tar -xzf /tmp/SDL2.tar.gz -C /tmp
+export EMCC_LOCAL_PORTS="sdl2=/tmp/SDL2-2.24.2"
+
+emcmake cmake -S web -B build-web -DCMAKE_BUILD_TYPE=Release
+cmake --build build-web -j
+```
+
+产物在 `build-web/`：
+
+```
+game.js     JavaScript 胶水代码（微信转换工具的输入）
+game.wasm   WebAssembly 代码
+game.data   预加载的 engine/assets（贴图、音频、字体、场景）
+index.html  本地浏览器测试页
+```
+
+本地预览：
+
+```bash
+python3 -m http.server 8000 -d build-web
+# 浏览器打开 http://localhost:8000/index.html
+# 自动开局并预推进 300 个固定步（5 秒游戏时间），首帧即截图状态：
+# http://localhost:8000/index.html?play=1&frames=300
+# 手机触控 UI（强制触摸模式，方便桌面截图）：
+# http://localhost:8000/index.html?play=1&frames=300&mobile=1
+```
+
+## 微信小游戏
+
+先下载微信官方 `wx-transformer`（[小游戏转换工具](https://developers.weixin.qq.com/minigame/dev/guide/game-engine/common-adaptation/Design/TransformTool.html)），
+然后：
+
+```bash
+WX_TRANSFORMER=/path/to/wx-transformer-linux \
+WECHAT_MINI_GAME_APPID=wx你的AppID \
+./web/tools/package-wechat.sh build-web build-web/wechat-build
+```
+
+转换工具会生成 `wechat-build/minigame/`，可以用微信开发者工具打开、预览、真机调试。
+没有 AppID 时工具仍可生成项目结构，但预览/上传需要开发者工具登录一个有
+「小游戏」类目的 AppID；本仓库不包含任何 AppID 或凭据。
+
+包体约束（微信官方）：代码包总大小 ≤30MB，主包 ≤4MB，`game.js` ≤2MB。
+当前 2D 资源约 5.1MB，转换工具支持 CDN/分包；主包超限时按转换工具文档调整
+`--cdn-url` / `--load-from-subpackage`。
+
+## 当前范围
+
+- ✅ 2D 幸存者：菜单、出战准备、HUD、暂停、设置、结算、技能图鉴
+- ✅ 2D 精灵批处理、正交相机、程序化贴图、序列帧
+- ✅ ImGui 中文 UI（内置 Apache-2.0 的 WenQuanYi Micro Hei 子集字体）
+- ✅ 手机触控：左半屏虚拟摇杆 + 右上角暂停按钮；画布随窗口/DPR 调整
+- ✅ 浏览器 H5 与微信小游戏共用同一份 wasm 产物
+- ⏳ 音频：接口已保留，当前静音（下一步接 SDL2 音频 / Web Audio）
+- ⏳ 3D/Vulkan/编辑器：未纳入本阶段
+- ⏳ 微信真机验证：需要 AppID + 微信开发者工具
+
+## 设计说明
+
+- `ERMAO_WEB` 宏让 `rhi/Texture.h` 与 `asset/AssetManager.h` 在 Web 构建下只暴露
+  与后端无关的纹理接口；桌面 D3D11 路径保持不变。
+- Web 构建排除 `runtime/Engine.cpp`、`editor/`、D3D11 `rhi/*.cpp`、
+  `platform/Window|Input|Audio` 的原生实现，替换为 `web/src/` 下的 SDL2/GLES2/文件系统/时钟实现。
+- `World`/`Scene`/`Game` 层不感知 D3D11 或 WebGL；`renderer/RenderScene.h` 的
+  `SpriteDraw` 是两端共用的渲染输入。
+
+## 已知限制
+
+- 音频尚未实现，玩法会调用静音的 `AudioSystem` 占位实现。
+- 只编译了 2D 路径；3D 模型、阴影、后处理、编辑器不在本阶段。
+- 字体是 UI 文本子集；新增中文文本需要重新生成 `engine/assets/fonts/ErMaoUI.ttf`
+  （见 `engine/assets/fonts/LICENSE.txt`）。
+- 微信 iOS 的 WebGL1 兼容性最好；不要在本阶段打开 WebGL2/实例化。

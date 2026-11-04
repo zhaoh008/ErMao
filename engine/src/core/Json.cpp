@@ -146,6 +146,12 @@ void NumberToString(std::string& out, double v) {
     // 用最短可往返表示（C++17 to_chars）：
     // 场景里的数值都是 float，按 float 打印能保证 float -> 文本 -> float 完全一致，
     // 同时避免 "0.30000000000000004" 这类噪音。
+#ifdef ERMAO_WEB
+    // Emscripten 的 libc++ 版本对浮点 to_chars 支持因版本而异；Web 端用 snprintf
+    // 保证可移植（场景数值只要求 9 位有效数字）。
+    std::snprintf(buf, sizeof(buf), "%.9g", v);
+    out += buf;
+#else
     const float f = static_cast<float>(v);
     std::to_chars_result res;
     if (static_cast<double>(f) == v) {
@@ -160,6 +166,7 @@ void NumberToString(std::string& out, double v) {
     }
     std::snprintf(buf, sizeof(buf), "%.9g", v);
     out += buf;
+#endif
 }
 } // namespace
 
