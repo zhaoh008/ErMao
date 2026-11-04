@@ -54,3 +54,65 @@ jobs:
         run: |
           $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--demo2d", "--frames", "600", "--noeditor" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "2D survivors smoke failed: exit $($p.ExitCode)" }
+
+      # 视觉回归/网页版对比需要同一版本的 Windows 可执行文件；
+      # 产物只包含 exe + assets + shaders，约 10MB。
+      - name: Upload Windows build for visual verification
+        uses: actions/upload-artifact@v4
+        with:
+          name: ermao-windows
+          path: |
+            build/bin/ErMao.exe
+            build/bin/assets
+            build/bin/shaders
+
+  web:
+    # 微信/浏览器共用同一个 Emscripten 产物；这里验证 H5/小游戏构建可复现。
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Emscripten 3.1.51
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 3.1.51
+          actions-cache-folder: emsdk-cache
+
+      - name: Fetch SDL2 source for the Emscripten port
+        # GitHub 的 archive zip 偶发 403；用 SDL 官方 tar.gz + EMCC_LOCAL_PORTS
+        # 固定端口源码，避免 Emscripten 端口下载的哈希/网络问题。
+        run: |
+          curl -fsSL https://www.libsdl.org/release/SDL2-2.24.2.tar.gz -o /tmp/SDL2.tar.gz
+          tar -xzf /tmp/SDL2.tar.gz -C /tmp
+          echo "EMCC_LOCAL_PORTS=sdl2=/tmp/SDL2-2.24.2" >> "$GITHUB_ENV"
+
+      - name: Configure web build
+        run: emcmake cmake -S web -B build-web -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build web (WebGL 1.0 / GLES2)
+        run: cmake --build build-web --parallel
+
+      - name: Check web artifacts and size limits
+        run: |
+          test -f build-web/game.js
+          test -f build-web/game.wasm
+          test -f build-web/game.data
+          test -f build-web/index.html
+          js_size=$(stat -c%s build-web/game.js)
+          wasm_size=$(stat -c%s build-web/game.wasm)
+          data_size=$(stat -c%s build-web/game.data)
+          echo "game.js=${js_size} game.wasm=${wasm_size} game.data=${data_size}"
+          # 微信小游戏主包 game.js 上限 2MB；主包 ≤4MB、总包 ≤30MB。
+          test "${js_size}" -lt 2097152
+          test "${data_size}" -lt 31457280
+
+      - name: Upload web build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ermao-web
+          path: |
+            build-web/game.js
+            build-web/game.wasm
+            build-web/game.data
+            build-web/index.html

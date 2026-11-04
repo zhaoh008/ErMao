@@ -23,3 +23,7 @@ validate.json
 cmake-build-*/
 build-*/
 build_novk/
+
+# Web/微信构建产物
+web/dist/
+web/wechat-build/

@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#0b0d10">
+  <title>ErMao · WebGL</title>
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: #0b0d10;
+      color: #e8eaf0;
+      font-family: system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      touch-action: none;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    #canvas {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      outline: none;
+      touch-action: none;
+    }
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-direction: column;
+      gap: 14px;
+      background: radial-gradient(circle at 50% 40%, #1a1d24 0%, #0b0d10 70%);
+      z-index: 10;
+      transition: opacity .25s ease;
+    }
+    #loading .title { font-size: 22px; letter-spacing: .12em; color: #f0c96a; }
+    #loading .hint { font-size: 13px; color: #8d94a5; }
+    #loading.hidden { display: none; }
+    #error {
+      position: fixed;
+      inset: 0;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      background: #160d0d;
+      color: #ffb4a8;
+      font-size: 14px;
+      white-space: pre-wrap;
+      z-index: 20;
+    }
+    @media (orientation: portrait) {
+      #rotate { display: flex; }
+    }
+    #rotate {
+      display: none;
+      position: fixed;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 6px 14px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, .45);
+      color: #d6dae3;
+      font-size: 12px;
+      z-index: 5;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+  <div id="rotate">建议横屏游玩</div>
+  <div id="loading">
+    <div class="title">ERMAO · WEBGL</div>
+    <div class="hint">正在加载引擎与资源…</div>
+  </div>
+  <div id="error"></div>
+  <script>
+    window.addEventListener('error', function (event) {
+      var box = document.getElementById('error');
+      box.style.display = 'flex';
+      box.textContent = '启动失败：' + (event.message || event.error || event);
+    });
+    window.addEventListener('unhandledrejection', function (event) {
+      var box = document.getElementById('error');
+      box.style.display = 'flex';
+      box.textContent = '启动失败：' + (event.reason || event);
+    });
+    var Module = {
+      canvas: document.getElementById('canvas'),
+      print: function (text) { console.log(text); },
+      printErr: function (text) { console.warn(text); },
+      onRuntimeInitialized: function () {
+        var loading = document.getElementById('loading');
+        if (loading) loading.classList.add('hidden');
+        console.log('ErMao WebGL ready');
+      }
+    };
+    // 通过 URL 参数自动开局/限制帧数，便于截图和自动化：
+    // index.html?play=1&frames=240
+  </script>
+  <script async src="game.js"></script>
+</body>
+</html>

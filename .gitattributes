@@ -16,3 +16,4 @@
 *.spv binary
 *.aseprite binary
 *.lib binary
+*.ttf binary

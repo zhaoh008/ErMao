@@ -76,14 +76,20 @@ struct Canvas {
 Canvas MakeCanvas(float vx, float vy, float vw, float vh) {
     Canvas c;
     c.origin = ImVec2(vx, vy);
+#ifdef ERMAO_WEB
+    // 手机横屏高度通常 360~430 CSS px：允许缩到 0.40，保证 900 设计高度能完整放下。
+    c.scale = Clamp(vh / 900.0f, 0.40f, 1.25f);
+#else
     c.scale = Clamp(vh / 900.0f, 0.70f, 1.25f);
+#endif
     c.w = vw / c.scale;
     c.h = vh / c.scale;
     return c;
 }
 
 ImTextureID TexId(Texture* texture) {
-    return static_cast<ImTextureID>(reinterpret_cast<intptr_t>(texture ? texture->SRV() : nullptr));
+    // D3D11 返回 SRV 指针，Web 返回 GLuint；两端都通过 Texture::ImGuiTexId() 暴露。
+    return static_cast<ImTextureID>(texture ? texture->ImGuiTexId() : 0);
 }
 
 void SetSamplerNearest(ImDrawList* draw) {

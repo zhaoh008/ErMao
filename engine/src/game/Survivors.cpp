@@ -3263,7 +3263,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
     ImDrawList* draw = ImGui::GetBackgroundDrawList();
 
     auto textureId = [](Texture* texture) -> ImTextureID {
-        return static_cast<ImTextureID>(reinterpret_cast<intptr_t>(texture ? texture->SRV() : nullptr));
+        return static_cast<ImTextureID>(texture ? texture->ImGuiTexId() : 0);
     };
     // 画一张序列帧/精灵表：center 为世界坐标中心，halfW/halfH 为世界半宽高。
     auto drawSheet = [&](Texture* texture, int columns, int rows, int frame, const Vec2& center, float halfWidth,
