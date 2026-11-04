@@ -399,6 +399,7 @@ private:
     float       m_time = 0.0f;
     float       m_spawnTimer = 2.0f;
     float       m_eliteTimer = 45.0f;
+    float       m_skillCatchUpTimer = 0.0f;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;

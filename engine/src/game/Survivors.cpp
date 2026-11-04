@@ -395,7 +395,7 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
         float weight;
     };
     std::vector<WeightedPickup> pool;
-    if (player.HasSkill(0)) {
+    if (player.HasSkill(0) && player.SkillLevel(0) < kSurvivorsMaxSkillLevel) {
         if (!player.arrowSpread) pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowSpread), 8.0f});
         if (player.arrowSpeedLevel < kSurvivorsMaxArrowSpeedLevel)
             pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowAttackSpeed), 12.0f});
@@ -471,9 +471,21 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
         }
     }
 
-    // 强化只从已拥有且未满级的技能里掉落；20 级曲线需要足够强化，
-    // 这里保持 20%/5 杀保底，让 4~5 个技能在 6–9 分钟陆续补满。
-    if (Random01() < 0.20f || g_killsSinceDrop >= 5) {
+    // 强化只从已拥有且未满级的技能里掉落；成长速度由掉落率分段控制：
+    // 前期少掉（5%/14 杀保底），中期加速（9%/9），6–9 分钟补满（16%/6），9 分钟后维持（20%/5）。
+    float upgradeChance = 0.02f;
+    int   upgradePity = 24;
+    if (g_gameTime < 180.0f) {
+        upgradeChance = 0.24f;
+        upgradePity = 5;
+    } else if (g_gameTime < 360.0f) {
+        upgradeChance = 0.08f;
+        upgradePity = 10;
+    } else if (g_gameTime < 540.0f) {
+        upgradeChance = 0.04f;
+        upgradePity = 16;
+    }
+    if (Random01() < upgradeChance || g_killsSinceDrop >= upgradePity) {
         const int upgradeType = PickUpgradePickupType(*player);
         if (upgradeType >= 0) {
             SpawnPickup(world, position + Vec2(RandomRange(-0.35f, 0.35f), RandomRange(-0.28f, 0.28f)),
@@ -2048,6 +2060,21 @@ float EnemyDamageScale(float time) {
     return scale;
 }
 
+// 出怪节奏：前期少量、中期加密、6–9 分钟满屏、9 分钟后暴增。
+int WaveCount(float time) {
+    if (time < 180.0f) return 2 + static_cast<int>(time / 90.0f);
+    if (time < 360.0f) return 3 + static_cast<int>((time - 180.0f) / 60.0f);
+    if (time < 540.0f) return 5 + static_cast<int>((time - 360.0f) / 50.0f);
+    return 8 + (std::min)(18, static_cast<int>((time - 540.0f) / 30.0f));
+}
+
+float WaveInterval(float time) {
+    if (time < 180.0f) return 2.6f - time / 180.0f * 0.6f;
+    if (time < 360.0f) return 2.0f - (time - 180.0f) / 180.0f * 0.5f;
+    if (time < 540.0f) return 1.5f - (time - 360.0f) / 180.0f * 0.4f;
+    return (std::max)(0.30f, 1.1f - (time - 540.0f) / 300.0f * 0.7f);
+}
+
 } // namespace
 
 void SurvivorsDirector::SpawnWave(World& world) {
@@ -2056,8 +2083,7 @@ void SurvivorsDirector::SpawnWave(World& world) {
     GameObject* player = FindPlayer(world);
     const Vec2  center = player ? Vec2(player->Position().x, player->Position().y) : Vec2(0.0f, 0.0f);
 
-    int count = 2 + (std::min)(12, static_cast<int>(m_time / 10.0f));
-    if (m_time > 540.0f) count += (std::min)(12, static_cast<int>((m_time - 540.0f) / 30.0f));
+    const int   count = WaveCount(m_time);
     const float hpScale = EnemyHpScale(m_time);
     const float speedScale = EnemySpeedScale(m_time);
     const float damageScale = EnemyDamageScale(m_time);
@@ -2127,6 +2153,7 @@ void SurvivorsDirector::Reset(World& world) {
     m_difficulty = 0.0f;
     m_spawnTimer = 1.0f;
     m_eliteTimer = 45.0f;
+    m_skillCatchUpTimer = 0.0f;
     m_showSettings = false;
     m_settingsReturn = State::Menu;
     m_selectedSkill = -1;
@@ -2153,14 +2180,30 @@ void SurvivorsDirector::Update(World& world, float dt) {
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) component->ApplyKillCount(m_kills);
     }
 
+    // 新手期兜底：2:30 后如果还没集齐技能，每 2 秒在玩家附近补掉一个缺失技能（仍需手动拾取）。
+    if (m_time >= 150.0f) {
+        GameObject* catchUpPlayer = FindPlayer(world);
+        auto*       catchUpComponent =
+            catchUpPlayer ? catchUpPlayer->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+        if (catchUpComponent && catchUpComponent->SelectedSkillCount() < kSurvivorsMaxLoadout) {
+            m_skillCatchUpTimer -= dt;
+            if (m_skillCatchUpTimer <= 0.0f) {
+                const int skill = PickSkillUnlockType(*catchUpComponent);
+                if (skill >= 0) {
+                    const Vec2 playerPosition(catchUpPlayer->Position().x, catchUpPlayer->Position().y);
+                    const float angle = Random01() * kTwoPi;
+                    const Vec2  dropPosition = playerPosition + Vec2(std::cos(angle), std::sin(angle)) * 3.0f;
+                    SpawnPickup(world, dropPosition, static_cast<int>(SurvivorsPickupType::SkillUnlockBase) + skill);
+                    m_skillCatchUpTimer = 2.0f;
+                }
+            }
+        }
+    }
+
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
         SpawnWave(world);
-        if (m_time > 540.0f) {
-            m_spawnTimer = (std::max)(0.30f, 0.55f - (m_time - 540.0f) * 0.0015f);
-        } else {
-            m_spawnTimer = (std::max)(0.55f, 2.4f - m_time * 0.012f);
-        }
+        m_spawnTimer = WaveInterval(m_time);
     }
 
     m_eliteTimer -= dt;
