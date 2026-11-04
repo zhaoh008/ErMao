@@ -153,6 +153,7 @@ public:
     float buffMoveMultiplier = 1.0f;
     float buffRangeMultiplier = 1.0f;
     int   buffSkillUpgrades = 0; // 抽奖给技能等级的次数，每局最多 2 次
+    int   buffPityOffense = 0;   // 连续非攻击类抽奖计数，每 3 次保底攻击/攻速
 
     bool  alive = true;
     float invulnerable = 0.0f;
@@ -440,6 +441,7 @@ private:
     float       m_eliteTimer = 45.0f;
     float       m_skillCatchUpTimer = 0.0f;
     float       m_buffTimer = 18.0f;
+    float       m_lastBalanceLog = 0.0f;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;

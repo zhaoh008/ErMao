@@ -38,6 +38,7 @@ std::vector<GameObject*> g_pickups; // 技能强化掉落物（HUD 标签用）
 std::vector<GameObject*> g_buffChests; // 地图抽奖宝箱（小地图/上限用）
 
 bool  g_inputEnabled = true;
+bool  g_autopilot = false; // 仅平衡测试：自动走向宝箱/技能掉落，不读键盘
 int   g_kills = 0;
 int   g_killsSinceDrop = 0;
 int   g_killsSinceSkillDrop = 0;
@@ -447,9 +448,9 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
     // 新技能爆率在上一版基础上减半（9%），保底间隔同步翻倍。
     if (player->SelectedSkillCount() < kSurvivorsMaxLoadout) {
         const int owned = player->SelectedSkillCount();
-        const int pityKills = owned <= 1 ? 8 : (owned == 2 ? 12 : 16);
+        const int pityKills = owned <= 1 ? 45 : (owned == 2 ? 55 : 65);
         const bool  pity = g_killsSinceSkillDrop >= pityKills;
-        float       chance = pity ? 1.0f : 0.06f;
+        float       chance = pity ? 1.0f : 0.02f;
         // 新手期兜底：2 分钟后开始提高爆率，2:30 起每次击杀必掉，确保 3 分钟内凑齐 5 个技能。
         if (g_gameTime > 120.0f) {
             chance = (std::max)(chance, (std::min)(1.0f, 0.25f + (g_gameTime - 120.0f) * 0.05f));
@@ -475,17 +476,17 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
 
     // 强化只从已拥有且未满级的技能里掉落；成长速度由掉落率分段控制：
     // 前期少掉（5%/14 杀保底），中期加速（9%/9），6–9 分钟补满（16%/6），9 分钟后维持（20%/5）。
-    float upgradeChance = 0.003f;
-    int   upgradePity = 350;
+    float upgradeChance = 0.005f;
+    int   upgradePity = 150;
     if (g_gameTime < 180.0f) {
         upgradeChance = 0.04f;
         upgradePity = 24;
     } else if (g_gameTime < 360.0f) {
-        upgradeChance = 0.02f;
-        upgradePity = 32;
+        upgradeChance = 0.018f;
+        upgradePity = 55;
     } else if (g_gameTime < 540.0f) {
-        upgradeChance = 0.012f;
-        upgradePity = 28;
+        upgradeChance = 0.010f;
+        upgradePity = 75;
     }
     if (Random01() < upgradeChance || g_killsSinceDrop >= upgradePity) {
         const int upgradeType = PickUpgradePickupType(*player);
@@ -952,7 +953,7 @@ float SurvivorsPlayerComponent::FrostRadius() const {
 }
 float SurvivorsPlayerComponent::FrostFreezeDuration() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 0.8f + 0.06f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : (std::min)(1.65f, 0.8f + 0.06f * static_cast<float>(level - 1));
 }
 float SurvivorsPlayerComponent::FrostCooldown() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
@@ -1062,19 +1063,29 @@ std::string SurvivorsPlayerComponent::ApplyBuff(int rarity) {
 
     std::string effect;
     const int effectCount = rarity >= 2 ? 8 : 7;
-    const int roll = static_cast<int>(Random01() * static_cast<float>(effectCount)) % effectCount;
+    int roll;
+    if (buffPityOffense >= 2) {
+        roll = Random01() < 0.5f ? 0 : 1;
+    } else {
+        roll = static_cast<int>(Random01() * static_cast<float>(effectCount)) % effectCount;
+    }
+    if (roll == 0 || roll == 1) {
+        buffPityOffense = 0;
+    } else {
+        ++buffPityOffense;
+    }
     switch (roll) {
         case 0:
-            buffDamageMultiplier *= damageFactor[rarity];
+            buffDamageMultiplier = (std::min)(2.0f, buffDamageMultiplier * damageFactor[rarity]);
             g_playerDamageMultiplier = buffDamageMultiplier;
             effect = "攻击力 +" + std::to_string(static_cast<int>((damageFactor[rarity] - 1.0f) * 100.0f)) + "%";
             break;
         case 1:
-            buffAttackSpeedMultiplier *= speedFactor[rarity];
+            buffAttackSpeedMultiplier = (std::min)(1.8f, buffAttackSpeedMultiplier * speedFactor[rarity]);
             effect = "攻击速度 +" + std::to_string(static_cast<int>((speedFactor[rarity] - 1.0f) * 100.0f)) + "%";
             break;
         case 2:
-            buffMoveMultiplier *= moveFactor[rarity];
+            buffMoveMultiplier = (std::min)(1.35f, buffMoveMultiplier * moveFactor[rarity]);
             effect = "移动速度 +" + std::to_string(static_cast<int>((moveFactor[rarity] - 1.0f) * 100.0f)) + "%";
             break;
         case 3:
@@ -1083,7 +1094,7 @@ std::string SurvivorsPlayerComponent::ApplyBuff(int rarity) {
             effect = "最大生命 +" + std::to_string(static_cast<int>(hpAmount[rarity]));
             break;
         case 4:
-            buffRangeMultiplier *= rangeFactor[rarity];
+            buffRangeMultiplier = (std::min)(1.30f, buffRangeMultiplier * rangeFactor[rarity]);
             effect = "技能范围 +" + std::to_string(static_cast<int>((rangeFactor[rarity] - 1.0f) * 100.0f)) + "%";
             break;
         case 5: {
@@ -1193,6 +1204,7 @@ void SurvivorsPlayerComponent::ResetCombatStats() {
     buffMoveMultiplier = 1.0f;
     buffRangeMultiplier = 1.0f;
     buffSkillUpgrades = 0;
+    buffPityOffense = 0;
     g_playerDamageMultiplier = 1.0f;
     facing = Vec2(1.0f, 0.0f);
     const int classIndex = Clamp(playerClass, 0, kSurvivorsClassCount - 1);
@@ -1466,7 +1478,38 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
     pickupToastTimer = (std::max)(0.0f, pickupToastTimer - dt);
 
     Vec2 move(0.0f, 0.0f);
-    if (g_inputEnabled) {
+    if (g_autopilot) {
+        World* world = GetWorld();
+        Vec2   target;
+        bool   hasTarget = false;
+        if (world) {
+            const Vec2 origin(m_owner->Position().x, m_owner->Position().y);
+            float      best = 1e9f;
+            for (GameObject* chest : g_buffChests) {
+                if (!chest || !chest->Active()) continue;
+                const Vec2  p(chest->Position().x, chest->Position().y);
+                const float d = Length(p - origin);
+                if (d < best) { best = d; target = p; hasTarget = true; }
+            }
+            if (!hasTarget) {
+                for (GameObject* pickup : g_pickups) {
+                    if (!pickup || !pickup->Active()) continue;
+                    auto* pickupComponent = pickup->GetComponent<SurvivorsPickupComponent>();
+                    if (!pickupComponent || !IsSkillUnlockType(pickupComponent->type)) continue;
+                    const Vec2  p(pickup->Position().x, pickup->Position().y);
+                    const float d = Length(p - origin);
+                    if (d < best) { best = d; target = p; hasTarget = true; }
+                }
+            }
+            if (hasTarget) {
+                move = target - origin;
+            } else {
+                // 没有目标时绕圈，避免完全站桩。
+                const float angle = g_gameTime * 0.7f;
+                move = Vec2(std::cos(angle), std::sin(angle));
+            }
+        }
+    } else if (g_inputEnabled) {
         if (Input::IsKeyDown('A')) move.x -= 1.0f;
         if (Input::IsKeyDown('D')) move.x += 1.0f;
         if (Input::IsKeyDown('W')) move.y += 1.0f;
@@ -2140,7 +2183,7 @@ void SurvivorsBuffComponent::OnUpdate(float dt) {
     if (!player) return;
     const Vec2  position(m_owner->Position().x, m_owner->Position().y);
     const Vec2  target(player->Position().x, player->Position().y);
-    if (Length(target - position) < 0.9f) {
+    if (Length(target - position) < 1.3f) {
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) {
             component->ApplyBuff(rarity);
             world->DestroyObject(m_owner);
@@ -2262,14 +2305,14 @@ void SurvivorsDirector::SpawnWave(World& world) {
 }
 
 void SurvivorsDirector::SpawnBuffChest(World& world) {
-    if (g_buffChests.size() >= 3) return;
+    if (g_buffChests.size() >= 2) return;
     GameObject* player = FindPlayer(world);
     if (!player) return;
     const Vec2 origin(player->Position().x, player->Position().y);
     Vec2       spawn = origin + Vec2(10.0f, 0.0f);
     for (int attempt = 0; attempt < 20; ++attempt) {
         const float angle = Random01() * kTwoPi;
-        const float distance = RandomRange(8.0f, 16.0f);
+        const float distance = RandomRange(12.0f, 20.0f);
         const Vec2  candidate = origin + Vec2(std::cos(angle), std::sin(angle)) * distance;
         if (std::fabs(candidate.x) <= 40.0f && std::fabs(candidate.y) <= 22.0f &&
             !CircleHitsObstacle(candidate, 0.7f)) {
@@ -2332,6 +2375,7 @@ void SurvivorsDirector::Reset(World& world) {
     g_killsSinceSkillDrop = 0;
     g_killsSincePotionDrop = 0;
     g_gameTime = 0.0f;
+    g_autopilot = false;
     g_kills = 0;
     g_lastHitSfxTime = -10.0;
     g_lastGemSfxTime = -10.0;
@@ -2372,6 +2416,21 @@ void SurvivorsDirector::Update(World& world, float dt) {
     g_gameTime = m_time;
     m_difficulty = m_time / 60.0f;
     m_kills = g_kills;
+    if (m_time - m_lastBalanceLog >= 60.0f) {
+        m_lastBalanceLog = m_time;
+        GameObject* logPlayer = FindPlayer(world);
+        auto*       logComponent = logPlayer ? logPlayer->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+        if (logComponent) {
+            std::string levels;
+            for (int skill = 0; skill < kSurvivorsSkillCount; ++skill) {
+                if (!logComponent->HasSkill(skill)) continue;
+                if (!levels.empty()) levels += " ";
+                levels += std::to_string(skill) + ":" + std::to_string(logComponent->SkillLevel(skill));
+            }
+            LogInfo("[平衡] t=%.0f 击杀=%d 等级=%d 技能=%s 宝箱=%zu 生命=%.0f/%.0f", m_time, m_kills,
+                    logComponent->level, levels.c_str(), g_buffChests.size(), logComponent->hp, logComponent->maxHp);
+        }
+    }
     UpdateDamageNumbers(dt);
     UpdateSkillEffects(dt);
     m_toastTimer = (std::max)(0.0f, m_toastTimer - dt);
@@ -2403,7 +2462,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
     m_buffTimer -= dt;
     if (m_buffTimer <= 0.0f) {
         SpawnBuffChest(world);
-        m_buffTimer = m_time > 540.0f ? (14.0f + Random01() * 4.0f) : (18.0f + Random01() * 4.0f);
+        m_buffTimer = m_time > 540.0f ? (30.0f + Random01() * 8.0f) : (35.0f + Random01() * 10.0f);
     }
 
     m_spawnTimer -= dt;
@@ -2509,6 +2568,7 @@ bool SurvivorsDirector::SaveGame(World& world) {
     playerJson.Set("buffMoveMultiplier", player->buffMoveMultiplier);
     playerJson.Set("buffRangeMultiplier", player->buffRangeMultiplier);
     playerJson.Set("buffSkillUpgrades", player->buffSkillUpgrades);
+    playerJson.Set("buffPityOffense", player->buffPityOffense);
     root.Set("player", playerJson);
 
     JsonValue directorJson = JsonValue::MakeObject();
@@ -2592,6 +2652,7 @@ bool SurvivorsDirector::LoadGame(World& world) {
     player->buffMoveMultiplier = (std::max)(1.0f, playerJson["buffMoveMultiplier"].AsFloat(1.0f));
     player->buffRangeMultiplier = (std::max)(1.0f, playerJson["buffRangeMultiplier"].AsFloat(1.0f));
     player->buffSkillUpgrades = playerJson["buffSkillUpgrades"].AsInt(0);
+    player->buffPityOffense = playerJson["buffPityOffense"].AsInt(0);
     g_playerDamageMultiplier = player->buffDamageMultiplier;
     player->arrowSpeedLevel = (std::min)(player->arrowSpeedLevel, kSurvivorsMaxArrowSpeedLevel);
     player->arrowDamageLevel = (std::min)(player->arrowDamageLevel, kSurvivorsMaxArrowDamageLevel);
@@ -2845,6 +2906,24 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                                PickEnemyType(m_time), EnemyHpScale(m_time), EnemySpeedScale(m_time),
                                EnemyDamageScale(m_time));
                 }
+            }
+        }
+    } else if (screen == "bot") {
+        seed(false);
+        g_autopilot = true;
+        m_state = State::Playing;
+    } else if (screen == "botstrong") {
+        seed(false);
+        g_autopilot = true;
+        m_state = State::Playing;
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->loadoutMask = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 7);
+                player->bladeLevel = 10;
+                player->frostLevel = 10;
+                player->poisonLevel = 10;
+                player->singularityLevel = 10;
+                player->RefreshDerivedStats();
             }
         }
     } else if (screen == "buff") {
