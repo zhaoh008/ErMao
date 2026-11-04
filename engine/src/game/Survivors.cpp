@@ -433,13 +433,23 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
     ++g_killsSinceSkillDrop;
 
     // 技能掉落优先：一局最多 4 个额外技能，掉在地上必须走过去捡，不会被吸走。
+    // 第一个技能 3 杀保底，之后随拥有数量逐步拉长保底间隔，避免开局只有 1 个技能时被怪潮压死。
     if (player->SelectedSkillCount() < kSurvivorsMaxLoadout) {
-        const bool  pity = g_killsSinceSkillDrop >= 8;
-        const float chance = pity ? 1.0f : 0.12f;
+        const int owned = player->SelectedSkillCount();
+        const int pityKills = owned <= 1 ? 3 : (owned == 2 ? 5 : 7);
+        const bool  pity = g_killsSinceSkillDrop >= pityKills;
+        const float chance = pity ? 1.0f : 0.18f;
         if (Random01() < chance) {
             const int skill = PickSkillUnlockType(*player);
             if (skill >= 0) {
-                SpawnPickup(world, position + Vec2(RandomRange(-0.25f, 0.25f), RandomRange(-0.2f, 0.2f)),
+                // 远程击杀时把技能掉落拉回玩家 6 单位内，保证手动拾取目标始终在镜头内。
+                const Vec2 playerPosition(playerObject->Position().x, playerObject->Position().y);
+                Vec2       dropPosition = position;
+                const float distance = Length(dropPosition - playerPosition);
+                if (distance > 6.0f) {
+                    dropPosition = playerPosition + SafeDir(dropPosition - playerPosition) * 6.0f;
+                }
+                SpawnPickup(world, dropPosition + Vec2(RandomRange(-0.25f, 0.25f), RandomRange(-0.2f, 0.2f)),
                             static_cast<int>(SurvivorsPickupType::SkillUnlockBase) + skill);
                 g_killsSinceSkillDrop = 0;
                 return;
