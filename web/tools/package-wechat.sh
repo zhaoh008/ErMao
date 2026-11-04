@@ -79,6 +79,22 @@ print("[wechat] disabled WXGameKit best-practice monitor popups")
 PYCFG
 fi
 
+# 手机竖屏：微信小游戏方向改为 portrait（否则真机会自动切横屏）。
+if [ -f "${OUT_DIR}/minigame/game.json" ]; then
+  python3 - "${OUT_DIR}/minigame/game.json" <<'PYORI'
+import json
+import sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+data["deviceOrientation"] = "portrait"
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+print("[wechat] deviceOrientation = portrait")
+PYORI
+fi
+
 # 转换工具会重写 framework.js；如果构建产物里的 title 补丁丢了，iOS 会在
 # SDL 创建窗口时直接抛 “Cannot assign to read only property 'title'”，
 # 这里在打包阶段硬性校验，避免再发一个启动即崩的 iPhone 包。

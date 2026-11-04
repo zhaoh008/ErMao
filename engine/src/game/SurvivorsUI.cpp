@@ -79,10 +79,16 @@ Canvas MakeCanvas(float vx, float vy, float vw, float vh) {
     Canvas c;
     c.origin = ImVec2(vx, vy);
 #ifdef ERMAO_WEB
-    // 手机横屏高度通常 360~430 CSS px：允许缩到 0.40，保证 900 设计高度能完整放下。
-    c.scale = Clamp(vh / 900.0f, 0.40f, 1.25f);
-    // 按 900 设计高度缩到 0.43 后，15px 字只有 6px；手机横屏把字号再放大 30%。
-    c.textScale = (vh < 520.0f) ? 1.30f : 1.0f;
+    if (vh > vw) {
+        // 手机竖屏：使用 1600 设计高度；宽度按实际比例（约 736），再把字号放大。
+        c.scale = Clamp(vh / 1600.0f, 0.40f, 1.25f);
+        c.textScale = 1.30f;
+    } else {
+        // 手机横屏高度通常 360~430 CSS px：允许缩到 0.40，保证 900 设计高度能完整放下。
+        c.scale = Clamp(vh / 900.0f, 0.40f, 1.25f);
+        // 按 900 设计高度缩到 0.43 后，15px 字只有 6px；手机横屏把字号再放大 30%。
+        c.textScale = (vh < 520.0f) ? 1.30f : 1.0f;
+    }
 #else
     c.scale = Clamp(vh / 900.0f, 0.70f, 1.25f);
 #endif
@@ -90,6 +96,8 @@ Canvas MakeCanvas(float vx, float vy, float vw, float vh) {
     c.h = vh / c.scale;
     return c;
 }
+
+float FitPanelWidth(const Canvas& c, float desired) { return (std::min)(desired, c.w - 40.0f); }
 
 ImTextureID TexId(Texture* texture) {
     // D3D11 返回 SRV 指针，Web 返回 GLuint；两端都通过 Texture::ImGuiTexId() 暴露。
@@ -1039,16 +1047,18 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     DrawTextRight(draw, m_ui, c, 16.0f, 316.0f, 92.0f, kText, value);
     DrawBar(draw, m_ui, c, 42.0f, 112.0f, 274.0f, 20.0f, xpRatio, m_ui.barXpFill);
 
-    // 顶中：等级 / 计时 / 击杀
+    // 等级 / 计时 / 击杀；竖屏放到生命/经验面板下方，避免和左上角重叠。
+    const bool  portrait = c.h > c.w;
     const float timerW = 342.0f;
-    const float timerX = c.w * 0.5f - timerW * 0.5f;
-    DrawPanel(draw, m_ui, c, timerX, 20.0f, timerW, 56.0f);
+    const float timerX = portrait ? 24.0f : c.w * 0.5f - timerW * 0.5f;
+    const float timerY = portrait ? 154.0f : 20.0f;
+    DrawPanel(draw, m_ui, c, timerX, timerY, timerW, 56.0f);
     std::snprintf(value, sizeof(value), "等级 %d", level);
-    DrawText(draw, m_ui, c, 15.0f, timerX + 20.0f, 38.0f, kTextDim, value);
+    DrawText(draw, m_ui, c, 15.0f, timerX + 20.0f, timerY + 18.0f, kTextDim, value);
     const std::string clock = FormatClock(m_time);
-    DrawTextCentered(draw, m_ui, c, 30.0f, c.w * 0.5f, 30.0f, kGoldBright, clock.c_str());
+    DrawTextCentered(draw, m_ui, c, 30.0f, timerX + timerW * 0.5f, timerY + 10.0f, kGoldBright, clock.c_str());
     std::snprintf(value, sizeof(value), "击杀 %d", m_kills);
-    DrawTextRight(draw, m_ui, c, 15.0f, timerX + timerW - 20.0f, 38.0f, kTextDim, value);
+    DrawTextRight(draw, m_ui, c, 15.0f, timerX + timerW - 20.0f, timerY + 18.0f, kTextDim, value);
 
     // 右上暂停
     const float pauseW = 136.0f;
@@ -1124,7 +1134,7 @@ void SurvivorsDirector::DrawLevelUpScreen(World& world, float vx, float vy, floa
     auto*       player = PlayerOf(world);
     if (!player) return;
 
-    const float panelW = 860.0f;
+    const float panelW = FitPanelWidth(c, 860.0f);
     const float panelH = 470.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
@@ -1607,7 +1617,7 @@ void SurvivorsDirector::DrawResultScreen(World& world, float vx, float vy, float
     DrawDim(draw, c, 188);
     auto* player = PlayerOf(world);
 
-    const float panelW = 840.0f;
+    const float panelW = FitPanelWidth(c, 840.0f);
     const float panelH = 560.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
@@ -1658,7 +1668,7 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
 
-    const float panelW = 840.0f;
+    const float panelW = FitPanelWidth(c, 840.0f);
     const float panelH = 760.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
@@ -1692,7 +1702,7 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
 
-    const float panelW = 840.0f;
+    const float panelW = FitPanelWidth(c, 840.0f);
     const float panelH = 660.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
