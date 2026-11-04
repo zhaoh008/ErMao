@@ -40,6 +40,8 @@ bool  g_inputEnabled = true;
 int   g_kills = 0;
 int   g_killsSinceDrop = 0;
 int   g_killsSinceSkillDrop = 0;
+int   g_killsSincePotionDrop = 0;
+float g_gameTime = 0.0f;
 
 // 不要用浮点 LCG：float 乘加后取模会退化成 0 / 0 / 0.655 的短周期，
 // 导致掉落类型、刷怪角度和特效几乎固定。mt19937 的 24 位结果足够用。
@@ -410,8 +412,7 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
             default: break;
         }
     }
-    pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowHealthPotion),
-                    player.hp < player.maxHp * 0.65f ? 22.0f : 7.0f});
+    if (pool.empty()) return -1;
 
     float total = 0.0f;
     for (const WeightedPickup& entry : pool) total += entry.weight;
@@ -420,7 +421,7 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
         roll -= entry.weight;
         if (roll <= 0.0f) return entry.type;
     }
-    return static_cast<int>(SurvivorsPickupType::ArrowHealthPotion);
+    return pool.back().type;
 }
 
 void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemyComponent& enemy) {
@@ -431,14 +432,15 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
 
     ++g_killsSinceDrop;
     ++g_killsSinceSkillDrop;
+    ++g_killsSincePotionDrop;
 
     // 技能掉落优先：一局最多 4 个额外技能，掉在地上必须走过去捡，不会被吸走。
-    // 第一个技能 3 杀保底，之后随拥有数量逐步拉长保底间隔，避免开局只有 1 个技能时被怪潮压死。
+    // 新技能爆率在上一版基础上减半（9%），保底间隔同步翻倍。
     if (player->SelectedSkillCount() < kSurvivorsMaxLoadout) {
         const int owned = player->SelectedSkillCount();
-        const int pityKills = owned <= 1 ? 3 : (owned == 2 ? 5 : 7);
+        const int pityKills = owned <= 1 ? 6 : (owned == 2 ? 10 : 14);
         const bool  pity = g_killsSinceSkillDrop >= pityKills;
-        const float chance = pity ? 1.0f : 0.18f;
+        const float chance = pity ? 1.0f : 0.09f;
         if (Random01() < chance) {
             const int skill = PickSkillUnlockType(*player);
             if (skill >= 0) {
@@ -457,11 +459,26 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
         }
     }
 
-    // 强化只从已拥有且未满级的技能里掉落。
-    if (Random01() < 0.16f || g_killsSinceDrop >= 6) {
+    // 强化只从已拥有且未满级的技能里掉落；20 级曲线需要足够强化，
+    // 这里保持 20%/5 杀保底，让 4~5 个技能在 6–9 分钟陆续补满。
+    if (Random01() < 0.20f || g_killsSinceDrop >= 5) {
+        const int upgradeType = PickUpgradePickupType(*player);
+        if (upgradeType >= 0) {
+            SpawnPickup(world, position + Vec2(RandomRange(-0.35f, 0.35f), RandomRange(-0.28f, 0.28f)),
+                        upgradeType);
+            g_killsSinceDrop = 0;
+        }
+    }
+
+    // 血瓶独立掉率：约为上一版有效掉率的 1/4~1/5；9 分钟后进一步减半。
+    const bool  lowHp = player->hp < player->maxHp * 0.35f;
+    float       potionChance = lowHp ? 0.008f : 0.003f;
+    const int   potionPity = g_gameTime > 540.0f ? 240 : 160;
+    if (g_gameTime > 540.0f) potionChance *= 0.5f;
+    if (Random01() < potionChance || g_killsSincePotionDrop >= potionPity) {
         SpawnPickup(world, position + Vec2(RandomRange(-0.35f, 0.35f), RandomRange(-0.28f, 0.28f)),
-                    PickUpgradePickupType(*player));
-        g_killsSinceDrop = 0;
+                    static_cast<int>(SurvivorsPickupType::ArrowHealthPotion));
+        g_killsSincePotionDrop = 0;
     }
 }
 
@@ -760,8 +777,10 @@ float SurvivorsPlayerComponent::ArrowSpeedBonus() const {
 }
 
 float SurvivorsPlayerComponent::ArrowDamage() const {
-    // 线性成长：等级 + 箭矢攻击强化，不再用乘法叠乘，避免几十级后一枝箭秒掉整屏。
-    return baseAttackDamage + 1.5f * static_cast<float>(level - 1) + 3.0f * static_cast<float>(arrowDamageLevel);
+    if (!HasSkill(0)) return 0.0f;
+    // 箭矢技能等级 1~20：按与怪物强度匹配的 1.22 曲线成长，20 级约 12×1.22^19。
+    const int arrowLevel = Clamp(SkillLevel(0), 1, kSurvivorsMaxSkillLevel);
+    return baseAttackDamage * std::pow(kSurvivorsSkillDamageGrowth, static_cast<float>(arrowLevel - 1));
 }
 
 float SurvivorsPlayerComponent::ArrowRange() const {
@@ -774,18 +793,18 @@ float SurvivorsPlayerComponent::ArrowProjectileLife() const {
 
 float SurvivorsPlayerComponent::BladeAngle() const { return m_bladeAngle; }
 
-// 所有技能最多 6 级：伤害走线性成长，冷却只做小幅递减并设下限。
+// 所有技能最多 20 级：伤害按 1.22 曲线成长，冷却只做小幅递减并设下限。
 float SurvivorsPlayerComponent::LightningDamage() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 16.0f + 5.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : 12.0f * std::pow(kSurvivorsSkillDamageGrowth, static_cast<float>(level - 1));
 }
 int SurvivorsPlayerComponent::LightningTargets() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0 : (std::min)(3, 1 + (level - 1) / 2);
+    return level <= 0 ? 0 : (std::min)(6, 1 + (level - 1) / 3);
 }
 int SurvivorsPlayerComponent::LightningChains() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0 : (std::min)(1, (level - 1) / 3);
+    return level <= 0 ? 0 : (std::min)(3, (level - 1) / 5);
 }
 float SurvivorsPlayerComponent::LightningRadius() const {
     const int level = (std::min)(lightningLevel, kSurvivorsMaxSkillLevel);
@@ -798,11 +817,11 @@ float SurvivorsPlayerComponent::LightningCooldown() const {
 
 float SurvivorsPlayerComponent::BladeDamage() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 8.0f + 2.5f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : 10.0f * std::pow(kSurvivorsSkillDamageGrowth, static_cast<float>(level - 1));
 }
 int SurvivorsPlayerComponent::BladeCount() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0 : (std::min)(4, 2 + (level - 1) / 2);
+    return level <= 0 ? 0 : (std::min)(6, 2 + (level - 1) / 4);
 }
 float SurvivorsPlayerComponent::BladeRadius() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
@@ -815,7 +834,7 @@ float SurvivorsPlayerComponent::BladeSpeed() const {
 
 float SurvivorsPlayerComponent::FrostDamage() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 12.0f + 3.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : 12.0f * std::pow(kSurvivorsSkillDamageGrowth, static_cast<float>(level - 1));
 }
 float SurvivorsPlayerComponent::FrostRadius() const {
     const int level = (std::min)(frostLevel, kSurvivorsMaxSkillLevel);
@@ -832,7 +851,7 @@ float SurvivorsPlayerComponent::FrostCooldown() const {
 
 float SurvivorsPlayerComponent::PoisonDps() const {
     const int level = (std::min)(poisonLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 7.0f + 2.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : 12.0f * std::pow(1.25f, static_cast<float>(level - 1));
 }
 float SurvivorsPlayerComponent::PoisonRadius() const {
     const int level = (std::min)(poisonLevel, kSurvivorsMaxSkillLevel);
@@ -841,11 +860,11 @@ float SurvivorsPlayerComponent::PoisonRadius() const {
 
 float SurvivorsPlayerComponent::FireballDamage() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0.0f : 22.0f + 5.0f * static_cast<float>(level - 1);
+    return level <= 0 ? 0.0f : 18.0f * std::pow(kSurvivorsSkillDamageGrowth, static_cast<float>(level - 1));
 }
 int SurvivorsPlayerComponent::FireballCount() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
-    return level <= 0 ? 0 : (std::min)(2, 1 + (level - 1) / 3);
+    return level <= 0 ? 0 : (std::min)(3, 1 + (level - 1) / 7);
 }
 float SurvivorsPlayerComponent::FireballExplosionRadius() const {
     const int level = (std::min)(fireballLevel, kSurvivorsMaxSkillLevel);
@@ -1656,15 +1675,40 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
     }
 }
 
+namespace {
+
+// 怪物强度曲线：0–9 分钟按原二次曲线，9 分钟后生命/速度/伤害额外加速，制造终局压力。
+float EnemyHpScale(float time) {
+    float scale = 1.0f + time / 55.0f + std::pow(time / 150.0f, 2.0f);
+    if (time > 540.0f) scale += 6.0f * std::pow((time - 540.0f) / 60.0f, 1.6f);
+    return scale;
+}
+
+float EnemySpeedScale(float time) {
+    float scale = 1.0f + (std::min)(0.8f, time / 420.0f);
+    if (time > 540.0f) scale += (std::min)(0.8f, (time - 540.0f) / 300.0f);
+    return scale;
+}
+
+float EnemyDamageScale(float time) {
+    float scale = 1.0f + time / 110.0f;
+    if (time > 540.0f) scale += (std::min)(1.0f, (time - 540.0f) / 240.0f);
+    return scale;
+}
+
+} // namespace
+
 void SurvivorsDirector::SpawnWave(World& world) {
-    if (g_enemies.size() > 140) return; // 上限，避免刷爆
+    const size_t enemyCap = m_time > 540.0f ? 220 : 140;
+    if (g_enemies.size() > enemyCap) return; // 上限，避免刷爆
     GameObject* player = FindPlayer(world);
     const Vec2  center = player ? Vec2(player->Position().x, player->Position().y) : Vec2(0.0f, 0.0f);
 
-    const int count = 2 + (std::min)(12, static_cast<int>(m_time / 10.0f));
-    const float hpScale = 1.0f + m_time / 55.0f + std::pow(m_time / 150.0f, 2.0f);
-    const float speedScale = 1.0f + (std::min)(0.8f, m_time / 420.0f);
-    const float damageScale = 1.0f + m_time / 110.0f;
+    int count = 2 + (std::min)(12, static_cast<int>(m_time / 10.0f));
+    if (m_time > 540.0f) count += (std::min)(12, static_cast<int>((m_time - 540.0f) / 30.0f));
+    const float hpScale = EnemyHpScale(m_time);
+    const float speedScale = EnemySpeedScale(m_time);
+    const float damageScale = EnemyDamageScale(m_time);
 
     for (int i = 0; i < count; ++i) {
         const float angle = Random01() * kTwoPi;
@@ -1680,9 +1724,9 @@ void SurvivorsDirector::SpawnElite(World& world) {
     const float angle = Random01() * kTwoPi;
     const Vec2  position(center.x + std::cos(angle) * 12.0f, center.y + std::sin(angle) * 12.0f);
 
-    const float hpScale = 1.0f + m_time / 45.0f + std::pow(m_time / 150.0f, 2.0f);
-    const float speedScale = 1.0f + (std::min)(0.8f, m_time / 420.0f);
-    const float damageScale = 1.0f + m_time / 100.0f;
+    const float hpScale = EnemyHpScale(m_time);
+    const float speedScale = EnemySpeedScale(m_time);
+    const float damageScale = EnemyDamageScale(m_time);
     SpawnEnemy(world, position, static_cast<int>(SurvivorsEnemyType::Elite), hpScale, speedScale, damageScale);
     ShowToast("兽人精英出现了！");
     PlaySfx("death", 0.60f, 0.55f);
@@ -1709,6 +1753,8 @@ void SurvivorsDirector::Reset(World& world) {
     ClearSkillEffects();
     g_killsSinceDrop = 0;
     g_killsSinceSkillDrop = 0;
+    g_killsSincePotionDrop = 0;
+    g_gameTime = 0.0f;
     g_kills = 0;
     g_lastHitSfxTime = -10.0;
     g_lastGemSfxTime = -10.0;
@@ -1744,6 +1790,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
     if (m_state != State::Playing) return;
 
     m_time += dt;
+    g_gameTime = m_time;
     m_difficulty = m_time / 60.0f;
     m_kills = g_kills;
     UpdateDamageNumbers(dt);
@@ -1757,13 +1804,17 @@ void SurvivorsDirector::Update(World& world, float dt) {
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
         SpawnWave(world);
-        m_spawnTimer = (std::max)(0.55f, 2.4f - m_time * 0.012f);
+        if (m_time > 540.0f) {
+            m_spawnTimer = (std::max)(0.30f, 0.55f - (m_time - 540.0f) * 0.0015f);
+        } else {
+            m_spawnTimer = (std::max)(0.55f, 2.4f - m_time * 0.012f);
+        }
     }
 
     m_eliteTimer -= dt;
     if (m_eliteTimer <= 0.0f) {
         SpawnElite(world);
-        m_eliteTimer = (std::max)(32.0f, 55.0f - m_time * 0.03f);
+        m_eliteTimer = (std::max)(20.0f, 55.0f - m_time * 0.03f - (m_time > 540.0f ? (m_time - 540.0f) * 0.05f : 0.0f));
     }
 
     GameObject* player = FindPlayer(world);
@@ -2107,6 +2158,39 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 player->RefreshDerivedStats();
             }
         }
+    } else if (screen == "endgame") {
+        seed(false);
+        m_time = 600.0f;
+        g_gameTime = m_time;
+        m_kills = 900;
+        g_kills = 900;
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->level = 40;
+                player->maxHp = 340.0f;
+                player->hp = 340.0f;
+                player->loadoutMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5);
+                player->arrowSpread = true;
+                player->arrowSpeedLevel = kSurvivorsMaxArrowSpeedLevel;
+                player->arrowDamageLevel = kSurvivorsMaxArrowDamageLevel;
+                player->arrowRangeLevel = kSurvivorsMaxArrowRangeLevel;
+                player->lightningLevel = kSurvivorsMaxSkillLevel;
+                player->bladeLevel = kSurvivorsMaxSkillLevel;
+                player->frostLevel = kSurvivorsMaxSkillLevel;
+                player->poisonLevel = 0;
+                player->fireballLevel = kSurvivorsMaxSkillLevel;
+                player->invulnerable = 999.0f;
+                player->RefreshDerivedStats();
+                const Vec2 center(playerObject->Position().x, playerObject->Position().y);
+                for (int i = 0; i < 48; ++i) {
+                    const float angle = static_cast<float>(i) * kTwoPi / 48.0f + RandomRange(-0.06f, 0.06f);
+                    const float radius = RandomRange(4.5f, 9.0f);
+                    SpawnEnemy(world, center + Vec2(std::cos(angle), std::sin(angle)) * radius,
+                               PickEnemyType(m_time), EnemyHpScale(m_time), EnemySpeedScale(m_time),
+                               EnemyDamageScale(m_time));
+                }
+            }
+        }
     } else if (screen == "pause") {
         seed(false);
         m_state = State::Paused;
@@ -2413,6 +2497,8 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     g_kills = 0;
     g_killsSinceDrop = 0;
     g_killsSinceSkillDrop = 0;
+    g_killsSincePotionDrop = 0;
+    g_gameTime = 0.0f;
     LoadSurvivorsSettings();
 
     // 程序化宝石贴图（12x12 菱形）

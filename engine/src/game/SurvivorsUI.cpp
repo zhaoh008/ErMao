@@ -1172,7 +1172,7 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
     DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "踏入地牢",
-                     "职业决定初始技能；击杀最多再掉落 4 个技能", true);
+                     "职业决定初始技能；技能最高 20 级，击杀最多再掉落 4 个", true);
 
     const float cardW = (panelW - 60.0f - 28.0f) / 3.0f;
     const float cardH = 264.0f;

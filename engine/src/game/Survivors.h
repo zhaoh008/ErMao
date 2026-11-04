@@ -4,7 +4,7 @@
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
 //   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和血瓶；
 //   * 职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
-//     击杀同时掉落已拥有技能的强化，技能最高 6 级；
+//     击杀同时掉落已拥有技能的强化，技能最高 20 级；
 //   * 技能有独立的序列帧特效（CC0 贴图，见 engine/assets/vfx/LICENSE-VFX.txt）；
 //   * 八页界面用自绘 ImGui 图层，九宫格切图来自用户提供的 ermao-ui-v2 UI 原型。
 #pragma once
@@ -45,10 +45,12 @@ enum class SurvivorsPickupType : int {
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
 constexpr int kSurvivorsSkillCount = 6;
 constexpr int kSurvivorsMaxLoadout = 5;
-constexpr int kSurvivorsMaxSkillLevel = 6;
-constexpr int kSurvivorsMaxArrowSpeedLevel = 5;
-constexpr int kSurvivorsMaxArrowDamageLevel = 6;
+// 技能等级上限 20；箭矢强化合计最多 +19 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 1）。
+constexpr int kSurvivorsMaxSkillLevel = 20;
+constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
+constexpr int kSurvivorsMaxArrowDamageLevel = 8;
 constexpr int kSurvivorsMaxArrowRangeLevel = 4;
+constexpr float kSurvivorsSkillDamageGrowth = 1.22f;
 constexpr int kSurvivorsClassCount = 3;
 
 // 职业决定初始基础技能；其余技能只能靠击杀掉落、手动拾取。
