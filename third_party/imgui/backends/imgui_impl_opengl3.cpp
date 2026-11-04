@@ -193,6 +193,10 @@
 #define IMGL3W_IMPL
 #define IMGUI_IMPL_OPENGL_LOADER_IMGL3W
 #include "imgui_impl_opengl3_loader.h"
+
+#if defined(ERMAO_WEB) || defined(__EMSCRIPTEN__)
+#define IMGUI_IMPL_WEBGL_NO_STATE_QUERIES 1
+#endif
 #endif
 #ifndef GL_LOWER_LEFT
 #define GL_LOWER_LEFT 0x8CA1
@@ -496,7 +500,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
                 ImGui_ImplOpenGL3_UpdateTexture(tex);
 
     // WebGL/WeChat iOS: glGetIntegerv/glIsEnabled state queries are unsupported and spam GL_INVALID_ENUM.
-#ifndef ERMAO_WEB
+#ifndef IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
     // Backup GL state
     GLenum last_active_texture; glGetIntegerv(GL_ACTIVE_TEXTURE, (GLint*)&last_active_texture);
     glActiveTexture(GL_TEXTURE0);
@@ -536,7 +540,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
     GLboolean last_enable_primitive_restart = (!bd->GlProfileIsES3 && bd->GlVersion >= 310) ? glIsEnabled(GL_PRIMITIVE_RESTART) : GL_FALSE;
 #endif
 
-#endif // ERMAO_WEB
+#endif // IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
     // Support for GL 4.5 rarely used glClipControl(GL_UPPER_LEFT)
     bd->ClipOriginCurrent = bd->ClipOriginRequest;
     if (bd->ClipOriginCurrent == 0)
@@ -650,7 +654,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
     GL_CALL(glDeleteVertexArrays(1, &vertex_array_object));
 #endif
 
-#ifndef ERMAO_WEB
+#ifndef IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
     // Restore modified GL state
     // This "glIsProgram()" check is required because if the program is "pending deletion" at the time of binding backup, it will have been deleted by now and will cause an OpenGL error. See #6220.
     if (last_program == 0 || glIsProgram(last_program)) glUseProgram(last_program);
@@ -688,7 +692,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
 
     glViewport(last_viewport[0], last_viewport[1], (GLsizei)last_viewport[2], (GLsizei)last_viewport[3]);
     glScissor(last_scissor_box[0], last_scissor_box[1], (GLsizei)last_scissor_box[2], (GLsizei)last_scissor_box[3]);
-#endif // ERMAO_WEB
+#endif // IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
     (void)bd; // Not all compilation paths use this
 }
 
@@ -727,7 +731,7 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
         GLuint gl_texture_id = 0;
 
         // Upload texture to graphics system (bilinear sampling is required).
-#ifdef ERMAO_WEB
+#ifdef IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
         GLint last_texture = 0;
 #else
         GLint last_texture;
@@ -755,7 +759,7 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
     {
         // Update selected blocks. We only ever write to textures regions which have never been used before!
         // This backend choose to use tex->Updates[] but you can use tex->UpdateRect to upload a single region.
-#ifdef ERMAO_WEB
+#ifdef IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
         GLint last_texture = 0;
 #else
         GLint last_texture;
@@ -842,7 +846,7 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
 
     // Backup GL state
-#ifdef ERMAO_WEB
+#ifdef IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
     // WeChat iOS GL wrapper does not implement these queries; use clean defaults.
     GLint last_texture = 0, last_array_buffer = 0;
 #ifdef IMGUI_IMPL_OPENGL_USE_VERTEX_ARRAY
@@ -860,7 +864,7 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     GLint last_vertex_array;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
 #endif
-#endif // ERMAO_WEB
+#endif // IMGUI_IMPL_WEBGL_NO_STATE_QUERIES
 
     // Parse GLSL version string
     int glsl_version = 130;
@@ -1091,10 +1095,11 @@ bool    ImGui_ImplOpenGL3_Init(const char* glsl_version)
 
     // Query for GL version (e.g. 320 for GL 3.2)
     const char* gl_version_str = (const char*)glGetString(GL_VERSION);
-#if defined(IMGUI_IMPL_OPENGL_ES2)
-    // GLES 2
+#if defined(IMGUI_IMPL_OPENGL_ES2) || defined(IMGUI_IMPL_WEBGL_NO_STATE_QUERIES)
+    // GLES 2 / WebGL1: GL_MAJOR_VERSION / GL_MAX_TEXTURE_SIZE are not queryable on WeChat iOS.
     bd->GlVersion = 200;
     bd->GlProfileIsES2 = true;
+    bd->MaxTextureSize = 4096;
     IM_UNUSED(gl_version_str);
 #else
     // Desktop or GLES 3

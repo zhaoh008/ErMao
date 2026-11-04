@@ -192,6 +192,7 @@ bool WebApp::Init() {
     }
 
     m_initialised = true;
+    LogInfo("[Web] iOS GL 兼容模式：已跳过 ImGui 状态查询");
     LogInfo("[Web] 初始化完成（%s，触摸 %s）", "WebGL 1.0 / GLES2", m_mobile ? "是" : "否");
     return true;
 }
