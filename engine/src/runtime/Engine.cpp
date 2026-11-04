@@ -227,7 +227,7 @@ bool Engine::Init() {
     JobSystem::Init();
     CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
 
-    if (!m_window.Create("ErMao Engine 0.2 — GAMES104 教学引擎", m_windowWidth, m_windowHeight)) return false;
+    if (!m_window.Create("ErMao Engine 0.2", m_windowWidth, m_windowHeight)) return false;
     if (m_vulkanTest) {
         VulkanDemo demo;
         if (demo.Init(m_window)) {
