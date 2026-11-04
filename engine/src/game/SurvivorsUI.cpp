@@ -50,7 +50,7 @@ struct SkillMeta {
 };
 
 const SkillMeta kSkills[10] = {
-    {"箭矢", "自动攻击最近的敌人"},
+    {"箭矢", "自动攻击最近敌人，散射逐级增加方向数"},
     {"雷霆", "多道落雷，范围和数量随等级扩大"},
     {"回旋刃", "飞刃环绕；对冻结目标伤害提高"},
     {"霜环", "冻结周围敌人，为飞刃创造输出窗口"},
@@ -315,7 +315,7 @@ int SkillLevel(const SurvivorsPlayerComponent& player, int skill) { return playe
 int SkillSubLevel(const SurvivorsPlayerComponent& player, int skill, int sub) {
     if (skill == 0) {
         switch (sub) {
-            case 0: return player.arrowSpread ? 1 : 0;
+            case 0: return player.arrowSpreadLevel;
             case 1: return player.arrowSpeedLevel;
             case 2: return player.arrowDamageLevel;
             case 3: return player.arrowRangeLevel;
@@ -330,8 +330,10 @@ std::string SkillStatLine(const SurvivorsPlayerComponent& player, int skill) {
     switch (skill) {
         case 0:
             std::snprintf(buffer, sizeof(buffer), "%s · 伤害 %.0f · 攻速 +%.0f%% · 范围 %.1f",
-                          player.arrowSpread ? "八向 0.65x" : "单发锁定", player.ArrowDamage(),
-                          player.ArrowSpeedBonus() * 100.0f, player.ArrowRange());
+                          player.ArrowDirections() > 1
+                              ? (std::to_string(player.ArrowDirections()) + " 方向 0.65x").c_str()
+                              : "单发锁定",
+                          player.ArrowDamage(), player.ArrowSpeedBonus() * 100.0f, player.ArrowRange());
             break;
         case 1:
             std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 目标 %d · 连锁 %d · CD %.1fs", player.LightningDamage(),
@@ -408,11 +410,13 @@ LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const Su
     if (choice.skill == 0) {
         const int current = SkillSubLevel(player, 0, choice.sub);
         if (choice.sub == 0) {
-            info.tag = "箭矢 · 新技能";
-            info.name = "八向散射";
-            info.level = "解锁";
-            info.desc = "每次射击向八个方向各射出一箭，单箭伤害 0.65x。";
-            info.effect = "单发 → 八向";
+            info.tag = "箭矢 · 强化";
+            info.name = "箭矢散射";
+            info.level = "Lv." + std::to_string(current) + " → Lv." + std::to_string(current + 1);
+            info.desc = "每级增加散射方向数（2 / 4 / 6 / 8 / 12），单箭伤害 0.65x。";
+            info.effect = std::to_string(player.ArrowDirections()) + " → " +
+                          std::to_string(kSurvivorsArrowDirectionCounts[Clamp(current + 1, 0, kSurvivorsMaxArrowSpreadLevel)]) +
+                          " 方向";
             return info;
         }
         info.tag = "箭矢 · 强化";
