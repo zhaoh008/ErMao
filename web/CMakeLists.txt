@@ -9,6 +9,8 @@ if(NOT EMSCRIPTEN)
     message(FATAL_ERROR "请用 emcmake 配置：emcmake cmake -S web -B build-web")
 endif()
 
+find_package(Python3 COMPONENTS Interpreter REQUIRED)
+
 set(ERMAO_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/..)
 set(ERMAO_SRC ${ERMAO_ROOT}/engine/src)
 set(IMGUI_DIR ${ERMAO_ROOT}/third_party/imgui)
@@ -87,8 +89,9 @@ set_target_properties(ErMaoWeb PROPERTIES
 )
 
 add_custom_command(TARGET ErMaoWeb POST_BUILD
+    COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_webgl_glue.py $<TARGET_FILE:ErMaoWeb>
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
             ${CMAKE_CURRENT_SOURCE_DIR}/www/index.html
             $<TARGET_FILE_DIR:ErMaoWeb>/index.html
-    COMMENT "copying web shell"
+    COMMENT "patching WeChat-safe glue and copying web shell"
 )

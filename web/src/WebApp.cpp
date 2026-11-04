@@ -71,8 +71,8 @@ bool WebApp::Init() {
 
     // 让 SDL 画布跟随浏览器/设备窗口，而不是固定 1280x720；
     // 这样桌面截图、手机横屏和微信小游戏屏幕适配共用同一条路径。
-    int cssWidth = EM_ASM_INT({ return window.innerWidth || 1280; });
-    int cssHeight = EM_ASM_INT({ return window.innerHeight || 720; });
+    int cssWidth = EM_ASM_INT({ return (typeof window !== 'undefined' && window.innerWidth) ? window.innerWidth : 1280; });
+    int cssHeight = EM_ASM_INT({ return (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 720; });
     if (cssWidth < 320) cssWidth = 320;
     if (cssHeight < 240) cssHeight = 240;
 
@@ -138,7 +138,15 @@ bool WebApp::Init() {
     AudioSystem::Get().Init();
 
     // URL 参数：?play=1 直接开局（截图/演示），?frames=N 渲染 N 帧后停住并标记 ready。
-    const char* search = emscripten_run_script_string("window.location.search");
+    // 微信小游戏没有 URL，也不保证 document/window 可写；先识别 wx 再决定是否解析 URL，
+    // 避免在小游戏环境里执行 location/document.title 等浏览器专属操作。
+    const bool isWeChat = EM_ASM_INT({ return (typeof wx !== 'undefined') ? 1 : 0; }) != 0;
+    const char* search = nullptr;
+    if (!isWeChat) {
+        search = emscripten_run_script_string(
+            "(typeof window !== 'undefined' && window.location && window.location.search) ? "
+            "window.location.search : ''");
+    }
     if (search && std::strstr(search, "play=1")) {
         m_survivors->Reset(m_world);
     }
@@ -146,8 +154,18 @@ bool WebApp::Init() {
         const char* frames = std::strstr(search, "frames=");
         if (frames) m_prewarmFrames = std::atoi(frames + 7);
     }
-    m_mobile = EM_ASM_INT({ return (('ontouchstart' in window) || (navigator.maxTouchPoints > 0)) ? 1 : 0; }) != 0;
+    m_mobile = isWeChat || EM_ASM_INT({
+        return (typeof window !== 'undefined' &&
+                (('ontouchstart' in window) ||
+                 (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0)))
+                   ? 1
+                   : 0;
+    }) != 0;
     if (search && std::strstr(search, "mobile=1")) m_mobile = true;
+    if (isWeChat) {
+        // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
+        m_survivors->Reset(m_world);
+    }
 
     // 截图/自动化：在进入 requestAnimationFrame 前同步推进 N 个固定步。
     // headless Chrome 的 virtual-time 不会可靠地驱动 RAF，预先推进才能得到
@@ -163,7 +181,11 @@ bool WebApp::Init() {
             m_time += kFixedDt;
         }
         m_prewarmFrames = 0;
-        emscripten_run_script("document.title = 'ermao-ready';");
+        EM_ASM({
+            try {
+                if (typeof document !== 'undefined') document.title = 'ermao-ready';
+            } catch (e) {}
+        });
         LogInfo("[Web] 预推进 %d 帧完成（游戏时间 %.2fs）", steps, m_time);
     }
 
