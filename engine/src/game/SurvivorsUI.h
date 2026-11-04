@@ -39,7 +39,7 @@ struct SurvivorsUIAssets {
     Texture* crest = nullptr;
     Texture* iconHealth = nullptr;
     Texture* iconXp = nullptr;
-    Texture* icon[6]{}; // 箭矢 / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球
+    Texture* icon[10]{}; // 箭矢 / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球 / 陨石 / 黑洞 / 棱镜 / 毒爆
     Texture* titleBackground = nullptr;
     Texture* floor = nullptr;
 
