@@ -188,7 +188,13 @@ bool WebApp::Init() {
     }
     WeChatDebugStage("gl.context");
     SDL_GL_MakeCurrent(m_window, m_glContext);
+#ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(1);
+#else
+    // Emscripten 的 SDL_GL_SetSwapInterval 会在 main() 创建 main loop 之前调用
+    // emscripten_set_main_loop_timing，打印 “Cannot set timing mode ...”；浏览器/
+    // 微信本来就由 requestAnimationFrame 驱动，这里跳过即可。
+#endif
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
