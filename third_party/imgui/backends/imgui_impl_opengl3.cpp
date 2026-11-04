@@ -847,8 +847,10 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
 
     // Backup GL state
-    GLint last_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D(), last_array_buffer;
+    GLint last_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D(), last_array_buffer = 0;
+#ifndef __EMSCRIPTEN__
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &last_array_buffer);
+#endif
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_BIND_BUFFER_PIXEL_UNPACK
     GLint last_pixel_unpack_buffer = 0;
     if (bd->GlVersion >= 210) { glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &last_pixel_unpack_buffer); glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0); }

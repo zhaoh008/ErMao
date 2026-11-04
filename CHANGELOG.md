@@ -71,7 +71,7 @@
 
 ### Fixed
 
-- 微信小游戏 iOS：ImGui 每帧 `glGetIntegerv` 保存 GL 状态，WXWebGL 对 `GL_TEXTURE_BINDING_2D`/`GL_CURRENT_PROGRAM` 等多个 pname 返回 undefined，`glGet0v` 日志刷屏并明显卡顿；Emscripten 下跳过整段 GL 状态保存/恢复，清屏前关闭 scissor，保留桌面 GL 行为
+- 微信小游戏 iOS：ImGui 每帧 `glGetIntegerv` 保存 GL 状态，WXWebGL 对 `GL_TEXTURE_BINDING_2D`/`GL_CURRENT_PROGRAM`/`GL_ARRAY_BUFFER_BINDING` 等多个 pname 返回 undefined，`glGet0v` 日志刷屏并明显卡顿；Emscripten 下跳过每帧与初始化时的 GL 状态查询/恢复，清屏前关闭 scissor，保留桌面 GL 行为
 - 微信小游戏 iOS：WXWebGL 对 `glGetIntegerv(GL_TEXTURE_BINDING_2D)` 返回 undefined 并遗留 `GL_INVALID_ENUM`，ImGui 查询后导致程序化纹理（`gem_proc` 12×12）被 `glGetError()` 误判为 `glTexImage2D` 失败，启动中断；Emscripten 下跳过该查询并在纹理上传前清空旧 GL 错误
 - 微信小游戏 iOS 启动兼容：SDL 创建窗口前补齐 iOS 可能缺失的 `devicePixelRatio` / `canvas.getBoundingClientRect` / `document.body.style` 等最小接口；wasm 初始堆 128MB → 32MB、最大 256MB；诊断包把实时日志 / vConsole / 屏显错误作为首模块注入，并校验 `document.title` 保护，避免 iPhone 再次“程序遇到错误”却没有堆栈
 - 2D 幸存者：兽人水平朝向翻转条件写反，向右追击玩家时会翻成背对玩家、看起来像“倒着走”；现改为向右保持原图、向左才翻转
