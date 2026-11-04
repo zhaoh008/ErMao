@@ -100,6 +100,11 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
 （每次构建覆盖更新），不要再按版本/日期/修复名另起文件名；导入/扫码只认这一个路径。
 `wechat-preview-info.json` 同步更新。
 
+- 微信 8.0.80/iOS 的 WasmPatch 会在运行时改动 wasm 函数表，Emscripten 的
+  `wasmTableMirror` 可能与真实表不一致，`getWasmTableEntry` 断言直接 abort
+  （`JavaScript-side Wasm function table mirror is out of date!`）。构建后用
+  `patch_webgl_glue.py` 把该函数改为直接读 `wasmTable.get()`，不再依赖镜像缓存。
+
 ## 当前范围
 
 - ✅ 2D 幸存者：菜单、出战准备、HUD、暂停、设置、结算、技能图鉴

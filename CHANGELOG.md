@@ -71,6 +71,7 @@
 
 ### Fixed
 
+- 微信 8.0.80/iOS：WasmPatch 改动 wasm 函数表导致 Emscripten `getWasmTableEntry` 的 `wasmTableMirror` 断言 abort（“JavaScript-side Wasm function table mirror is out of date!”）；构建 glue 改为直接读 `wasmTable.get()`，修复启动后立即报“游戏遇到错误”
 - Web/微信小游戏：抽奖动画开始时导演状态为 `Gacha`，`WebApp::Update` 只在 `Playing` 时推进导演，`m_gachaTime` 停在 0，开箱动画卡死、点击也等不到 reveal；`Gacha` 状态也继续推进导演（世界更新仍冻结），安卓 H5 同样受益
 - 微信小游戏 iOS：ImGui 每帧 `glGetIntegerv` 保存 GL 状态，WXWebGL 对 `GL_TEXTURE_BINDING_2D`/`GL_CURRENT_PROGRAM`/`GL_ARRAY_BUFFER_BINDING` 等多个 pname 返回 undefined，`glGet0v` 日志刷屏并明显卡顿；Emscripten 下跳过每帧与初始化时的 GL 状态查询/恢复，清屏前关闭 scissor，保留桌面 GL 行为
 - 微信小游戏 iOS：WXWebGL 对 `glGetIntegerv(GL_TEXTURE_BINDING_2D)` 返回 undefined 并遗留 `GL_INVALID_ENUM`，ImGui 查询后导致程序化纹理（`gem_proc` 12×12）被 `glGetError()` 误判为 `glTexImage2D` 失败，启动中断；Emscripten 下跳过该查询并在纹理上传前清空旧 GL 错误
