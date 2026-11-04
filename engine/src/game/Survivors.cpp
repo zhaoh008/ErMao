@@ -445,9 +445,9 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
     // 新技能爆率在上一版基础上减半（9%），保底间隔同步翻倍。
     if (player->SelectedSkillCount() < kSurvivorsMaxLoadout) {
         const int owned = player->SelectedSkillCount();
-        const int pityKills = owned <= 1 ? 6 : (owned == 2 ? 10 : 14);
+        const int pityKills = owned <= 1 ? 8 : (owned == 2 ? 12 : 16);
         const bool  pity = g_killsSinceSkillDrop >= pityKills;
-        float       chance = pity ? 1.0f : 0.09f;
+        float       chance = pity ? 1.0f : 0.06f;
         // 新手期兜底：2 分钟后开始提高爆率，2:30 起每次击杀必掉，确保 3 分钟内凑齐 5 个技能。
         if (g_gameTime > 120.0f) {
             chance = (std::max)(chance, (std::min)(1.0f, 0.25f + (g_gameTime - 120.0f) * 0.05f));
@@ -473,17 +473,17 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
 
     // 强化只从已拥有且未满级的技能里掉落；成长速度由掉落率分段控制：
     // 前期少掉（5%/14 杀保底），中期加速（9%/9），6–9 分钟补满（16%/6），9 分钟后维持（20%/5）。
-    float upgradeChance = 0.02f;
-    int   upgradePity = 24;
+    float upgradeChance = 0.004f;
+    int   upgradePity = 300;
     if (g_gameTime < 180.0f) {
-        upgradeChance = 0.24f;
-        upgradePity = 5;
+        upgradeChance = 0.05f;
+        upgradePity = 20;
     } else if (g_gameTime < 360.0f) {
-        upgradeChance = 0.08f;
-        upgradePity = 10;
+        upgradeChance = 0.03f;
+        upgradePity = 25;
     } else if (g_gameTime < 540.0f) {
-        upgradeChance = 0.04f;
-        upgradePity = 16;
+        upgradeChance = 0.02f;
+        upgradePity = 20;
     }
     if (Random01() < upgradeChance || g_killsSinceDrop >= upgradePity) {
         const int upgradeType = PickUpgradePickupType(*player);
@@ -496,8 +496,8 @@ void SpawnPickupForKill(World& world, const Vec2& position, const SurvivorsEnemy
 
     // 血瓶独立掉率：约为上一版有效掉率的 1/4~1/5；9 分钟后进一步减半。
     const bool  lowHp = player->hp < player->maxHp * 0.35f;
-    float       potionChance = lowHp ? 0.008f : 0.003f;
-    const int   potionPity = g_gameTime > 540.0f ? 240 : 160;
+    float       potionChance = lowHp ? 0.004f : 0.0015f;
+    const int   potionPity = g_gameTime > 540.0f ? 450 : 300;
     if (g_gameTime > 540.0f) potionChance *= 0.5f;
     if (Random01() < potionChance || g_killsSincePotionDrop >= potionPity) {
         SpawnPickup(world, position + Vec2(RandomRange(-0.35f, 0.35f), RandomRange(-0.28f, 0.28f)),
@@ -2062,23 +2062,23 @@ float EnemyDamageScale(float time) {
 
 // 出怪节奏：前期少量、中期加密、6–9 分钟满屏、9 分钟后暴增。
 int WaveCount(float time) {
-    if (time < 180.0f) return 2 + static_cast<int>(time / 90.0f);
-    if (time < 360.0f) return 3 + static_cast<int>((time - 180.0f) / 60.0f);
-    if (time < 540.0f) return 5 + static_cast<int>((time - 360.0f) / 50.0f);
-    return 8 + (std::min)(18, static_cast<int>((time - 540.0f) / 30.0f));
+    if (time < 180.0f) return 4 + static_cast<int>(time / 90.0f);
+    if (time < 360.0f) return 6 + static_cast<int>((time - 180.0f) / 60.0f);
+    if (time < 540.0f) return 9 + static_cast<int>((time - 360.0f) / 45.0f);
+    return 13 + (std::min)(17, static_cast<int>((time - 540.0f) / 25.0f));
 }
 
 float WaveInterval(float time) {
-    if (time < 180.0f) return 2.6f - time / 180.0f * 0.6f;
-    if (time < 360.0f) return 2.0f - (time - 180.0f) / 180.0f * 0.5f;
-    if (time < 540.0f) return 1.5f - (time - 360.0f) / 180.0f * 0.4f;
-    return (std::max)(0.30f, 1.1f - (time - 540.0f) / 300.0f * 0.7f);
+    if (time < 180.0f) return 2.0f - time / 180.0f * 0.5f;
+    if (time < 360.0f) return 1.5f - (time - 180.0f) / 180.0f * 0.4f;
+    if (time < 540.0f) return 1.1f - (time - 360.0f) / 180.0f * 0.3f;
+    return (std::max)(0.25f, 0.9f - (time - 540.0f) / 300.0f * 0.6f);
 }
 
 } // namespace
 
 void SurvivorsDirector::SpawnWave(World& world) {
-    const size_t enemyCap = m_time > 540.0f ? 220 : 140;
+    const size_t enemyCap = m_time > 540.0f ? 320 : 220;
     if (g_enemies.size() > enemyCap) return; // 上限，避免刷爆
     GameObject* player = FindPlayer(world);
     const Vec2  center = player ? Vec2(player->Position().x, player->Position().y) : Vec2(0.0f, 0.0f);
