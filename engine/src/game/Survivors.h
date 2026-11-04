@@ -3,7 +3,7 @@
 // 设计（代码优先）：
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
 //   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和血瓶；
-//   * 职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
+//   * 10 个技能中，职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
 //     击杀同时掉落已拥有技能的强化，技能最高 20 级；
 //   * 技能有独立的序列帧特效（CC0 贴图，见 engine/assets/vfx/LICENSE-VFX.txt）；
 //   * 八页界面用自绘 ImGui 图层，九宫格切图来自用户提供的 ermao-ui-v2 UI 原型。
@@ -36,14 +36,18 @@ enum class SurvivorsPickupType : int {
     FrostUpgrade,         // 霜环强化
     PoisonUpgrade,        // 毒雾强化
     FireballUpgrade,      // 火球强化
+    MeteorUpgrade,        // 陨石强化
+    SingularityUpgrade,   // 黑洞强化
+    PrismUpgrade,         // 棱镜光束强化
+    PlagueUpgrade,        // 毒爆强化
     SkillUnlockBase = 20, // 20 + 技能下标：掉落的新技能（必须手动拾取）
-    SkillUnlockEnd = 26,
-    Count = 26
+    SkillUnlockEnd = 30,
+    Count = 30
 };
 
 // ---------------------------------------------------------------- 数值上限
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
-constexpr int kSurvivorsSkillCount = 6;
+constexpr int kSurvivorsSkillCount = 10;
 constexpr int kSurvivorsMaxLoadout = 5;
 // 技能等级上限 20；箭矢强化合计最多 +19 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 1）。
 constexpr int kSurvivorsMaxSkillLevel = 20;
@@ -133,6 +137,10 @@ public:
     int frostLevel = 1;
     int poisonLevel = 1;
     int fireballLevel = 1;
+    int meteorLevel = 0;
+    int singularityLevel = 0;
+    int prismLevel = 0;
+    int plagueLevel = 0;
 
     // 最近拾取提示
     std::string pickupToast;
@@ -175,7 +183,7 @@ public:
 
     float FrostDamage() const;
     float FrostRadius() const;
-    float FrostSlow() const;
+    float FrostFreezeDuration() const;
     float FrostCooldown() const;
 
     float PoisonDps() const;
@@ -185,6 +193,26 @@ public:
     int   FireballCount() const;
     float FireballExplosionRadius() const;
     float FireballCooldown() const;
+
+    float MeteorDamage() const;
+    int   MeteorCount() const;
+    float MeteorCooldown() const;
+    float MeteorRadius() const;
+
+    float SingularityDps() const;
+    float SingularityRadius() const;
+    float SingularityDuration() const;
+    float SingularityCooldown() const;
+
+    float PrismDamage() const;
+    int   PrismBeamCount() const;
+    float PrismBeamLength() const;
+    float PrismBeamSpeed() const;
+    float PrismBeamAngle() const;
+
+    float PlagueDamage() const;
+    float PlagueRadius() const;
+    float PlagueCooldown() const;
 
     // 菜单打开时禁止移动（和 3D 的 SetInputEnabled 同思路）
     static void SetInputEnabled(bool enabled);
@@ -199,6 +227,11 @@ private:
     float m_lightningTimer = 0.0f;
     float m_frostTimer = 0.0f;
     float m_fireballTimer = 0.0f;
+    float m_meteorTimer = 0.0f;
+    float m_singularityTimer = 0.0f;
+    float m_plagueTimer = 0.0f;
+    float m_prismAngle = 0.0f;
+    float m_prismTick = 0.0f;
     float m_poisonTick = 0.0f;
     float m_bladeTick = 0.0f;
     float m_bladeAngle = 0.0f;
@@ -212,6 +245,10 @@ private:
     void CastFireball();
     void UpdateBlades(float dt);
     void UpdateAura(float dt);
+    void CastMeteor();
+    void CastSingularity();
+    void UpdatePrismBeams(float dt);
+    void CastPlagueBloom();
     void RecomputeAttackInterval();
     void RecomputeAttackDamage();
     void ShowPickupToast(const std::string& text);

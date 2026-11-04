@@ -49,13 +49,17 @@ struct SkillMeta {
     const char* desc;
 };
 
-const SkillMeta kSkills[6] = {
+const SkillMeta kSkills[10] = {
     {"箭矢", "自动攻击最近的敌人"},
-    {"雷霆", "落雷打击敌人"},
-    {"回旋刃", "飞刃环绕角色"},
-    {"霜环", "扩散冰环并减速"},
-    {"毒雾", "持续伤害范围内敌人"},
-    {"火球", "火球命中后爆炸"},
+    {"雷霆", "多道落雷，范围和数量随等级扩大"},
+    {"回旋刃", "飞刃环绕；对冻结目标伤害提高"},
+    {"霜环", "冻结周围敌人，为飞刃创造输出窗口"},
+    {"毒雾", "持续伤害；中毒目标受到伤害提高"},
+    {"火球", "追踪火球，高等级爆炸范围巨大"},
+    {"陨石", "天降陨石，落点范围爆炸"},
+    {"黑洞", "吸附周围敌人并持续腐蚀"},
+    {"棱镜光束", "旋转光束，穿透整条路径"},
+    {"毒爆", "引爆中毒目标，让毒雾连锁扩散"},
 };
 
 struct Canvas {
@@ -334,19 +338,37 @@ std::string SkillStatLine(const SurvivorsPlayerComponent& player, int skill) {
                           player.LightningTargets(), player.LightningChains(), player.LightningCooldown());
             break;
         case 2:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 刃数 %d · 半径 %.1f", player.BladeDamage(),
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 刃 · 半径 %.1f · 冻结目标 x1.75", player.BladeDamage(),
                           player.BladeCount(), player.BladeRadius());
             break;
         case 3:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · 减速 %.0f%%", player.FrostDamage(),
-                          player.FrostRadius(), player.FrostSlow() * 100.0f);
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · 冻结 %.1fs", player.FrostDamage(),
+                          player.FrostRadius(), player.FrostFreezeDuration());
             break;
         case 4:
-            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f", player.PoisonDps(), player.PoisonRadius());
+            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f · 中毒易伤 +15%%", player.PoisonDps(),
+                          player.PoisonRadius());
             break;
         case 5:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · CD %.1fs", player.FireballDamage(),
-                          player.FireballCooldown());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 爆炸 %.1f · CD %.1fs", player.FireballDamage(),
+                          player.FireballExplosionRadius(), player.FireballCooldown());
+            break;
+        case 6:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 发 · 范围 %.1f · CD %.1fs", player.MeteorDamage(),
+                          player.MeteorCount(), player.MeteorRadius(), player.MeteorCooldown());
+            break;
+        case 7:
+            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f · %.1fs · CD %.1fs",
+                          player.SingularityDps(), player.SingularityRadius(), player.SingularityDuration(),
+                          player.SingularityCooldown());
+            break;
+        case 8:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 束 · 长度 %.1f", player.PrismDamage(),
+                          player.PrismBeamCount(), player.PrismBeamLength());
+            break;
+        case 9:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · CD %.1fs", player.PlagueDamage(),
+                          player.PlagueRadius(), player.PlagueCooldown());
             break;
         default: buffer[0] = '\0'; break;
     }
@@ -363,7 +385,7 @@ struct LevelCardInfo {
 
 LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const SurvivorsLevelUpChoice& choice) {
     LevelCardInfo info;
-    if (choice.skill == 6) {
+    if (choice.skill == 100) {
         info.tag = "补给 · 技能已满";
         if (choice.sub == 0) {
             info.name = "生命恢复";
@@ -440,16 +462,34 @@ LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const Su
                           after.BladeDamage(), player.BladeCount(), after.BladeCount());
             break;
         case 3:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f", player.FrostDamage(),
-                          after.FrostDamage(), player.FrostRadius(), after.FrostRadius());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f · 冻结 %.1fs → %.1fs",
+                          player.FrostDamage(), after.FrostDamage(), player.FrostRadius(), after.FrostRadius(),
+                          player.FrostFreezeDuration(), after.FrostFreezeDuration());
             break;
         case 4:
             std::snprintf(buffer, sizeof(buffer), "DPS %.0f → %.0f · 半径 %.1f → %.1f", player.PoisonDps(),
                           after.PoisonDps(), player.PoisonRadius(), after.PoisonRadius());
             break;
         case 5:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · CD %.1fs → %.1fs", player.FireballDamage(),
-                          after.FireballDamage(), player.FireballCooldown(), after.FireballCooldown());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 爆炸 %.1f → %.1f", player.FireballDamage(),
+                          after.FireballDamage(), player.FireballExplosionRadius(),
+                          after.FireballExplosionRadius());
+            break;
+        case 6:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 范围 %.1f → %.1f", player.MeteorDamage(),
+                          after.MeteorDamage(), player.MeteorRadius(), after.MeteorRadius());
+            break;
+        case 7:
+            std::snprintf(buffer, sizeof(buffer), "DPS %.0f → %.0f · 半径 %.1f → %.1f", player.SingularityDps(),
+                          after.SingularityDps(), player.SingularityRadius(), after.SingularityRadius());
+            break;
+        case 8:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 束数 %d → %d", player.PrismDamage(),
+                          after.PrismDamage(), player.PrismBeamCount(), after.PrismBeamCount());
+            break;
+        case 9:
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f", player.PlagueDamage(),
+                          after.PlagueDamage(), player.PlagueRadius(), after.PlagueRadius());
             break;
         default: buffer[0] = '\0'; break;
     }
@@ -570,10 +610,12 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
     iconXp = assets.GetTextureAsset("sprites/ui/icon_xp.png");
     titleBackground = assets.GetTextureAsset("sprites/ui/title.png");
 
-    static const char* kIconPaths[6] = {"sprites/ui/icon_arrow.png",     "sprites/ui/icon_lightning.png",
-                                        "sprites/ui/icon_blade.png",     "sprites/ui/icon_frost.png",
-                                        "sprites/ui/icon_poison.png",    "sprites/ui/icon_fireball.png"};
-    for (int i = 0; i < 6; ++i) icon[i] = assets.GetTextureAsset(kIconPaths[i]);
+    static const char* kIconPaths[10] = {"sprites/ui/icon_arrow.png",      "sprites/ui/icon_lightning.png",
+                                         "sprites/ui/icon_blade.png",      "sprites/ui/icon_frost.png",
+                                         "sprites/ui/icon_poison.png",     "sprites/ui/icon_fireball.png",
+                                         "sprites/ui/icon_meteor.png",     "sprites/ui/icon_singularity.png",
+                                         "sprites/ui/icon_prism.png",      "sprites/ui/icon_plague.png"};
+    for (int i = 0; i < 10; ++i) icon[i] = assets.GetTextureAsset(kIconPaths[i]);
 
     // 关卡里程序化生成的地面，用于出战准备的地图卡片
     floor = assets.GetTexture("floor_big");
@@ -1133,7 +1175,7 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     ImDrawList* draw = ImGui::GetForegroundDrawList();
 
     const float panelW = 840.0f;
-    const float panelH = 580.0f;
+    const float panelH = 760.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
@@ -1143,14 +1185,14 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     const float rowX = panelX + 30.0f;
     const float rowW = panelW - 60.0f;
     float       rowY = panelY + 126.0f;
-    for (int i = 0; i < 6; ++i) {
-        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 48.0f), IM_COL32(37, 30, 43, 255), c.V(3.0f));
-        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 48.0f), IM_COL32(72, 53, 64, 255), c.V(3.0f),
+    for (int i = 0; i < kSurvivorsSkillCount; ++i) {
+        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(37, 30, 43, 255), c.V(3.0f));
+        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(72, 53, 64, 255), c.V(3.0f),
                       c.V(1.0f));
-        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], rowX + 12.0f, rowY + 6.0f, 36.0f, 36.0f);
-        DrawText(draw, m_ui, c, 16.0f, rowX + 62.0f, rowY + 13.0f, kText, kSkills[i].name);
-        DrawText(draw, m_ui, c, 14.0f, rowX + 150.0f, rowY + 15.0f, kTextDim, kSkills[i].desc);
-        rowY += 54.0f;
+        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], rowX + 10.0f, rowY + 4.0f, 34.0f, 34.0f);
+        DrawText(draw, m_ui, c, 15.0f, rowX + 54.0f, rowY + 12.0f, kText, kSkills[i].name);
+        DrawText(draw, m_ui, c, 13.0f, rowX + 150.0f, rowY + 14.0f, kTextDim, kSkills[i].desc);
+        rowY += 50.0f;
     }
 
     const float buttonW = 240.0f;
