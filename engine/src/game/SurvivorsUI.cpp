@@ -306,19 +306,7 @@ std::string FormatClock(float seconds) {
     return buffer;
 }
 
-int SkillLevel(const SurvivorsPlayerComponent& player, int skill) {
-    switch (skill) {
-        case 0:
-            return 1 + player.arrowSpeedLevel + player.arrowDamageLevel + player.arrowRangeLevel +
-                   (player.arrowSpread ? 1 : 0);
-        case 1: return player.lightningLevel;
-        case 2: return player.bladeLevel;
-        case 3: return player.frostLevel;
-        case 4: return player.poisonLevel;
-        case 5: return player.fireballLevel;
-        default: return 1;
-    }
-}
+int SkillLevel(const SurvivorsPlayerComponent& player, int skill) { return player.SkillLevel(skill); }
 
 int SkillSubLevel(const SurvivorsPlayerComponent& player, int skill, int sub) {
     if (skill == 0) {
@@ -375,6 +363,26 @@ struct LevelCardInfo {
 
 LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const SurvivorsLevelUpChoice& choice) {
     LevelCardInfo info;
+    if (choice.skill == 6) {
+        info.tag = "补给 · 技能已满";
+        if (choice.sub == 0) {
+            info.name = "生命恢复";
+            info.level = "恢复 30%";
+            info.desc = "所有携带技能都已达到上限，回复一部分生命。";
+            info.effect = "生命 +30% 与 10 点";
+        } else if (choice.sub == 1) {
+            info.name = "生命上限";
+            info.level = "上限 +8";
+            info.desc = "所有携带技能都已达到上限，提高生命上限并回复同等生命。";
+            info.effect = "最大生命 +8";
+        } else {
+            info.name = "完全恢复";
+            info.level = "回满";
+            info.desc = "所有携带技能都已达到上限，将生命回满。";
+            info.effect = "生命回满";
+        }
+        return info;
+    }
     if (choice.skill == 0) {
         const int current = SkillSubLevel(player, 0, choice.sub);
         if (choice.sub == 0) {
@@ -570,6 +578,13 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
     // 关卡里程序化生成的地面，用于出战准备的地图卡片
     floor = assets.GetTexture("floor_big");
 
+    // 技能特效：CC0 序列帧/精灵表（下载来源见 engine/assets/vfx/LICENSE-VFX.txt）
+    fxArcane = assets.GetTextureAsset("vfx/arcane_strip.png");
+    fxWater = assets.GetTextureAsset("vfx/water_strip.png");
+    fxFireball = assets.GetTextureAsset("vfx/fireball.png");
+    fxExplosion = assets.GetTextureAsset("vfx/explosion.png");
+    fxPoison = assets.GetTextureAsset("particles/smoke_01.png");
+
     const bool ok = panel && slot && buttonNormal && buttonPrimary && barTrack && barHealthFill && barXpFill &&
                     titleBackground && body;
     if (!ok) LogWarn("[2D] UI 部分切图/字体缺失，界面会退回纯色绘制");
@@ -689,6 +704,7 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
     const bool  hasSave = HasSave();
     if (DrawButton(draw, m_ui, c, "##menu_start", "开始游戏", brandX, y, stackW, 52.0f, true, false, 20.0f)) {
         PlaySfx("click", 0.6f);
+        m_playerClass = kSurvivorsDefaultClass;
         m_state = State::Prepare;
         m_pauseNotice.clear();
         return;
@@ -775,38 +791,42 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawTextCentered(draw, m_ui, c, 17.0f, pauseX + pauseW * 0.5f, 33.0f, kText, "Esc 暂停");
     }
 
-    // 底部六槽
+    // 底部技能槽：只显示本局已拥有的技能（职业基础 1 个 + 最多 4 个掉落）
+    int slotSkills[kSurvivorsMaxLoadout] = {-1, -1, -1, -1, -1};
+    int slotCount = 0;
+    if (player) {
+        for (int skill = 0; skill < kSurvivorsSkillCount && slotCount < kSurvivorsMaxLoadout; ++skill) {
+            if (player->HasSkill(skill)) slotSkills[slotCount++] = skill;
+        }
+    }
     const float slotSize = 70.0f;
     const float gap = 5.0f;
-    const float totalW = slotSize * 6.0f + gap * 5.0f;
+    const float totalW = slotSize * static_cast<float>(slotCount) + gap * static_cast<float>((std::max)(0, slotCount - 1));
     const float slotY = c.h - 24.0f - slotSize;
     const float slotX = c.w * 0.5f - totalW * 0.5f;
     int         hoveredSkill = -1;
-    for (int i = 0; i < 6; ++i) {
-        const float x = slotX + (slotSize + gap) * static_cast<float>(i);
+    for (int slot = 0; slot < slotCount; ++slot) {
+        const int   skill = slotSkills[slot];
+        const float x = slotX + (slotSize + gap) * static_cast<float>(slot);
         if (interactive) {
             ImGui::SetCursorScreenPos(c.P(x, slotY));
-            const bool pressed = ImGui::InvisibleButton((std::string("##skill") + std::to_string(i)).c_str(),
+            const bool pressed = ImGui::InvisibleButton((std::string("##skill") + std::to_string(skill)).c_str(),
                                                         c.S(slotSize, slotSize));
-            if (ImGui::IsItemHovered()) hoveredSkill = i;
-            if (pressed) m_selectedSkill = (m_selectedSkill == i) ? -1 : i;
+            if (ImGui::IsItemHovered()) hoveredSkill = skill;
+            if (pressed) m_selectedSkill = (m_selectedSkill == skill) ? -1 : skill;
         }
         DrawNineSlice(draw, c, m_ui.slot, x, slotY, slotSize, slotSize, 12.0f);
-        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], x + 14.0f, slotY + 7.0f, 42.0f, 42.0f);
-        const int skillLevel = player ? SkillLevel(*player, i) : 0;
-        char slotLabel[32];
-        if (skillLevel > 0) {
-            std::snprintf(slotLabel, sizeof(slotLabel), "Lv.%d", skillLevel);
-        } else {
-            std::snprintf(slotLabel, sizeof(slotLabel), "未解锁");
-        }
-        DrawTextCentered(draw, m_ui, c, 11.0f, x + slotSize * 0.5f, slotY + 54.0f,
-                         skillLevel > 0 ? kSlotText : kTextMuted, slotLabel);
+        if (m_ui.icon[skill]) DrawImage(draw, c, m_ui.icon[skill], x + 14.0f, slotY + 7.0f, 42.0f, 42.0f);
+        const int skillLevel = player ? SkillLevel(*player, skill) : 0;
+        char      slotLabel[32];
+        std::snprintf(slotLabel, sizeof(slotLabel), "Lv.%d", skillLevel);
+        DrawTextCentered(draw, m_ui, c, 11.0f, x + slotSize * 0.5f, slotY + 54.0f, kSlotText, slotLabel);
     }
+    if (interactive && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) m_selectedSkill = -1;
 
     // 技能说明：悬停优先，点击可钉住
     const int shownSkill = (interactive && hoveredSkill >= 0) ? hoveredSkill : (interactive ? m_selectedSkill : -1);
-    if (shownSkill >= 0 && shownSkill < 6 && player) {
+    if (shownSkill >= 0 && shownSkill < kSurvivorsSkillCount && player) {
         const float tipW = 342.0f;
         const float tipH = 106.0f;
         const float tipX = c.w * 0.5f - tipW * 0.5f;
@@ -858,8 +878,11 @@ void SurvivorsDirector::DrawLevelUpScreen(World& world, float vx, float vy, floa
         char tag[64];
         std::snprintf(tag, sizeof(tag), "[%d]  %s", i + 1, info.tag.c_str());
         DrawText(draw, m_ui, c, 13.0f, cardX + 16.0f, cardY + 14.0f, kTag, tag);
-        if (m_ui.icon[m_levelChoices[i].skill]) {
-            DrawImage(draw, c, m_ui.icon[m_levelChoices[i].skill], cardX + 16.0f, cardY + 42.0f, 64.0f, 64.0f);
+        const int cardSkill = m_levelChoices[i].skill;
+        if (cardSkill >= 0 && cardSkill < kSurvivorsSkillCount && m_ui.icon[cardSkill]) {
+            DrawImage(draw, c, m_ui.icon[cardSkill], cardX + 16.0f, cardY + 42.0f, 64.0f, 64.0f);
+        } else if (m_ui.iconHealth) {
+            DrawImage(draw, c, m_ui.iconHealth, cardX + 16.0f, cardY + 42.0f, 64.0f, 64.0f);
         }
         DrawText(draw, m_ui, c, 23.0f, cardX + 16.0f, cardY + 116.0f, kText, info.name.c_str());
         DrawText(draw, m_ui, c, 15.0f, cardX + 16.0f, cardY + 150.0f, kGold, info.level.c_str());
@@ -1071,14 +1094,22 @@ void SurvivorsDirector::DrawResultScreen(World& world, float vx, float vy, float
     DrawRule(draw, c, panelX + 30.0f, panelY + 218.0f, panelW - 60.0f);
     DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, panelY + 236.0f, kText, "本局技能");
 
+    int  resultSkills[kSurvivorsMaxLoadout] = {-1, -1, -1, -1, -1};
+    int  resultCount = 0;
+    if (player) {
+        for (int skill = 0; skill < kSurvivorsSkillCount && resultCount < kSurvivorsMaxLoadout; ++skill) {
+            if (player->HasSkill(skill)) resultSkills[resultCount++] = skill;
+        }
+    }
     const float itemW = 100.0f;
-    const float rowW = itemW * 6.0f;
+    const float rowW = itemW * static_cast<float>((std::max)(1, resultCount));
     const float rowX = c.w * 0.5f - rowW * 0.5f;
-    for (int i = 0; i < 6; ++i) {
-        const float itemX = rowX + itemW * static_cast<float>(i);
-        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], itemX + 26.0f, panelY + 272.0f, 48.0f, 48.0f);
+    for (int slot = 0; slot < resultCount; ++slot) {
+        const int   skill = resultSkills[slot];
+        const float itemX = rowX + itemW * static_cast<float>(slot);
+        if (m_ui.icon[skill]) DrawImage(draw, c, m_ui.icon[skill], itemX + 26.0f, panelY + 272.0f, 48.0f, 48.0f);
         char levelText[32];
-        std::snprintf(levelText, sizeof(levelText), "Lv.%d", player ? SkillLevel(*player, i) : 1);
+        std::snprintf(levelText, sizeof(levelText), "Lv.%d", SkillLevel(*player, skill));
         DrawTextCentered(draw, m_ui, c, 13.0f, itemX + itemW * 0.5f, panelY + 326.0f, kTextDim, levelText);
     }
 
@@ -1107,7 +1138,7 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
     DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "地牢手册", "技能图鉴",
-                     "复用游戏内的技能名称与说明；没有额外解锁系统。", true);
+                     "职业给 1 个基础技能，击杀最多再掉落 4 个（共 5 个）。", true);
 
     const float rowX = panelX + 30.0f;
     const float rowW = panelW - 60.0f;
@@ -1136,12 +1167,12 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     ImDrawList* draw = ImGui::GetForegroundDrawList();
 
     const float panelW = 840.0f;
-    const float panelH = 560.0f;
+    const float panelH = 660.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
     DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "踏入地牢",
-                     "当前演示使用默认角色和地图", true);
+                     "职业决定初始技能；击杀最多再掉落 4 个技能", true);
 
     const float cardW = (panelW - 60.0f - 28.0f) / 3.0f;
     const float cardH = 264.0f;
@@ -1153,8 +1184,10 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
             if (m_ui.crest) DrawImage(draw, c, m_ui.crest, cardX + (cardW - 120.0f) * 0.5f, cardY + 30.0f, 120.0f,
                                       76.0f);
             DrawTextCentered(draw, m_ui, c, 22.0f, cardX + cardW * 0.5f, cardY + 126.0f, kText, "二毛");
-            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 158.0f, kTextDim,
-                             "起始技能 · 箭矢");
+            char loadoutText[64];
+            std::snprintf(loadoutText, sizeof(loadoutText), "初始技能：%s",
+                          kSkills[kSurvivorsClasses[m_playerClass].baseSkill].name);
+            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 158.0f, kTextDim, loadoutText);
         } else if (i == 1) {
             const float mapX = cardX + 12.0f;
             const float mapY = cardY + 12.0f;
@@ -1202,6 +1235,49 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
                         "击杀敌人，拾取经验，升级并选择强化。", 1.5f);
             DrawWrapped(draw, m_ui, c, 13.0f, cardX + 16.0f, cardY + 152.0f, cardW - 32.0f, kTextDim,
                         "WASD 移动 · Esc 暂停 · 自动攻击最近的敌人", 1.5f);
+        }
+    }
+
+    // 职业选择：决定进入战斗时唯一的初始基础技能；其余技能靠击杀掉落。
+    {
+        DrawText(draw, m_ui, c, 18.0f, panelX + 30.0f, panelY + 430.0f, kText, "选择职业");
+        DrawTextRight(draw, m_ui, c, 13.0f, panelX + panelW - 30.0f, panelY + 433.0f, kTextMuted,
+                      "基础技能 1 个 + 掉落最多 4 个 = 5 个");
+
+        const float optionW = 246.0f;
+        const float optionH = 100.0f;
+        const float optionGap = 16.0f;
+        const float rowW = optionW * static_cast<float>(kSurvivorsClassCount) +
+                           optionGap * static_cast<float>(kSurvivorsClassCount - 1);
+        const float rowX = c.w * 0.5f - rowW * 0.5f;
+        const float rowY = panelY + 460.0f;
+        for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
+            const bool  selected = (m_playerClass == cls);
+            const float x = rowX + (optionW + optionGap) * static_cast<float>(cls);
+            ImGui::SetCursorScreenPos(c.P(x, rowY));
+            const bool pressed = ImGui::InvisibleButton((std::string("##class") + std::to_string(cls)).c_str(),
+                                                        c.S(optionW, optionH));
+            const bool hovered = ImGui::IsItemHovered();
+            if (pressed && !selected) {
+                PlaySfx("click", 0.55f);
+                m_playerClass = cls;
+            }
+            draw->AddRectFilled(c.P(x, rowY), c.P(x + optionW, rowY + optionH),
+                                selected ? kCardHover : kCard, c.V(4.0f));
+            draw->AddRect(c.P(x, rowY), c.P(x + optionW, rowY + optionH),
+                          selected ? kGoldBright : (hovered ? kGold : kCardBorder), c.V(1.0f),
+                          ImDrawFlags_None, selected ? c.V(2.5f) : c.V(1.0f));
+            const int baseSkill = kSurvivorsClasses[cls].baseSkill;
+            DrawNineSlice(draw, c, m_ui.slot, x + 12.0f, rowY + 18.0f, 62.0f, 62.0f, 10.0f);
+            if (m_ui.icon[baseSkill]) {
+                DrawImage(draw, c, m_ui.icon[baseSkill], x + 21.0f, rowY + 27.0f, 44.0f, 44.0f);
+            }
+            DrawText(draw, m_ui, c, 19.0f, x + 86.0f, rowY + 22.0f, kText, kSurvivorsClasses[cls].name);
+            DrawText(draw, m_ui, c, 14.0f, x + 86.0f, rowY + 54.0f, kTextDim,
+                     kSurvivorsClasses[cls].desc);
+            if (selected) {
+                DrawTextRight(draw, m_ui, c, 12.0f, x + optionW - 12.0f, rowY + 76.0f, kGold, "已选择");
+            }
         }
     }
 

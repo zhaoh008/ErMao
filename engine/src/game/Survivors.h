@@ -2,11 +2,11 @@
 //
 // 设计（代码优先）：
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
-//   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和技能强化道具；
-//   * 箭矢是基础自动技能，击杀掉落可以把它强化成八向散射、加攻速、加攻击、加范围，
-//     血瓶直接回血；另外还有闪电 / 回旋刃 / 霜环 / 毒雾 / 火球五个技能；
-//   * 八页界面（主菜单/出战准备/HUD/升级三选一/暂停/设置/结算/技能图鉴）用自绘 ImGui 图层，
-//     九宫格切图来自用户提供的 ermao-ui-v2 UI 原型；HUD 显示生命、经验、时间、击杀与技能。
+//   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和血瓶；
+//   * 职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
+//     击杀同时掉落已拥有技能的强化，技能最高 6 级；
+//   * 技能有独立的序列帧特效（CC0 贴图，见 engine/assets/vfx/LICENSE-VFX.txt）；
+//   * 八页界面用自绘 ImGui 图层，九宫格切图来自用户提供的 ermao-ui-v2 UI 原型。
 #pragma once
 
 #include "core/Math.h"
@@ -36,8 +36,35 @@ enum class SurvivorsPickupType : int {
     FrostUpgrade,         // 霜环强化
     PoisonUpgrade,        // 毒雾强化
     FireballUpgrade,      // 火球强化
-    Count
+    SkillUnlockBase = 20, // 20 + 技能下标：掉落的新技能（必须手动拾取）
+    SkillUnlockEnd = 26,
+    Count = 26
 };
+
+// ---------------------------------------------------------------- 数值上限
+// 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
+constexpr int kSurvivorsSkillCount = 6;
+constexpr int kSurvivorsMaxLoadout = 5;
+constexpr int kSurvivorsMaxSkillLevel = 6;
+constexpr int kSurvivorsMaxArrowSpeedLevel = 5;
+constexpr int kSurvivorsMaxArrowDamageLevel = 6;
+constexpr int kSurvivorsMaxArrowRangeLevel = 4;
+constexpr int kSurvivorsClassCount = 3;
+
+// 职业决定初始基础技能；其余技能只能靠击杀掉落、手动拾取。
+struct SurvivorsClassDef {
+    const char* name;
+    const char* desc;
+    int         baseSkill;
+};
+
+constexpr SurvivorsClassDef kSurvivorsClasses[kSurvivorsClassCount] = {
+    {"游侠", "基础技能：箭矢", 0},
+    {"剑士", "基础技能：回旋刃", 2},
+    {"法师", "基础技能：火球", 5},
+};
+constexpr int kSurvivorsDefaultClass = 0;
+constexpr int kSurvivorsDefaultLoadout = (1 << 0);
 
 // ---------------------------------------------------------------- 敌人类型
 enum class SurvivorsEnemyType : int {
@@ -61,8 +88,9 @@ public:
     int   level = 1;
     float xp = 0.0f;
     float xpNext = 12.0f;
-    // 经验已满、等待三选一确认的升级次数（AddXp 只累计，确认后才真正升级）
+    // 兼容旧存档/旧预览页：正常玩法经验满后立即自动升级，不再累计待选次数。
     int   pendingLevelUps = 0;
+    int   playerClass = kSurvivorsDefaultClass;
 
     float attackDamage = 12.0f;
     float attackInterval = 0.75f;
@@ -86,7 +114,18 @@ public:
     int   arrowRangeLevel = 0;
     Vec2  facing{1.0f, 0.0f}; // 没有目标时朝这个方向射
 
-    // 其他技能等级（从 1 开始）
+    // 已拥有技能位（bit0 箭矢 / bit1 雷霆 / bit2 回旋刃 / bit3 霜环 / bit4 毒雾 / bit5 火球）
+    // 职业先给 1 个基础技能，之后最多再拾取 4 个；未拥有技能等级为 0。
+    int   loadoutMask = kSurvivorsDefaultLoadout;
+    bool  HasSkill(int skill) const {
+        return skill >= 0 && skill < kSurvivorsSkillCount && ((loadoutMask >> skill) & 1) != 0;
+    }
+    int   SelectedSkillCount() const;
+    int   SkillLevel(int skill) const;
+    bool  SkillMaxed(int skill) const;
+    bool  UnlockSkill(int skill); // 掉落技能拾取：未满 5 个且不重复时解锁
+
+    // 其他技能等级（从 1 开始；未拥有为 0）
     int lightningLevel = 1;
     int bladeLevel = 1;
     int frostLevel = 1;
@@ -111,7 +150,7 @@ public:
     void  RefreshDerivedStats();
     void  ApplyPickup(int type);
 
-    // 三选一：先应用强化，再由 CompleteLevelUp 结算等级
+    // 强化拾取/旧预览页共用：技能未拥有或已满级时不会生效。
     void ApplyLevelUpUpgrade(int skill, int sub);
     void CompleteLevelUp();
 
@@ -202,6 +241,7 @@ public:
 
 private:
     float m_attackTimer = 0.0f;
+    float m_strafeSign = 0.0f; // 绕障碍时的固定转向，避免左右抖动
 };
 
 // ---------------------------------------------------------------- 投射物
@@ -326,6 +366,7 @@ private:
 
     bool        m_showSettings = false;
     State       m_settingsReturn = State::Menu;
+    int         m_playerClass = kSurvivorsDefaultClass;
     float       m_toastTimer = 0.0f;
     std::string m_toastText;
 
