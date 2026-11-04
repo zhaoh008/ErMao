@@ -472,7 +472,7 @@ bool CircleHitsObstacle(const Vec2& position, float radius) {
 Vec2 MoveWithObstacles(const Vec2& position, const Vec2& delta, float radius) {
     if (Length(delta) < 1e-6f) return position;
     // 已经卡进障碍（例如被同伴挤进去）时允许先走出去，否则会被碰撞检测永久钉住。
-    if (CircleHitsObstacle(position, radius * 0.85f)) return position + delta;
+    if (CircleHitsObstacle(position, radius)) return position + delta;
     const Vec2 target = position + delta;
     if (!CircleHitsObstacle(target, radius)) return target;
     const Vec2 xOnly(position.x + delta.x, position.y);
