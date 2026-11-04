@@ -63,6 +63,10 @@ bool Texture::CreateFromRGBA(u32 width, u32 height, const u8* rgba, bool srgb, b
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // 微信 iOS 的 GL 包装层对 ImGui 的部分 glGetIntegerv（如 GL_TEXTURE_BINDING_2D）
+    // 会返回 GL_INVALID_ENUM；先清空遗留错误，避免把上一个查询的错误误判成贴图上传失败。
+    while (glGetError() != GL_NO_ERROR) {
+    }
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, static_cast<GLsizei>(width), static_cast<GLsizei>(height), 0,
                  GL_RGBA, GL_UNSIGNED_BYTE, uploadPixels);
     const GLenum error = glGetError();

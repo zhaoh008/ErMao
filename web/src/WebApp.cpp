@@ -90,7 +90,9 @@ bool WebApp::Init() {
         return false;
     }
     SDL_GL_MakeCurrent(m_window, m_glContext);
-    SDL_GL_SetSwapInterval(1);
+    // 不要在 main loop 建立前调用 SDL_GL_SetSwapInterval：Emscripten 的实现会立刻
+    // 调 emscripten_set_main_loop_timing，此时会报 "Cannot set timing mode..."。
+    // 主循环用 fps=0，Emscripten 会自动切到 requestAnimationFrame。
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
