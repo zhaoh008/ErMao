@@ -105,6 +105,8 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
   （`JavaScript-side Wasm function table mirror is out of date!`）。构建后用
   `patch_webgl_glue.py` 把该函数改为直接读 `wasmTable.get()`，不再依赖镜像缓存。
 
+- 手机竖屏：`game.json` 的 `deviceOrientation` 改为 `portrait`；`MakeCanvas` 在竖屏视口使用 1600 设计高度（宽度约 736），字号 1.3x；HUD 的等级/计时移到生命/经验面板下方，小地图固定在右上角，宽面板按 `c.w-40` 收窄。桌面/横屏保持原布局。
+
 ## 当前范围
 
 - ✅ 2D 幸存者：菜单、出战准备、HUD、暂停、设置、结算、技能图鉴
