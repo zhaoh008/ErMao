@@ -63,6 +63,7 @@
 
 ### Fixed
 
+- 2D 幸存者毒雾特效：Kenney 烟雾贴图本身是黑底不透明，直接按 alpha 混合会出现大黑方块；改为 `vfx/poison_mist.png`（按亮度转 alpha）并加柔和多层雾圈
 - 2D 幸存者漂浮伤害数字不再带负号（命中伤害按正数显示）
 - 编辑器中文输入法提交的汉字会重复一次：ImGui 的 Win32 后端与窗口层都调用了 `DefWindowProcW(WM_IME_COMPOSITION)`，提交字符串经 `WM_IME_CHAR` → `WM_CHAR` 进入输入队列两遍；窗口层不再重复处理该消息
 - 编辑器暂停时玩法导演仍在推进（ERMAO-AUDIT-065）：暂停时主循环不再 tick 刷怪/2D/3D 幸存者导演，`WaveGame` 只在该帧玩法输入可用时处理 Esc；HUD 时间与刷怪计时不再继续走，恢复后不会跳变

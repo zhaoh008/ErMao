@@ -2630,6 +2630,27 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 }
             }
         }
+    } else if (screen == "poison") {
+        seed(false);
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->loadoutMask = (1 << 0) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
+                player->lightningLevel = 0;
+                player->bladeLevel = kSurvivorsMaxSkillLevel;
+                player->frostLevel = kSurvivorsMaxSkillLevel;
+                player->poisonLevel = kSurvivorsMaxSkillLevel;
+                player->fireballLevel = kSurvivorsMaxSkillLevel;
+                player->RefreshDerivedStats();
+                const Vec2 center(playerObject->Position().x, playerObject->Position().y);
+                for (int i = 0; i < 32; ++i) {
+                    const float angle = static_cast<float>(i) * kTwoPi / 32.0f;
+                    const float radius = 4.0f + static_cast<float>(i % 4) * 1.1f;
+                    SpawnEnemy(world, center + Vec2(std::cos(angle), std::sin(angle)) * radius,
+                               PickEnemyType(m_time), EnemyHpScale(m_time), EnemySpeedScale(m_time),
+                               EnemyDamageScale(m_time));
+                }
+            }
+        }
     } else if (screen == "pause") {
         seed(false);
         m_state = State::Paused;
@@ -2737,8 +2758,16 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
         // 毒雾光环（未携带毒雾时不绘制）
         if (playerComponent->HasSkill(4)) {
             const float auraRadius = playerComponent->PoisonRadius() * pixelsPerUnit;
-            draw->AddCircleFilled(centerScreen, auraRadius, IM_COL32(55, 190, 80, 24), 56);
-            draw->AddCircle(centerScreen, auraRadius, IM_COL32(95, 235, 115, 78), 56, 1.5f);
+            // 柔和的多层雾圈 + 透明烟雾贴图，避免只有一个硬边绿圆。
+            for (int i = 0; i < 3; ++i) {
+                const float radius = auraRadius * (1.0f - static_cast<float>(i) * 0.16f);
+                draw->AddCircleFilled(centerScreen, radius, IM_COL32(60, 190, 85, 10), 56);
+            }
+            draw->AddCircle(centerScreen, auraRadius, IM_COL32(95, 235, 115, 70), 56, 1.5f);
+            draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+            drawSheet(m_ui.fxPoison, 1, 1, 0, center, auraRadius / pixelsPerUnit, auraRadius / pixelsPerUnit,
+                      IM_COL32(90, 220, 110, 42), m_time * 0.15f);
+            draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
         }
 
         // 回旋刃

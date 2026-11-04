@@ -625,7 +625,7 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
     fxWater = assets.GetTextureAsset("vfx/water_strip.png");
     fxFireball = assets.GetTextureAsset("vfx/fireball.png");
     fxExplosion = assets.GetTextureAsset("vfx/explosion.png");
-    fxPoison = assets.GetTextureAsset("particles/smoke_01.png");
+    fxPoison = assets.GetTextureAsset("vfx/poison_mist.png");
 
     const bool ok = panel && slot && buttonNormal && buttonPrimary && barTrack && barHealthFill && barXpFill &&
                     titleBackground && body;

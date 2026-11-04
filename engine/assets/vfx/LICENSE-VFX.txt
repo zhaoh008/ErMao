@@ -26,5 +26,10 @@
   https://opengameart.org/content/explosion-sheet
   原始文件：boom3.png（8×8 帧，每帧 128×128，共 64 帧）
 
+- poison_mist.png
+  来源：Kenney Particle Pack 1.1（CC0）的 smoke_01.png
+  https://kenney.nl/assets/particle-pack
+  处理：把原图的黑色背景按亮度转为 alpha，生成白色透明烟雾，供毒雾光环/粒子使用。
+
 另外技能特效还复用了仓库已有的 Kenney Particle Pack（CC0）：
 engine/assets/particles/LICENSE-kenney-particle.txt
