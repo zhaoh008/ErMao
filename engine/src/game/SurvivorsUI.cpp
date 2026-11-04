@@ -783,6 +783,94 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
 
 
 // ================================================================ 战斗 HUD
+namespace {
+
+void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world,
+                          float time) {
+    const SurvivorsMinimapSnapshot snapshot = BuildSurvivorsMinimapSnapshot(world);
+    const float panelW = 238.0f;
+    const float panelH = 158.0f;
+    const float panelX = c.w - panelW - 24.0f;
+    const float panelY = c.h - panelH - 24.0f;
+    DrawPanel(draw, ui, c, panelX, panelY, panelW, panelH);
+    DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 9.0f, kGold, "地图");
+    DrawTextRight(draw, ui, c, 11.0f, panelX + panelW - 14.0f, panelY + 12.0f, kTextMuted, "宝箱 / 掉落 / 怪");
+
+    const float mapX = panelX + 12.0f;
+    const float mapY = panelY + 32.0f;
+    const float mapW = panelW - 24.0f;
+    const float mapH = panelH - 44.0f;
+    draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(15, 18, 26, 230), c.V(4.0f));
+    draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(74, 70, 58, 255), c.V(4.0f),
+                  c.V(1.0f));
+
+    const Vec2 half = snapshot.arenaHalf;
+    auto toMap = [&](const Vec2& position) {
+        const float u = Clamp01((position.x + half.x) / (half.x * 2.0f));
+        const float v = Clamp01((position.y + half.y) / (half.y * 2.0f));
+        return c.P(mapX + u * mapW, mapY + (1.0f - v) * mapH);
+    };
+
+    for (const SurvivorsMinimapRect& obstacle : snapshot.obstacles) {
+        const ImVec2 min = toMap(obstacle.center - obstacle.half);
+        const ImVec2 max = toMap(obstacle.center + obstacle.half);
+        draw->AddRectFilled(ImVec2((std::min)(min.x, max.x), (std::min)(min.y, max.y)),
+                            ImVec2((std::max)(min.x, max.x), (std::max)(min.y, max.y)),
+                            IM_COL32(73, 79, 88, 210), c.V(1.0f));
+    }
+
+    // 最近宝箱的方向/距离，用于屏幕上方罗盘。
+    float nearestDistance = 1e9f;
+    Vec2  nearestDirection(1.0f, 0.0f);
+    for (const SurvivorsMinimapMarker& marker : snapshot.markers) {
+        if (marker.kind == 2) {
+            const ImVec2 p = toMap(marker.position);
+            draw->AddCircleFilled(p, c.V(1.7f), IM_COL32(235, 92, 82, 170), 8);
+            continue;
+        }
+        if (marker.kind == 1) {
+            draw->AddCircleFilled(toMap(marker.position), c.V(2.2f), IM_COL32(95, 230, 140, 210), 8);
+            continue;
+        }
+        const ImVec2 p = toMap(marker.position);
+        const float pulse = 0.5f + 0.5f * std::sin(time * 5.0f + marker.position.x);
+        draw->AddCircleFilled(p, c.V(5.5f + pulse * 2.0f), IM_COL32(255, 210, 70, 55), 12);
+        draw->AddCircleFilled(p, c.V(3.4f), IM_COL32(255, 220, 90, 255), 12);
+        draw->AddLine(ImVec2(p.x - 5.0f, p.y), ImVec2(p.x + 5.0f, p.y), IM_COL32(255, 240, 170, 220), 1.0f);
+        draw->AddLine(ImVec2(p.x, p.y - 5.0f), ImVec2(p.x, p.y + 5.0f), IM_COL32(255, 240, 170, 220), 1.0f);
+
+        const Vec2 toBuff = marker.position - snapshot.player;
+        const float distance = Length(toBuff);
+        if (distance < nearestDistance) {
+            nearestDistance = distance;
+            const float length = Length(toBuff);
+            nearestDirection = length > 0.001f ? toBuff / length : Vec2(1.0f, 0.0f);
+        }
+    }
+
+    // 玩家：金色三角 + 朝向线
+    const ImVec2 playerPoint = toMap(snapshot.player);
+    draw->AddCircleFilled(playerPoint, c.V(4.0f), IM_COL32(255, 255, 255, 245), 12);
+    draw->AddCircle(playerPoint, c.V(6.0f), IM_COL32(120, 220, 255, 230), 12, c.V(1.0f));
+
+    // 顶部罗盘：指出最近抽奖宝箱的方向与距离
+    if (nearestDistance < 1e8f) {
+        const float cx = c.w * 0.5f;
+        const float cy = 92.0f;
+        const float sx = nearestDirection.x;
+        const float sy = -nearestDirection.y;
+        const ImVec2 tip(cx + sx * 13.0f, cy + sy * 13.0f);
+        const ImVec2 left(cx - sx * 3.0f - sy * 6.0f, cy - sy * 3.0f + sx * 6.0f);
+        const ImVec2 right(cx - sx * 3.0f + sy * 6.0f, cy - sy * 3.0f - sx * 6.0f);
+        draw->AddTriangleFilled(tip, left, right, IM_COL32(255, 215, 80, 240));
+        char text[64];
+        std::snprintf(text, sizeof(text), "最近增益 %.1fm", nearestDistance);
+        DrawText(draw, ui, c, 12.0f, cx + 22.0f, cy - 8.0f, kGold, text);
+    }
+}
+
+} // namespace
+
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
@@ -883,6 +971,8 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawTextCentered(draw, m_ui, c, 12.5f, c.w * 0.5f, tipY + 64.0f, kMint, stat.c_str());
         DrawTextCentered(draw, m_ui, c, 11.5f, c.w * 0.5f, tipY + 86.0f, kTextMuted, "点击技能槽钉住说明");
     }
+
+    DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
 }
 
 // ================================================================ 升级三选一

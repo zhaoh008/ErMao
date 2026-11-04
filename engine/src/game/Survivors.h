@@ -15,6 +15,7 @@
 #include "scene/Component.h"
 
 #include <string>
+#include <vector>
 
 namespace erm {
 
@@ -146,6 +147,13 @@ public:
     std::string pickupToast;
     float       pickupToastTimer = 0.0f;
 
+    // 地图抽奖 buff 的永久加成（一局内有效）
+    float buffDamageMultiplier = 1.0f;
+    float buffAttackSpeedMultiplier = 1.0f;
+    float buffMoveMultiplier = 1.0f;
+    float buffRangeMultiplier = 1.0f;
+    int   buffSkillUpgrades = 0; // 抽奖给技能等级的次数，每局最多 2 次
+
     bool  alive = true;
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
@@ -159,6 +167,8 @@ public:
     void  ResetCombatStats();
     void  RefreshDerivedStats();
     void  ApplyPickup(int type);
+    // 地图抽奖 buff：0=普通 1=稀有 2=史诗；返回抽到的效果文本。
+    std::string ApplyBuff(int rarity);
 
     // 强化拾取/旧预览页共用：技能未拥有或已满级时不会生效。
     void ApplyLevelUpUpgrade(int skill, int sub);
@@ -253,6 +263,34 @@ private:
     void RecomputeAttackDamage();
     void ShowPickupToast(const std::string& text);
 };
+
+// ---------------------------------------------------------------- 地图增益宝箱
+class SurvivorsBuffComponent : public Component {
+public:
+    ER_COMPONENT(SurvivorsBuffComponent, "Survivors Buff")
+    int   rarity = 0; // 0 普通 / 1 稀有 / 2 史诗
+    float age = 0.0f;
+    float life = 35.0f;
+    void  OnUpdate(float dt) override;
+    void  OnDestroy() override;
+};
+
+// ---------------------------------------------------------------- 小地图快照
+struct SurvivorsMinimapMarker {
+    Vec2 position;
+    int  kind = 0; // 0=buff 宝箱, 1=技能/强化掉落, 2=敌人
+};
+struct SurvivorsMinimapRect {
+    Vec2 center;
+    Vec2 half;
+};
+struct SurvivorsMinimapSnapshot {
+    Vec2                              player;
+    Vec2                              arenaHalf{43.0f, 25.0f};
+    std::vector<SurvivorsMinimapMarker> markers;
+    std::vector<SurvivorsMinimapRect>   obstacles;
+};
+SurvivorsMinimapSnapshot BuildSurvivorsMinimapSnapshot(World& world);
 
 // ---------------------------------------------------------------- 敌人
 class SurvivorsEnemyComponent : public Component {
@@ -375,6 +413,7 @@ private:
     void SpawnWave(World& world);
     void SpawnEnemy(World& world, const Vec2& position, int type, float hpScale, float speedScale,
                     float damageScale);
+    void SpawnBuffChest(World& world);
     void SpawnElite(World& world);
     void EnsureMusic();
     void ApplyAudioSettings();
@@ -400,6 +439,7 @@ private:
     float       m_spawnTimer = 2.0f;
     float       m_eliteTimer = 45.0f;
     float       m_skillCatchUpTimer = 0.0f;
+    float       m_buffTimer = 18.0f;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;
