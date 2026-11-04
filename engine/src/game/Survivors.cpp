@@ -3825,23 +3825,6 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         spawnObstacle(spec.x * kSurvivorsMapScale, spec.y * kSurvivorsMapScale, spec.hx, spec.hy, spec.row,
                       spec.col);
     }
-    // 面积扩大 5 倍后按原密度补足障碍（原 28 个/90×54，约补到 140 个）。
-    static const int kExtraObstacleTiles[][2] = {{6, 2}, {5, 6}, {5, 3}, {6, 6},
-                                                  {6, 3}, {5, 4}, {6, 5}, {5, 5}};
-    const int kExtraObstacleCount = 112;
-    int       extraObstacles = 0;
-    for (int attempt = 0; attempt < 900 && extraObstacles < kExtraObstacleCount; ++attempt) {
-        const Vec2  position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
-        const float hx = RandomRange(0.7f, 1.15f);
-        const float hy = RandomRange(0.65f, 1.05f);
-        if (Length(position) < 6.0f) continue;
-        if (CircleHitsObstacle(position, (std::max)(hx, hy) + 0.9f)) continue;
-        const int* tile =
-            kExtraObstacleTiles[attempt % (sizeof(kExtraObstacleTiles) / sizeof(kExtraObstacleTiles[0]))];
-        spawnObstacle(position.x, position.y, hx, hy, tile[0], tile[1]);
-        ++extraObstacles;
-    }
-
     // 玩家
     GameObject* player = SpawnSprite(world, "玩家", "sprites/soldier_idle.png", Vec2(0.0f, 0.0f), Vec2(1.8f, 1.8f), 5);
     auto* animator = player->AddComponent<SpriteAnimatorComponent>();
@@ -3855,6 +3838,8 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     auto* playerComponent = player->AddComponent<SurvivorsPlayerComponent>();
     playerComponent->arenaHalf = Vec2(kSurvivorsArenaHalfX, kSurvivorsArenaHalfY);
     playerComponent->RefreshDerivedStats();
+    LogInfo("[2D] 地图边界：玩家 ±%.1f × ±%.1f，刷怪/宝箱 ±%.1f × ±%.1f", playerComponent->arenaHalf.x,
+            playerComponent->arenaHalf.y, kSurvivorsSpawnHalfX, kSurvivorsSpawnHalfY);
 
     // 装饰随机数固定，避免关卡每次加载长得不一样；玩法随机数再复位
     g_rng.seed(0x12345u);

@@ -1529,8 +1529,10 @@ void SurvivorsDirector::DrawPauseScreen(World& world, float vx, float vy, float 
         DrawWrapped(draw, m_ui, c, 13.0f, panelX + 40.0f, panelY + 444.0f, panelW - 80.0f,
                     m_pauseNotice.find("失败") != std::string::npos ? kRed : kGold, m_pauseNotice.c_str(), 1.4f);
     }
-    DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted,
-                     "Esc 继续战斗 · 暂停时玩法与计时冻结");
+    char pauseHint[96];
+    std::snprintf(pauseHint, sizeof(pauseHint), "Esc 继续战斗 · %s 测试版 · 暂停时玩法与计时冻结",
+                  kSurvivorsVersion);
+    DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted, pauseHint);
 }
 
 // ================================================================ 增益宝箱抽奖
