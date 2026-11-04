@@ -50,6 +50,16 @@ enum class SurvivorsPickupType : int {
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
 constexpr int kSurvivorsSkillCount = 10;
 constexpr int kSurvivorsMaxLoadout = 5;
+
+// 地图面积相对原 90×54 基准扩大 5 倍（长宽各 ×√5）。玩家/敌人/宝箱的移动与刷新边界
+// 都从这里派生，避免扩大地面后还把怪锁在旧范围里。
+constexpr float kSurvivorsMapScale = 2.2360679f;
+constexpr float kSurvivorsMapWidth = 90.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsMapHeight = 54.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsArenaHalfX = 43.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsArenaHalfY = 25.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -161,7 +171,7 @@ public:
     bool  alive = true;
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
-    Vec2  arenaHalf{43.0f, 25.0f};
+    Vec2  arenaHalf{kSurvivorsArenaHalfX, kSurvivorsArenaHalfY};
 
     void OnUpdate(float dt) override;
     void AddXp(float amount);
@@ -301,7 +311,7 @@ struct SurvivorsMinimapRect {
 };
 struct SurvivorsMinimapSnapshot {
     Vec2                              player;
-    Vec2                              arenaHalf{43.0f, 25.0f};
+    Vec2                              arenaHalf{kSurvivorsArenaHalfX, kSurvivorsArenaHalfY};
     std::vector<SurvivorsMinimapMarker> markers;
     std::vector<SurvivorsMinimapRect>   obstacles;
 };

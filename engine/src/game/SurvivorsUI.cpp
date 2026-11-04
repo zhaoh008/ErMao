@@ -2043,8 +2043,10 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
             draw->AddQuadFilled(c.P(markerX, markerY - 6.0f), c.P(markerX + 6.0f, markerY),
                                 c.P(markerX, markerY + 6.0f), c.P(markerX - 6.0f, markerY), kGoldBright);
             DrawTextCentered(draw, m_ui, c, 22.0f, cardX + cardW * 0.5f, cardY + 158.0f, kText, "灰石地牢");
-            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 190.0f, kTextDim,
-                             "90×54 · 石柱、木箱与火把");
+            char mapInfo[64];
+            std::snprintf(mapInfo, sizeof(mapInfo), "%.0f×%.0f · 石柱、木箱与火把", kSurvivorsMapWidth,
+                          kSurvivorsMapHeight);
+            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 190.0f, kTextDim, mapInfo);
         } else {
             DrawText(draw, m_ui, c, 22.0f, cardX + 16.0f, cardY + 22.0f, kText, "生存目标");
             DrawWrapped(draw, m_ui, c, 14.0f, cardX + 16.0f, cardY + 62.0f, cardW - 32.0f, kText,
