@@ -168,6 +168,7 @@ bool WebApp::Init() {
         // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
         m_survivors->Reset(m_world);
     }
+    m_survivors->SetMobileUi(m_mobile);
 
     // 截图/自动化：在进入 requestAnimationFrame 前同步推进 N 个固定步。
     // headless Chrome 的 virtual-time 不会可靠地驱动 RAF，预先推进才能得到

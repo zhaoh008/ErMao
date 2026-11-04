@@ -39,5 +39,7 @@ if [ "${WECHAT_DEBUG_LOG:-0}" = "1" ]; then
   python3 "$(dirname "$0")/inject-wechat-log.py" "${OUT_DIR}/minigame"
 fi
 
+python3 "$(dirname "$0")/tune-wechat-config.py" "${OUT_DIR}/minigame"
+
 echo "小游戏工程已生成：${OUT_DIR}/minigame"
 echo "下一步：微信开发者工具 -> 导入 ${OUT_DIR}/minigame（需要小游戏 AppID 预览/真机调试）"

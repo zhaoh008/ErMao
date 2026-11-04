@@ -49,17 +49,13 @@ struct SkillMeta {
     const char* desc;
 };
 
-const SkillMeta kSkills[10] = {
-    {"箭矢", "自动攻击最近敌人，散射逐级增加方向数"},
-    {"雷霆", "多道落雷，范围和数量随等级扩大"},
-    {"回旋刃", "飞刃环绕；对冻结目标伤害提高"},
-    {"霜环", "冻结周围敌人，为飞刃创造输出窗口"},
-    {"毒雾", "持续伤害；中毒目标受到伤害提高"},
-    {"火球", "追踪火球，高等级爆炸范围巨大"},
-    {"陨石", "天降陨石，落点范围爆炸"},
-    {"黑洞", "吸附周围敌人并持续腐蚀"},
-    {"棱镜光束", "旋转光束，穿透整条路径"},
-    {"毒爆", "引爆中毒目标，让毒雾连锁扩散"},
+const SkillMeta kSkills[6] = {
+    {"箭矢", "自动攻击最近的敌人"},
+    {"雷霆", "落雷打击敌人"},
+    {"回旋刃", "飞刃环绕角色"},
+    {"霜环", "扩散冰环并减速"},
+    {"毒雾", "持续伤害范围内敌人"},
+    {"火球", "火球命中后爆炸"},
 };
 
 struct Canvas {
@@ -77,8 +73,9 @@ Canvas MakeCanvas(float vx, float vy, float vw, float vh) {
     Canvas c;
     c.origin = ImVec2(vx, vy);
 #ifdef ERMAO_WEB
-    // 手机横屏高度通常 360~430 CSS px：允许缩到 0.40，保证 900 设计高度能完整放下。
-    c.scale = Clamp(vh / 900.0f, 0.40f, 1.25f);
+    // 手机横屏高度通常 360~430 CSS px：0.72 让文字和技能槽明显更大；
+    // HUD 面板按 c.w/c.h 布局，844 宽仍能放下。
+    c.scale = Clamp(vh / 900.0f, 0.72f, 1.25f);
 #else
     c.scale = Clamp(vh / 900.0f, 0.70f, 1.25f);
 #endif
@@ -321,7 +318,7 @@ int SkillLevel(const SurvivorsPlayerComponent& player, int skill) { return playe
 int SkillSubLevel(const SurvivorsPlayerComponent& player, int skill, int sub) {
     if (skill == 0) {
         switch (sub) {
-            case 0: return player.arrowSpreadLevel;
+            case 0: return player.arrowSpread ? 1 : 0;
             case 1: return player.arrowSpeedLevel;
             case 2: return player.arrowDamageLevel;
             case 3: return player.arrowRangeLevel;
@@ -336,47 +333,27 @@ std::string SkillStatLine(const SurvivorsPlayerComponent& player, int skill) {
     switch (skill) {
         case 0:
             std::snprintf(buffer, sizeof(buffer), "%s · 伤害 %.0f · 攻速 +%.0f%% · 范围 %.1f",
-                          player.ArrowDirections() > 1
-                              ? (std::to_string(player.ArrowDirections()) + " 方向 0.65x").c_str()
-                              : "单发锁定",
-                          player.ArrowDamage(), player.ArrowSpeedBonus() * 100.0f, player.ArrowRange());
+                          player.arrowSpread ? "八向 0.65x" : "单发锁定", player.ArrowDamage(),
+                          player.ArrowSpeedBonus() * 100.0f, player.ArrowRange());
             break;
         case 1:
             std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 目标 %d · 连锁 %d · CD %.1fs", player.LightningDamage(),
                           player.LightningTargets(), player.LightningChains(), player.LightningCooldown());
             break;
         case 2:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 刃 · 半径 %.1f · 冻结目标 x1.75", player.BladeDamage(),
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 刃数 %d · 半径 %.1f", player.BladeDamage(),
                           player.BladeCount(), player.BladeRadius());
             break;
         case 3:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · 冻结 %.1fs", player.FrostDamage(),
-                          player.FrostRadius(), player.FrostFreezeDuration());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · 减速 %.0f%%", player.FrostDamage(),
+                          player.FrostRadius(), player.FrostSlow() * 100.0f);
             break;
         case 4:
-            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f · 中毒易伤 +15%%", player.PoisonDps(),
-                          player.PoisonRadius());
+            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f", player.PoisonDps(), player.PoisonRadius());
             break;
         case 5:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 爆炸 %.1f · CD %.1fs", player.FireballDamage(),
-                          player.FireballExplosionRadius(), player.FireballCooldown());
-            break;
-        case 6:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 发 · 范围 %.1f · CD %.1fs", player.MeteorDamage(),
-                          player.MeteorCount(), player.MeteorRadius(), player.MeteorCooldown());
-            break;
-        case 7:
-            std::snprintf(buffer, sizeof(buffer), "DPS %.0f · 半径 %.1f · %.1fs · CD %.1fs",
-                          player.SingularityDps(), player.SingularityRadius(), player.SingularityDuration(),
-                          player.SingularityCooldown());
-            break;
-        case 8:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · %d 束 · 长度 %.1f", player.PrismDamage(),
-                          player.PrismBeamCount(), player.PrismBeamLength());
-            break;
-        case 9:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · 半径 %.1f · CD %.1fs", player.PlagueDamage(),
-                          player.PlagueRadius(), player.PlagueCooldown());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f · CD %.1fs", player.FireballDamage(),
+                          player.FireballCooldown());
             break;
         default: buffer[0] = '\0'; break;
     }
@@ -393,7 +370,7 @@ struct LevelCardInfo {
 
 LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const SurvivorsLevelUpChoice& choice) {
     LevelCardInfo info;
-    if (choice.skill == 100) {
+    if (choice.skill == 6) {
         info.tag = "补给 · 技能已满";
         if (choice.sub == 0) {
             info.name = "生命恢复";
@@ -416,13 +393,11 @@ LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const Su
     if (choice.skill == 0) {
         const int current = SkillSubLevel(player, 0, choice.sub);
         if (choice.sub == 0) {
-            info.tag = "箭矢 · 强化";
-            info.name = "箭矢散射";
-            info.level = "Lv." + std::to_string(current) + " → Lv." + std::to_string(current + 1);
-            info.desc = "每级增加散射方向数（2 / 4 / 6 / 8 / 12），单箭伤害 0.65x。";
-            info.effect = std::to_string(player.ArrowDirections()) + " → " +
-                          std::to_string(kSurvivorsArrowDirectionCounts[Clamp(current + 1, 0, kSurvivorsMaxArrowSpreadLevel)]) +
-                          " 方向";
+            info.tag = "箭矢 · 新技能";
+            info.name = "八向散射";
+            info.level = "解锁";
+            info.desc = "每次射击向八个方向各射出一箭，单箭伤害 0.65x。";
+            info.effect = "单发 → 八向";
             return info;
         }
         info.tag = "箭矢 · 强化";
@@ -472,34 +447,16 @@ LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const Su
                           after.BladeDamage(), player.BladeCount(), after.BladeCount());
             break;
         case 3:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f · 冻结 %.1fs → %.1fs",
-                          player.FrostDamage(), after.FrostDamage(), player.FrostRadius(), after.FrostRadius(),
-                          player.FrostFreezeDuration(), after.FrostFreezeDuration());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f", player.FrostDamage(),
+                          after.FrostDamage(), player.FrostRadius(), after.FrostRadius());
             break;
         case 4:
             std::snprintf(buffer, sizeof(buffer), "DPS %.0f → %.0f · 半径 %.1f → %.1f", player.PoisonDps(),
                           after.PoisonDps(), player.PoisonRadius(), after.PoisonRadius());
             break;
         case 5:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 爆炸 %.1f → %.1f", player.FireballDamage(),
-                          after.FireballDamage(), player.FireballExplosionRadius(),
-                          after.FireballExplosionRadius());
-            break;
-        case 6:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 范围 %.1f → %.1f", player.MeteorDamage(),
-                          after.MeteorDamage(), player.MeteorRadius(), after.MeteorRadius());
-            break;
-        case 7:
-            std::snprintf(buffer, sizeof(buffer), "DPS %.0f → %.0f · 半径 %.1f → %.1f", player.SingularityDps(),
-                          after.SingularityDps(), player.SingularityRadius(), after.SingularityRadius());
-            break;
-        case 8:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 束数 %d → %d", player.PrismDamage(),
-                          after.PrismDamage(), player.PrismBeamCount(), after.PrismBeamCount());
-            break;
-        case 9:
-            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · 半径 %.1f → %.1f", player.PlagueDamage(),
-                          after.PlagueDamage(), player.PlagueRadius(), after.PlagueRadius());
+            std::snprintf(buffer, sizeof(buffer), "伤害 %.0f → %.0f · CD %.1fs → %.1fs", player.FireballDamage(),
+                          after.FireballDamage(), player.FireballCooldown(), after.FireballCooldown());
             break;
         default: buffer[0] = '\0'; break;
     }
@@ -597,76 +554,9 @@ bool DrawSlider(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, 
     return changed;
 }
 
-// ---------------------------------------------------------------- 抽奖动画工具
-ImU32 ToImColor(const Vec4& color, float alphaScale = 1.0f) {
-    const int r = static_cast<int>(Clamp01(color.x) * 255.0f);
-    const int g = static_cast<int>(Clamp01(color.y) * 255.0f);
-    const int b = static_cast<int>(Clamp01(color.z) * 255.0f);
-    const int a = static_cast<int>(Clamp01(color.w * alphaScale) * 255.0f);
-    return IM_COL32(r, g, b, a);
-}
-
-ImU32 ToImColorFromU32(ImU32 color, float alphaScale) {
-    const int a = static_cast<int>(((color >> IM_COL32_A_SHIFT) & 0xFF) * Clamp01(alphaScale));
-    return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(a) << IM_COL32_A_SHIFT);
-}
-
-float Hash01(int n) {
-    float x = std::sin(static_cast<float>(n) * 12.9898f + 78.233f) * 43758.5453f;
-    return x - std::floor(x);
-}
-
-float EaseOutCubic(float t) {
-    t = Clamp01(t);
-    return 1.0f - std::pow(1.0f - t, 3.0f);
-}
-
-float EaseOutBack(float t) {
-    t = Clamp01(t);
-    const float c1 = 1.70158f;
-    const float c3 = c1 + 1.0f;
-    return 1.0f + c3 * std::pow(t - 1.0f, 3.0f) + c1 * std::pow(t - 1.0f, 2.0f);
-}
-
-// 以中心为原点、可旋转地画一张精灵表里的单帧（用于宝箱开启序列帧）。
-void DrawSheetFrameRotated(ImDrawList* draw, const Canvas& c, Texture* texture, int columns, int rows, int frame,
-                           float cx, float cy, float width, float height, ImU32 tint, float rotation) {
-    if (!texture || columns <= 0 || rows <= 0) return;
-    frame = Clamp(frame, 0, columns * rows - 1);
-    const float u0 = static_cast<float>(frame % columns) / static_cast<float>(columns);
-    const float v0 = static_cast<float>(frame / columns) / static_cast<float>(rows);
-    const float u1 = u0 + 1.0f / static_cast<float>(columns);
-    const float v1 = v0 + 1.0f / static_cast<float>(rows);
-    const float cosR = std::cos(rotation);
-    const float sinR = std::sin(rotation);
-    const Vec2  right(cosR * width * 0.5f, sinR * width * 0.5f);
-    const Vec2  up(-sinR * height * 0.5f, cosR * height * 0.5f);
-    const ImVec2 p0 = c.P(cx - right.x - up.x, cy - right.y - up.y);
-    const ImVec2 p1 = c.P(cx + right.x - up.x, cy + right.y - up.y);
-    const ImVec2 p2 = c.P(cx + right.x + up.x, cy + right.y + up.y);
-    const ImVec2 p3 = c.P(cx - right.x + up.x, cy - right.y + up.y);
-    SetSamplerNearest(draw);
-    draw->AddImageQuad(TexId(texture), p0, p1, p2, p3, ImVec2(u0, v0), ImVec2(u1, v0), ImVec2(u1, v1),
-                       ImVec2(u0, v1), tint);
-    SetSamplerLinear(draw);
-}
-
-// 爆炸序列帧（8×8，前 40 帧是火球爆炸主体）。
-void DrawExplosionFrame(ImDrawList* draw, const Canvas& c, Texture* texture, int frame, float cx, float cy,
-                        float size, ImU32 tint) {
-    if (!texture) return;
-    constexpr int columns = 8;
-    constexpr int rows = 8;
-    frame = Clamp(frame, 0, columns * rows - 1);
-    const float u0 = static_cast<float>(frame % columns) / static_cast<float>(columns);
-    const float v0 = static_cast<float>(frame / columns) / static_cast<float>(rows);
-    const ImVec2 p0 = c.P(cx - size * 0.5f, cy - size * 0.5f);
-    const ImVec2 p1 = c.P(cx + size * 0.5f, cy + size * 0.5f);
-    SetSamplerLinear(draw);
-    draw->AddImage(TexId(texture), p0, p1, ImVec2(u0, v0), ImVec2(u0 + 1.0f / columns, v0 + 1.0f / rows), tint);
-}
-
 } // namespace
+
+static void DrawHudMinimap(const SurvivorsUIAssets& ui, World& world, ImDrawList* draw, const Canvas& c, bool mobile);
 
 // ================================================================ 资源加载
 bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* largeFont, ImFont* displayFont) {
@@ -689,28 +579,23 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
     iconXp = assets.GetTextureAsset("sprites/ui/icon_xp.png");
     titleBackground = assets.GetTextureAsset("sprites/ui/title.png");
 
-    static const char* kIconPaths[10] = {"sprites/ui/icon_arrow.png",      "sprites/ui/icon_lightning.png",
-                                         "sprites/ui/icon_blade.png",      "sprites/ui/icon_frost.png",
-                                         "sprites/ui/icon_poison.png",     "sprites/ui/icon_fireball.png",
-                                         "sprites/ui/icon_meteor.png",     "sprites/ui/icon_singularity.png",
-                                         "sprites/ui/icon_prism.png",      "sprites/ui/icon_plague.png"};
-    for (int i = 0; i < 10; ++i) icon[i] = assets.GetTextureAsset(kIconPaths[i]);
+    static const char* kIconPaths[6] = {"sprites/ui/icon_arrow.png",     "sprites/ui/icon_lightning.png",
+                                        "sprites/ui/icon_blade.png",     "sprites/ui/icon_frost.png",
+                                        "sprites/ui/icon_poison.png",    "sprites/ui/icon_fireball.png"};
+    for (int i = 0; i < 6; ++i) icon[i] = assets.GetTextureAsset(kIconPaths[i]);
 
     // 关卡里程序化生成的地面，用于出战准备的地图卡片
     floor = assets.GetTexture("floor_big");
-    // 增益宝箱图标/开箱序列帧（均为 CC0；图标取自 Kenney Tiny Dungeon，开箱帧来自 OpenGameArt）
-    chestSheet = assets.GetTextureAsset("sprites/chest_sheet.png");
-    chestTiles = assets.GetTextureAsset("sprites/kenney_tilemap.png");
 
     // 技能特效：CC0 序列帧/精灵表（下载来源见 engine/assets/vfx/LICENSE-VFX.txt）
     fxArcane = assets.GetTextureAsset("vfx/arcane_strip.png");
     fxWater = assets.GetTextureAsset("vfx/water_strip.png");
     fxFireball = assets.GetTextureAsset("vfx/fireball.png");
     fxExplosion = assets.GetTextureAsset("vfx/explosion.png");
-    fxPoison = assets.GetTextureAsset("vfx/poison_mist.png");
+    fxPoison = assets.GetTextureAsset("particles/smoke_01.png");
 
     const bool ok = panel && slot && buttonNormal && buttonPrimary && barTrack && barHealthFill && barXpFill &&
-                    titleBackground && chestSheet && chestTiles && body;
+                    titleBackground && body;
     if (!ok) LogWarn("[2D] UI 部分切图/字体缺失，界面会退回纯色绘制");
     return ok;
 }
@@ -768,11 +653,6 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
                 DrawLevelUpScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
                 break;
             }
-            case State::Gacha: {
-                DrawHudScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight, false);
-                DrawGachaScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
-                break;
-            }
             case State::GameOver:
                 DrawResultScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
                 break;
@@ -798,7 +678,7 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
             if (player->pickupToastTimer > 0.0f) toast = player->pickupToast;
         }
     }
-    if (!toast.empty() && m_state != State::LevelUp && m_state != State::Gacha) {
+    if (!toast.empty() && m_state != State::LevelUp) {
         const float timer = m_toastTimer > 0.0f ? m_toastTimer : 2.0f;
         DrawToast(viewportX, viewportY, viewportWidth, viewportHeight, toast, timer);
     }
@@ -870,94 +750,6 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
 
 
 // ================================================================ 战斗 HUD
-namespace {
-
-void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world,
-                          float time) {
-    const SurvivorsMinimapSnapshot snapshot = BuildSurvivorsMinimapSnapshot(world);
-    const float panelW = 238.0f;
-    const float panelH = 158.0f;
-    const float panelX = c.w - panelW - 24.0f;
-    const float panelY = c.h - panelH - 24.0f;
-    DrawPanel(draw, ui, c, panelX, panelY, panelW, panelH);
-    DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 9.0f, kGold, "地图");
-    DrawTextRight(draw, ui, c, 11.0f, panelX + panelW - 14.0f, panelY + 12.0f, kTextMuted, "宝箱 / 掉落 / 怪");
-
-    const float mapX = panelX + 12.0f;
-    const float mapY = panelY + 32.0f;
-    const float mapW = panelW - 24.0f;
-    const float mapH = panelH - 44.0f;
-    draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(15, 18, 26, 230), c.V(4.0f));
-    draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(74, 70, 58, 255), c.V(4.0f),
-                  c.V(1.0f));
-
-    const Vec2 half = snapshot.arenaHalf;
-    auto toMap = [&](const Vec2& position) {
-        const float u = Clamp01((position.x + half.x) / (half.x * 2.0f));
-        const float v = Clamp01((position.y + half.y) / (half.y * 2.0f));
-        return c.P(mapX + u * mapW, mapY + (1.0f - v) * mapH);
-    };
-
-    for (const SurvivorsMinimapRect& obstacle : snapshot.obstacles) {
-        const ImVec2 min = toMap(obstacle.center - obstacle.half);
-        const ImVec2 max = toMap(obstacle.center + obstacle.half);
-        draw->AddRectFilled(ImVec2((std::min)(min.x, max.x), (std::min)(min.y, max.y)),
-                            ImVec2((std::max)(min.x, max.x), (std::max)(min.y, max.y)),
-                            IM_COL32(73, 79, 88, 210), c.V(1.0f));
-    }
-
-    // 最近宝箱的方向/距离，用于屏幕上方罗盘。
-    float nearestDistance = 1e9f;
-    Vec2  nearestDirection(1.0f, 0.0f);
-    for (const SurvivorsMinimapMarker& marker : snapshot.markers) {
-        if (marker.kind == 2) {
-            const ImVec2 p = toMap(marker.position);
-            draw->AddCircleFilled(p, c.V(1.7f), IM_COL32(235, 92, 82, 170), 8);
-            continue;
-        }
-        if (marker.kind == 1) {
-            draw->AddCircleFilled(toMap(marker.position), c.V(2.2f), IM_COL32(95, 230, 140, 210), 8);
-            continue;
-        }
-        const ImVec2 p = toMap(marker.position);
-        const float pulse = 0.5f + 0.5f * std::sin(time * 5.0f + marker.position.x);
-        draw->AddCircleFilled(p, c.V(5.5f + pulse * 2.0f), IM_COL32(255, 210, 70, 55), 12);
-        draw->AddCircleFilled(p, c.V(3.4f), IM_COL32(255, 220, 90, 255), 12);
-        draw->AddLine(ImVec2(p.x - 5.0f, p.y), ImVec2(p.x + 5.0f, p.y), IM_COL32(255, 240, 170, 220), 1.0f);
-        draw->AddLine(ImVec2(p.x, p.y - 5.0f), ImVec2(p.x, p.y + 5.0f), IM_COL32(255, 240, 170, 220), 1.0f);
-
-        const Vec2 toBuff = marker.position - snapshot.player;
-        const float distance = Length(toBuff);
-        if (distance < nearestDistance) {
-            nearestDistance = distance;
-            const float length = Length(toBuff);
-            nearestDirection = length > 0.001f ? toBuff / length : Vec2(1.0f, 0.0f);
-        }
-    }
-
-    // 玩家：金色三角 + 朝向线
-    const ImVec2 playerPoint = toMap(snapshot.player);
-    draw->AddCircleFilled(playerPoint, c.V(4.0f), IM_COL32(255, 255, 255, 245), 12);
-    draw->AddCircle(playerPoint, c.V(6.0f), IM_COL32(120, 220, 255, 230), 12, c.V(1.0f));
-
-    // 顶部罗盘：指出最近抽奖宝箱的方向与距离
-    if (nearestDistance < 1e8f) {
-        const float cx = c.w * 0.5f;
-        const float cy = 92.0f;
-        const float sx = nearestDirection.x;
-        const float sy = -nearestDirection.y;
-        const ImVec2 tip(cx + sx * 13.0f, cy + sy * 13.0f);
-        const ImVec2 left(cx - sx * 3.0f - sy * 6.0f, cy - sy * 3.0f + sx * 6.0f);
-        const ImVec2 right(cx - sx * 3.0f + sy * 6.0f, cy - sy * 3.0f - sx * 6.0f);
-        draw->AddTriangleFilled(tip, left, right, IM_COL32(255, 215, 80, 240));
-        char text[64];
-        std::snprintf(text, sizeof(text), "最近增益 %.1fm", nearestDistance);
-        DrawText(draw, ui, c, 12.0f, cx + 22.0f, cy - 8.0f, kGold, text);
-    }
-}
-
-} // namespace
-
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
@@ -1007,6 +799,8 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawNineSlice(draw, c, m_ui.buttonNormal, pauseX, 20.0f, pauseW, 44.0f, 12.0f);
         DrawTextCentered(draw, m_ui, c, 17.0f, pauseX + pauseW * 0.5f, 33.0f, kText, "Esc 暂停");
     }
+
+    DrawHudMinimap(m_ui, world, draw, c, m_mobileUi);
 
     // 底部技能槽：只显示本局已拥有的技能（职业基础 1 个 + 最多 4 个掉落）
     int slotSkills[kSurvivorsMaxLoadout] = {-1, -1, -1, -1, -1};
@@ -1058,8 +852,68 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
         DrawTextCentered(draw, m_ui, c, 12.5f, c.w * 0.5f, tipY + 64.0f, kMint, stat.c_str());
         DrawTextCentered(draw, m_ui, c, 11.5f, c.w * 0.5f, tipY + 86.0f, kTextMuted, "点击技能槽钉住说明");
     }
+}
 
-    DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
+// ================================================================ 小地图（右上角竖版）
+static void DrawHudMinimap(const SurvivorsUIAssets& ui, World& world, ImDrawList* draw, const Canvas& c, bool mobile) {
+    const float w = mobile ? 170.0f : 160.0f;
+    const float h = mobile ? 260.0f : 240.0f;
+    const float x = c.w - 24.0f - w;
+    const float y = 80.0f; // 在右上暂停按钮下方，避开开发者工具右上角控制台按钮
+    if (x < 8.0f || y + h > c.h - 8.0f) return;
+
+    DrawPanel(draw, ui, c, x, y, w, h);
+    DrawText(draw, ui, c, 13.0f, x + 14.0f, y + 10.0f, kText, "地图");
+    DrawTextRight(draw, ui, c, 10.5f, x + w - 12.0f, y + 12.0f, kTextMuted, "NEW");
+
+    const float px = x + 10.0f;
+    const float py = y + 34.0f;
+    const float pw = w - 20.0f;
+    const float ph = h - 46.0f;
+    draw->AddRectFilled(c.P(px, py), c.P(px + pw, py + ph), IM_COL32(12, 9, 18, 235), c.V(3.0f));
+    draw->PushClipRect(c.P(px, py), c.P(px + pw, py + ph), true);
+    for (int i = 1; i < 5; ++i) {
+        const float gx = px + pw * static_cast<float>(i) / 5.0f;
+        const float gy = py + ph * static_cast<float>(i) / 5.0f;
+        draw->AddLine(c.P(gx, py + 4.0f), c.P(gx, py + ph - 4.0f), IM_COL32(228, 171, 106, 18), c.V(1.0f));
+        draw->AddLine(c.P(px + 4.0f, gy), c.P(px + pw - 4.0f, gy), IM_COL32(228, 171, 106, 18), c.V(1.0f));
+    }
+
+    const SurvivorsPlayerComponent* player = PlayerOf(world);
+    const Vec2 playerPos = player && player->Owner()
+                               ? Vec2(player->Owner()->Position().x, player->Owner()->Position().y)
+                               : Vec2(0.0f, 0.0f);
+    const float range = 55.0f;
+    auto toMap = [&](const Vec2& p) {
+        const float nx = (p.x - playerPos.x) / range;
+        const float ny = (p.y - playerPos.y) / range;
+        return c.P(px + pw * 0.5f + nx * pw * 0.5f, py + ph * 0.5f - ny * ph * 0.5f);
+    };
+
+    static std::vector<SurvivorsMinimapDot> dots;
+    GetSurvivorsMinimapDots(dots);
+    for (const SurvivorsMinimapDot& dot : dots) {
+        const float nx = (dot.pos.x - playerPos.x) / range;
+        const float ny = (dot.pos.y - playerPos.y) / range;
+        if (nx < -1.0f || nx > 1.0f || ny < -1.0f || ny > 1.0f) continue;
+        ImU32 color = IM_COL32(245, 105, 105, 240);
+        float radius = 4.0f;
+        if (dot.kind == 1) {
+            color = IM_COL32(120, 240, 180, 240);
+            radius = 3.6f;
+        } else if (dot.kind == 2) {
+            color = IM_COL32(170, 160, 185, 220);
+            radius = 3.2f;
+        } else if (dot.kind == 3) {
+            color = IM_COL32(250, 180, 85, 240);
+            radius = 3.2f;
+        }
+        draw->AddCircleFilled(toMap(dot.pos), c.V(radius), color, 8);
+    }
+    const ImVec2 center = toMap(playerPos);
+    draw->AddTriangleFilled(ImVec2(center.x, center.y - c.V(7.0f)), ImVec2(center.x - c.V(6.0f), center.y + c.V(5.0f)),
+                            ImVec2(center.x + c.V(6.0f), center.y + c.V(5.0f)), kGoldBright);
+    draw->PopClipRect();
 }
 
 // ================================================================ 升级三选一
@@ -1186,258 +1040,6 @@ void SurvivorsDirector::DrawPauseScreen(World& world, float vx, float vy, float 
     }
     DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted,
                      "Esc 继续战斗 · 暂停时玩法与计时冻结");
-}
-
-// ================================================================ 增益宝箱抽奖
-void SurvivorsDirector::DrawGachaScreen(World& world, float vx, float vy, float vw, float vh) {
-    (void)world;
-    Canvas      c = MakeCanvas(vx, vy, vw, vh);
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-
-    const float t = m_gachaTime;
-    const float burst = kSurvivorsGachaBurst;
-    const float reveal = kSurvivorsGachaReveal;
-    const int   rarity = Clamp(m_gachaRarity, 0, 2);
-    const Vec4  rarityColor = SurvivorsBuffRarityColor(rarity);
-    const ImU32 rarityU32 = ToImColor(rarityColor, 1.0f);
-    const int   buffIcon = SurvivorsBuffIconForEffect(m_gachaEffect);
-    Texture*    iconTexture = buffIcon >= 0 ? m_ui.icon[buffIcon] : m_ui.iconHealth;
-
-    const float cx = c.w * 0.5f;
-    const float cy = c.h * 0.50f;
-    const float fade = Clamp01(t / 0.28f);
-
-    // 背景压暗 + 上下渐变，把注意力集中到中央。
-    draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(7, 5, 12, static_cast<int>(225.0f * fade)));
-    draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h * 0.30f), IM_COL32(4, 3, 8, 150),
-                                  IM_COL32(4, 3, 8, 150), IM_COL32(4, 3, 8, 0), IM_COL32(4, 3, 8, 0));
-    draw->AddRectFilledMultiColor(c.P(0, c.h * 0.70f), c.P(c.w, c.h), IM_COL32(4, 3, 8, 0),
-                                  IM_COL32(4, 3, 8, 0), IM_COL32(4, 3, 8, 150), IM_COL32(4, 3, 8, 150));
-
-    // 中央光晕：层层同心圆做出柔光。
-    const float glow = 0.35f + 0.65f * Clamp01(t / 0.85f);
-    for (int i = 12; i >= 1; --i) {
-        const float radius = 58.0f + static_cast<float>(i) * 24.0f;
-        const float alpha = glow * (0.020f + 0.018f * (1.0f - static_cast<float>(i) / 12.0f));
-        draw->AddCircleFilled(c.P(cx, cy), c.V(radius), ToImColor(rarityColor, alpha), 48);
-    }
-
-    // 旋转光束：抖动阶段逐渐变长，光爆后更亮。
-    if (t > 0.16f) {
-        const float rayGrow = Clamp01((t - 0.16f) / 0.70f);
-        const float rayAlpha = (0.10f + 0.12f * rayGrow) * (t > reveal ? 0.65f : 1.0f);
-        const float rayRot = t * (t > burst ? 0.85f : 0.55f);
-        constexpr int rayCount = 24;
-        for (int i = 0; i < rayCount; ++i) {
-            const float angle = rayRot + static_cast<float>(i) * kTwoPi / static_cast<float>(rayCount);
-            const float length = (150.0f + 150.0f * rayGrow) * (0.75f + 0.5f * Hash01(i + 3));
-            const float width = 0.020f + 0.035f * Hash01(i + 17);
-            const ImVec2 p0 = c.P(cx + std::cos(angle) * 48.0f, cy + std::sin(angle) * 48.0f);
-            const ImVec2 p1 = c.P(cx + std::cos(angle - width) * length, cy + std::sin(angle - width) * length);
-            const ImVec2 p2 = c.P(cx + std::cos(angle + width) * length, cy + std::sin(angle + width) * length);
-            draw->AddTriangleFilled(p0, p1, p2, ToImColor(rarityColor, rayAlpha));
-        }
-    }
-
-    // 漂浮粒子：开箱前围绕宝箱，光爆后向外飞散并淡出。
-    const float burstProgress = (std::max)(0.0f, t - burst);
-    for (int i = 0; i < 38; ++i) {
-        const float phase = Hash01(i * 7 + 1) * kTwoPi;
-        const float speed = 0.7f + 1.5f * Hash01(i * 5 + 9);
-        float radius = 0.0f;
-        float alpha = 0.0f;
-        if (t < burst) {
-            radius = 95.0f + 120.0f * Hash01(i + 23);
-            alpha = 0.25f + 0.55f * Hash01(i + 41);
-        } else {
-            const float spread = Clamp01(burstProgress / 1.1f);
-            radius = 110.0f + spread * (240.0f + 180.0f * Hash01(i + 23));
-            alpha = (1.0f - spread) * (0.45f + 0.55f * Hash01(i + 41));
-        }
-        const float angle = phase + t * speed * (t < burst ? 1.1f : 2.0f);
-        const float px = cx + std::cos(angle) * radius;
-        const float py = cy + std::sin(angle) * radius * 0.72f;
-        const float size = 1.0f + 3.2f * Hash01(i + 61);
-        const ImU32 color = (i % 3 == 0) ? kGoldBright : rarityU32;
-        draw->AddCircleFilled(c.P(px, py), c.V(size), ToImColorFromU32(color, alpha), 8);
-        if (i % 5 == 0) {
-            draw->AddLine(c.P(px - size * 3.0f, py), c.P(px + size * 3.0f, py), ToImColorFromU32(color, alpha * 0.8f),
-                          1.0f);
-            draw->AddLine(c.P(px, py - size * 3.0f), c.P(px, py + size * 3.0f), ToImColorFromU32(color, alpha * 0.8f),
-                          1.0f);
-        }
-    }
-
-    // 光爆震屏（只作用于宝箱和爆炸，不晃卡片）。
-    float shakeX = 0.0f;
-    float shakeY = 0.0f;
-    if (t > burst) {
-        const float decay = (std::max)(0.0f, 0.30f - (t - burst)) / 0.30f;
-        const float amp = 26.0f * decay;
-        shakeX = std::sin(t * 137.0f) * amp;
-        shakeY = std::cos(t * 113.0f) * amp;
-    }
-    const float chestX = cx + shakeX;
-    const float chestY = cy + shakeY;
-
-    // 宝箱：先关闭 + 抖动，然后在 burst 时刻逐帧打开。
-    if (t < burst) {
-        const float enter = Clamp01(t / 0.38f);
-        const float chestScale = 0.70f + 0.30f * EaseOutBack(enter);
-        const float charge = Clamp01((t - 0.34f) / (burst - 0.34f));
-        const float tilt = std::sin(t * 31.0f) * 0.05f * charge;
-        draw->AddCircle(c.P(chestX, chestY), c.V(105.0f + 22.0f * charge),
-                        ToImColor(rarityColor, 0.20f + 0.18f * charge), 48, c.V(2.0f));
-        draw->AddCircle(c.P(chestX, chestY), c.V(142.0f + 30.0f * charge),
-                        ToImColor(rarityColor, 0.08f + 0.10f * charge), 48, c.V(1.2f));
-        DrawSheetFrameRotated(draw, c, m_ui.chestTiles, 12, 11, 7 * 12 + 7, chestX, chestY, 190.0f * chestScale,
-                              190.0f * chestScale, IM_COL32_WHITE, tilt);
-    } else {
-        const float openTime = t - burst;
-
-        // 光爆闪光放在宝箱下面，用多层低透明同心圆而不是一块实心圆，避免盖住宝箱和爆炸。
-        if (openTime < 0.30f) {
-            const float flash = 1.0f - openTime / 0.30f;
-            for (int i = 6; i >= 1; --i) {
-                const float radius = (90.0f + static_cast<float>(i) * 38.0f) * (0.75f + 0.25f * (1.0f - flash));
-                draw->AddCircleFilled(c.P(cx, cy), c.V(radius),
-                                      IM_COL32(255, 238, 205, static_cast<int>(16.0f * flash)), 48);
-            }
-            draw->AddCircle(c.P(cx, cy), c.V(70.0f + 160.0f * (1.0f - flash)),
-                            IM_COL32(255, 246, 220, static_cast<int>(110.0f * flash)), 48, c.V(3.0f));
-        }
-
-        // 金色冲击波：两圈错开的扩散光环。
-        if (openTime < 0.55f) {
-            for (int ring = 0; ring < 2; ++ring) {
-                const float delay = static_cast<float>(ring) * 0.10f;
-                if (openTime < delay) continue;
-                const float ringT = Clamp01((openTime - delay) / 0.48f);
-                const float radius = 96.0f + 235.0f * EaseOutCubic(ringT);
-                const int   alpha = static_cast<int>(210.0f * (1.0f - ringT));
-                draw->AddCircle(c.P(chestX, chestY), c.V(radius), ToImColor(rarityColor, alpha / 255.0f), 64,
-                                c.V(4.0f * (1.0f - ringT) + 1.0f));
-                draw->AddCircle(c.P(chestX, chestY), c.V(radius * 0.91f), IM_COL32(255, 245, 220, alpha / 3), 64,
-                                c.V(1.5f));
-            }
-        }
-
-        // 小幅火焰残影垫在宝箱后面，避免大块烟雾糊住画面。
-        const float explosionT = Clamp01(openTime / 0.50f);
-        const int   explosionFrame = 8 + static_cast<int>(explosionT * 31.0f);
-        DrawExplosionFrame(draw, c, m_ui.fxExplosion, explosionFrame, chestX, chestY, 250.0f + 70.0f * explosionT,
-                           IM_COL32(255, 196, 120, static_cast<int>(190.0f * (1.0f - 0.55f * explosionT))));
-
-        const int   frame = openTime < 0.07f ? 1 : (openTime < 0.14f ? 2 : 3);
-        const float openAlpha = 1.0f - 0.72f * Clamp01((openTime - 0.30f) / 0.90f);
-        DrawSheetFrameRotated(draw, c, m_ui.chestSheet, 2, 2, frame, chestX, chestY, 205.0f, 205.0f,
-                              ToImColor(Vec4(1, 1, 1, 1), openAlpha), 0.0f);
-    }
-
-    // 顶部标题：开箱期间提示，翻牌后让位给卡面。
-    if (t < reveal) {
-        DrawTextCentered(draw, m_ui, c, 30.0f, cx, cy - 245.0f, kGoldBright, "增益宝箱开启");
-        char subtitle[64];
-        std::snprintf(subtitle, sizeof(subtitle), "%s增益 · 正在抽取", SurvivorsBuffRarityName(rarity));
-        DrawTextCentered(draw, m_ui, c, 15.0f, cx, cy - 198.0f, ToImColor(rarityColor, 1.0f), subtitle);
-    }
-
-    // 翻牌：奖励卡从 0.7 倍弹到 1 倍，带稀有度光边与图标。
-    if (t >= reveal) {
-        const float p = Clamp01((t - reveal) / 0.34f);
-        float       scale = EaseOutBack(p);
-        scale = (std::max)(0.05f, scale);
-
-        constexpr float baseW = 600.0f;
-        constexpr float baseH = 344.0f;
-        const float     baseX = cx - baseW * 0.5f;
-        const float     baseY = cy - baseH * 0.5f;
-        auto PX = [&](float x) { return cx + (x - cx) * scale; };
-        auto PY = [&](float y) { return cy + (y - cy) * scale; };
-        auto TS = [&](float v) { return v * scale; };
-
-        const ImVec2 cardMin = c.P(PX(baseX), PY(baseY));
-        const ImVec2 cardMax = c.P(PX(baseX + baseW), PY(baseY + baseH));
-
-        draw->AddRectFilled(c.P(PX(baseX) - 8.0f, PY(baseY) - 8.0f),
-                            c.P(PX(baseX + baseW) + 8.0f, PY(baseY + baseH) + 8.0f), ToImColor(rarityColor, 0.18f),
-                            c.V(14.0f));
-        draw->AddRectFilled(cardMin, cardMax, IM_COL32(27, 21, 33, 248), c.V(10.0f * scale));
-        draw->AddRectFilledMultiColor(cardMin, cardMax, ToImColor(rarityColor, 0.20f), ToImColor(rarityColor, 0.10f),
-                                      IM_COL32(10, 8, 15, 0), IM_COL32(10, 8, 15, 0));
-        draw->AddRect(cardMin, cardMax, rarityU32, c.V(10.0f * scale), 0, c.V(2.2f * scale));
-
-        // 四角装饰线
-        const float corner = TS(22.0f);
-        const float inset = TS(10.0f);
-        const ImU32 cornerColor = ToImColor(rarityColor, 0.85f);
-        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY) + inset), c.P(PX(baseX) + inset + corner, PY(baseY) + inset),
-                      cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY) + inset), c.P(PX(baseX) + inset, PY(baseY) + inset + corner),
-                      cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY) + inset),
-                      c.P(PX(baseX + baseW) - inset - corner, PY(baseY) + inset), cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY) + inset),
-                      c.P(PX(baseX + baseW) - inset, PY(baseY) + inset + corner), cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY + baseH) - inset),
-                      c.P(PX(baseX) + inset + corner, PY(baseY + baseH) - inset), cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY + baseH) - inset),
-                      c.P(PX(baseX) + inset, PY(baseY + baseH) - inset - corner), cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset),
-                      c.P(PX(baseX + baseW) - inset - corner, PY(baseY + baseH) - inset), cornerColor, c.V(2.0f));
-        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset),
-                      c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset - corner), cornerColor, c.V(2.0f));
-
-        char tag[64];
-        std::snprintf(tag, sizeof(tag), "%s增益", SurvivorsBuffRarityName(rarity));
-        DrawTextCentered(draw, m_ui, c, TS(15.0f), cx, PY(baseY + 16.0f), rarityU32, tag);
-
-        // 图标框
-        const float iconBox = 118.0f;
-        const float iconX = baseX + 30.0f;
-        const float iconY = baseY + 58.0f;
-        const ImVec2 iconMin = c.P(PX(iconX), PY(iconY));
-        const ImVec2 iconMax = c.P(PX(iconX + iconBox), PY(iconY + iconBox));
-        draw->AddRectFilled(iconMin, iconMax, ToImColor(rarityColor, 0.14f), c.V(8.0f * scale));
-        draw->AddRect(iconMin, iconMax, ToImColor(rarityColor, 0.85f), c.V(8.0f * scale), 0, c.V(1.5f));
-        if (iconTexture) {
-            DrawImage(draw, c, iconTexture, PX(iconX + 11.0f), PY(iconY + 11.0f), TS(iconBox - 22.0f),
-                      TS(iconBox - 22.0f));
-        }
-
-        // 文案
-        DrawText(draw, m_ui, c, TS(32.0f), PX(baseX + 176.0f), PY(baseY + 56.0f), kText, "宝箱增益");
-        DrawWrapped(draw, m_ui, c, TS(15.0f), PX(baseX + 176.0f), PY(baseY + 102.0f), TS(baseW - 208.0f), kTextDim,
-                    "来自地图增益宝箱的随机效果，已在本局生效。", 1.4f);
-        draw->AddLine(c.P(PX(baseX + 176.0f), PY(baseY + 156.0f)),
-                      c.P(PX(baseX + baseW - 30.0f), PY(baseY + 156.0f)), kRule, c.V(1.2f));
-        DrawText(draw, m_ui, c, TS(13.0f), PX(baseX + 176.0f), PY(baseY + 172.0f), kTextMuted, "获得效果");
-        DrawText(draw, m_ui, c, TS(21.0f), PX(baseX + 176.0f), PY(baseY + 194.0f), kGoldBright,
-                 m_gachaEffect.c_str());
-
-        // 稀有度三星：当前品质点亮。
-        for (int i = 0; i < 3; ++i) {
-            const ImVec2 center = c.P(PX(baseX + baseW - 42.0f - static_cast<float>(i) * 22.0f), PY(baseY + 26.0f));
-            const float  r = c.V(5.0f * scale);
-            const ImU32  color = i < rarity + 1 ? rarityU32 : IM_COL32(80, 70, 88, 150);
-            draw->AddQuadFilled(ImVec2(center.x, center.y - r), ImVec2(center.x + r, center.y),
-                                ImVec2(center.x, center.y + r), ImVec2(center.x - r, center.y), color);
-        }
-
-        // 收取提示放在卡片底部，避免和身后的宝箱/爆炸叠在一起。
-        draw->AddLine(c.P(PX(baseX + 30.0f), PY(baseY + baseH - 58.0f)),
-                      c.P(PX(baseX + baseW - 30.0f), PY(baseY + baseH - 58.0f)), kRule, c.V(1.2f));
-        const float hintAlpha = 0.55f + 0.45f * (0.5f + 0.5f * std::sin((t - reveal) * 5.0f));
-        DrawTextCentered(draw, m_ui, c, TS(15.0f), cx, PY(baseY + baseH - 38.0f), ToImColor(rarityColor, hintAlpha),
-                         "点击 / 空格 收取 · 等待自动关闭");
-    }
-
-    // 点击或空格跳过（只允许在翻牌后）。
-    if (!m_gachaPreview && t >= reveal &&
-        (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
-         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
-        m_gachaSkipRequested = true;
-    }
 }
 
 // ================================================================ 设置
@@ -1604,7 +1206,7 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     ImDrawList* draw = ImGui::GetForegroundDrawList();
 
     const float panelW = 840.0f;
-    const float panelH = 760.0f;
+    const float panelH = 580.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
@@ -1614,14 +1216,14 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     const float rowX = panelX + 30.0f;
     const float rowW = panelW - 60.0f;
     float       rowY = panelY + 126.0f;
-    for (int i = 0; i < kSurvivorsSkillCount; ++i) {
-        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(37, 30, 43, 255), c.V(3.0f));
-        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(72, 53, 64, 255), c.V(3.0f),
+    for (int i = 0; i < 6; ++i) {
+        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 48.0f), IM_COL32(37, 30, 43, 255), c.V(3.0f));
+        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 48.0f), IM_COL32(72, 53, 64, 255), c.V(3.0f),
                       c.V(1.0f));
-        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], rowX + 10.0f, rowY + 4.0f, 34.0f, 34.0f);
-        DrawText(draw, m_ui, c, 15.0f, rowX + 54.0f, rowY + 12.0f, kText, kSkills[i].name);
-        DrawText(draw, m_ui, c, 13.0f, rowX + 150.0f, rowY + 14.0f, kTextDim, kSkills[i].desc);
-        rowY += 50.0f;
+        if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], rowX + 12.0f, rowY + 6.0f, 36.0f, 36.0f);
+        DrawText(draw, m_ui, c, 16.0f, rowX + 62.0f, rowY + 13.0f, kText, kSkills[i].name);
+        DrawText(draw, m_ui, c, 14.0f, rowX + 150.0f, rowY + 15.0f, kTextDim, kSkills[i].desc);
+        rowY += 54.0f;
     }
 
     const float buttonW = 240.0f;
@@ -1643,7 +1245,7 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
     DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "踏入地牢",
-                     "职业决定初始技能；技能最高 20 级，击杀最多再掉落 4 个", true);
+                     "职业决定初始技能；击杀最多再掉落 4 个技能", true);
 
     const float cardW = (panelW - 60.0f - 28.0f) / 3.0f;
     const float cardH = 264.0f;

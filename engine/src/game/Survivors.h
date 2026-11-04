@@ -3,8 +3,8 @@
 // 设计（代码优先）：
 //   * 2D 世界是 XY 平面，精灵组件负责显示，玩法组件负责逻辑；
 //   * 玩家自动攻击最近的敌人，敌人成波刷新，击杀掉落经验宝石和血瓶；
-//   * 10 个技能中，职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
-//     击杀同时掉落已拥有技能的强化，技能最高 20 级；
+//   * 职业决定 1 个基础技能；击杀掉落新技能（手动拾取、不吸附），最多再 4 个，共 5 个；
+//     击杀同时掉落已拥有技能的强化，技能最高 6 级；
 //   * 技能有独立的序列帧特效（CC0 贴图，见 engine/assets/vfx/LICENSE-VFX.txt）；
 //   * 八页界面用自绘 ImGui 图层，九宫格切图来自用户提供的 ermao-ui-v2 UI 原型。
 #pragma once
@@ -37,28 +37,19 @@ enum class SurvivorsPickupType : int {
     FrostUpgrade,         // 霜环强化
     PoisonUpgrade,        // 毒雾强化
     FireballUpgrade,      // 火球强化
-    MeteorUpgrade,        // 陨石强化
-    SingularityUpgrade,   // 黑洞强化
-    PrismUpgrade,         // 棱镜光束强化
-    PlagueUpgrade,        // 毒爆强化
     SkillUnlockBase = 20, // 20 + 技能下标：掉落的新技能（必须手动拾取）
-    SkillUnlockEnd = 30,
-    Count = 30
+    SkillUnlockEnd = 26,
+    Count = 26
 };
 
 // ---------------------------------------------------------------- 数值上限
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
-constexpr int kSurvivorsSkillCount = 10;
+constexpr int kSurvivorsSkillCount = 6;
 constexpr int kSurvivorsMaxLoadout = 5;
-// 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
-constexpr int kSurvivorsMaxSkillLevel = 20;
-constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
-constexpr int kSurvivorsMaxArrowDamageLevel = 8;
+constexpr int kSurvivorsMaxSkillLevel = 6;
+constexpr int kSurvivorsMaxArrowSpeedLevel = 5;
+constexpr int kSurvivorsMaxArrowDamageLevel = 6;
 constexpr int kSurvivorsMaxArrowRangeLevel = 4;
-// 箭矢散射：0 级单发锁定，1..5 级方向数为 2/4/6/8/12，逐级成长而不是一次跳到八向。
-constexpr int kSurvivorsMaxArrowSpreadLevel = 5;
-constexpr int kSurvivorsArrowDirectionCounts[kSurvivorsMaxArrowSpreadLevel + 1] = {1, 2, 4, 6, 8, 12};
-constexpr float kSurvivorsSkillDamageGrowth = 1.22f;
 constexpr int kSurvivorsClassCount = 3;
 
 // 职业决定初始基础技能；其余技能只能靠击杀掉落、手动拾取。
@@ -86,6 +77,14 @@ enum class SurvivorsEnemyType : int {
     Elite,   // 兽人精英：高血量高伤害
     Count
 };
+
+// ---------------------------------------------------------------- 小地图快照
+// kind: 0 敌人、1 掉落、2 障碍、3 火把
+struct SurvivorsMinimapDot {
+    Vec2 pos;
+    int  kind = 0;
+};
+void GetSurvivorsMinimapDots(std::vector<SurvivorsMinimapDot>& out);
 
 // ---------------------------------------------------------------- 玩家
 class SurvivorsPlayerComponent : public Component {
@@ -117,8 +116,8 @@ public:
     // 击杀越多，攻速越快（每击杀 +3%，递减叠加）
     int killCount = 0;
 
-    // 箭矢的掉落强化（散射方向数按 2/4/6/8/12 逐级成长）
-    int   arrowSpreadLevel = 0;
+    // 箭矢的掉落强化
+    bool  arrowSpread = false; // 八向散射
     int   arrowSpeedLevel = 0;
     int   arrowDamageLevel = 0;
     int   arrowRangeLevel = 0;
@@ -141,22 +140,10 @@ public:
     int frostLevel = 1;
     int poisonLevel = 1;
     int fireballLevel = 1;
-    int meteorLevel = 0;
-    int singularityLevel = 0;
-    int prismLevel = 0;
-    int plagueLevel = 0;
 
     // 最近拾取提示
     std::string pickupToast;
     float       pickupToastTimer = 0.0f;
-
-    // 地图抽奖 buff 的永久加成（一局内有效）
-    float buffDamageMultiplier = 1.0f;
-    float buffAttackSpeedMultiplier = 1.0f;
-    float buffMoveMultiplier = 1.0f;
-    float buffRangeMultiplier = 1.0f;
-    int   buffSkillUpgrades = 0; // 抽奖给技能等级的次数，每局最多 2 次
-    int   buffPityOffense = 0;   // 连续非攻击类抽奖计数，每 3 次保底攻击/攻速
 
     bool  alive = true;
     float invulnerable = 0.0f;
@@ -171,15 +158,12 @@ public:
     void  ResetCombatStats();
     void  RefreshDerivedStats();
     void  ApplyPickup(int type);
-    // 地图抽奖 buff：0=普通 1=稀有 2=史诗；返回抽到的效果文本。
-    std::string ApplyBuff(int rarity);
 
     // 强化拾取/旧预览页共用：技能未拥有或已满级时不会生效。
     void ApplyLevelUpUpgrade(int skill, int sub);
     void CompleteLevelUp();
 
     // 当前生效数值（HUD 与投射物共用，避免两处公式不一致）
-    int   ArrowDirections() const; // 当前散射方向数（1 = 单发锁定）
     float ArrowDamage() const;
     float ArrowRange() const;
     float ArrowProjectileLife() const;
@@ -193,13 +177,12 @@ public:
 
     float BladeDamage() const;
     int   BladeCount() const;
-    float BladeRadius() const; // 飞剑环绕半径（随等级成长）
-    float BladeSize() const;   // 飞剑视觉半长（随等级成长，和命中判定共用）
+    float BladeRadius() const;
     float BladeSpeed() const;
 
     float FrostDamage() const;
     float FrostRadius() const;
-    float FrostFreezeDuration() const;
+    float FrostSlow() const;
     float FrostCooldown() const;
 
     float PoisonDps() const;
@@ -209,26 +192,6 @@ public:
     int   FireballCount() const;
     float FireballExplosionRadius() const;
     float FireballCooldown() const;
-
-    float MeteorDamage() const;
-    int   MeteorCount() const;
-    float MeteorCooldown() const;
-    float MeteorRadius() const;
-
-    float SingularityDps() const;
-    float SingularityRadius() const;
-    float SingularityDuration() const;
-    float SingularityCooldown() const;
-
-    float PrismDamage() const;
-    int   PrismBeamCount() const;
-    float PrismBeamLength() const;
-    float PrismBeamSpeed() const;
-    float PrismBeamAngle() const;
-
-    float PlagueDamage() const;
-    float PlagueRadius() const;
-    float PlagueCooldown() const;
 
     // 菜单打开时禁止移动（和 3D 的 SetInputEnabled 同思路）
     static void SetInputEnabled(bool enabled);
@@ -243,11 +206,6 @@ private:
     float m_lightningTimer = 0.0f;
     float m_frostTimer = 0.0f;
     float m_fireballTimer = 0.0f;
-    float m_meteorTimer = 0.0f;
-    float m_singularityTimer = 0.0f;
-    float m_plagueTimer = 0.0f;
-    float m_prismAngle = 0.0f;
-    float m_prismTick = 0.0f;
     float m_poisonTick = 0.0f;
     float m_bladeTick = 0.0f;
     float m_bladeAngle = 0.0f;
@@ -261,51 +219,10 @@ private:
     void CastFireball();
     void UpdateBlades(float dt);
     void UpdateAura(float dt);
-    void CastMeteor();
-    void CastSingularity();
-    void UpdatePrismBeams(float dt);
-    void CastPlagueBloom();
     void RecomputeAttackInterval();
     void RecomputeAttackDamage();
     void ShowPickupToast(const std::string& text);
 };
-
-// ---------------------------------------------------------------- 地图增益宝箱
-class SurvivorsBuffComponent : public Component {
-public:
-    ER_COMPONENT(SurvivorsBuffComponent, "Survivors Buff")
-    int   rarity = 0; // 0 普通 / 1 稀有 / 2 史诗
-    float age = 0.0f;
-    float life = 35.0f;
-    void  OnUpdate(float dt) override;
-    void  OnDestroy() override;
-};
-
-// 抽奖动画时间线：拾取增益宝箱后先冻结世界，抖动→光爆→翻牌，播完再继续。
-constexpr float kSurvivorsGachaBurst = 1.05f;
-constexpr float kSurvivorsGachaReveal = 1.32f;
-constexpr float kSurvivorsGachaDuration = 3.00f;
-
-Vec4        SurvivorsBuffRarityColor(int rarity);
-const char* SurvivorsBuffRarityName(int rarity);
-int         SurvivorsBuffIconForEffect(const std::string& effect); // 返回 m_ui.icon 下标；-1 表示生命图标
-
-// ---------------------------------------------------------------- 小地图快照
-struct SurvivorsMinimapMarker {
-    Vec2 position;
-    int  kind = 0; // 0=buff 宝箱, 1=技能/强化掉落, 2=敌人
-};
-struct SurvivorsMinimapRect {
-    Vec2 center;
-    Vec2 half;
-};
-struct SurvivorsMinimapSnapshot {
-    Vec2                              player;
-    Vec2                              arenaHalf{43.0f, 25.0f};
-    std::vector<SurvivorsMinimapMarker> markers;
-    std::vector<SurvivorsMinimapRect>   obstacles;
-};
-SurvivorsMinimapSnapshot BuildSurvivorsMinimapSnapshot(World& world);
 
 // ---------------------------------------------------------------- 敌人
 class SurvivorsEnemyComponent : public Component {
@@ -376,13 +293,13 @@ public:
 // ---------------------------------------------------------------- 三选一候选
 struct SurvivorsLevelUpChoice {
     int skill = 0; // 0=箭矢 1=雷霆 2=回旋刃 3=霜环 4=毒雾 5=火球
-    int sub = 0;   // 箭矢专用：0=散射 1=攻速 2=攻击 3=范围
+    int sub = 0;   // 箭矢专用：0=八向散射 1=攻速 2=攻击 3=范围
 };
 
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
-    enum class State { Menu, Prepare, Playing, Paused, LevelUp, Gacha, GameOver, Codex };
+    enum class State { Menu, Prepare, Playing, Paused, LevelUp, GameOver, Codex };
 
     void Reset(World& world);
     void Update(World& world, float dt);
@@ -398,9 +315,9 @@ public:
         m_selectedSkill = -1;
         m_pauseNotice.clear();
         m_confirmExit = false;
-        ClearChestGacha();
     }
     void  TogglePause();
+    void  SetMobileUi(bool mobile) { m_mobileUi = mobile; }
     bool  WantsQuit() const { return m_wantsQuit; }
 
     int   Kills() const { return m_kills; }
@@ -415,7 +332,7 @@ public:
 
     // UI 切图/字体在关卡构建完成后注入（资源管理器此时已有 floor_big 等程序化贴图）
     void InitializeUI(AssetManager& assets, ImFont* body, ImFont* large, ImFont* display);
-    // 截图/走查用：--ui-preview <menu|prepare|hud|buff|chest|gacha|gacha-burst|levelup|pause|settings|result|codex>
+    // 截图/走查用：--ui-preview <menu|prepare|hud|levelup|pause|settings|result|codex>
     void ApplyPreviewState(World& world, const std::string& screen);
 
     // 设置面板数据（模型层只暴露快照，避免把文件读写细节带进 UI）
@@ -429,16 +346,9 @@ private:
     void SpawnWave(World& world);
     void SpawnEnemy(World& world, const Vec2& position, int type, float hpScale, float speedScale,
                     float damageScale);
-    void SpawnBuffChest(World& world);
     void SpawnElite(World& world);
     void EnsureMusic();
     void ApplyAudioSettings();
-
-    // 增益宝箱抽奖：拾取后冻结世界，播完动画再继续
-    bool BeginChestGacha(World& world, int rarity, const std::string& effect);
-    void UpdateChestGacha(World& world, float dt);
-    void FinishChestGacha(World& world);
-    void ClearChestGacha();
 
     // UI 各页（实现见 SurvivorsUI.cpp）
     void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
@@ -446,7 +356,6 @@ private:
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
-    void DrawGachaScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawSettingsScreen(float vx, float vy, float vw, float vh);
     void DrawResultScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawCodexScreen(float vx, float vy, float vw, float vh);
@@ -461,12 +370,10 @@ private:
     float       m_time = 0.0f;
     float       m_spawnTimer = 2.0f;
     float       m_eliteTimer = 45.0f;
-    float       m_skillCatchUpTimer = 0.0f;
-    float       m_buffTimer = 18.0f;
-    float       m_lastBalanceLog = 0.0f;
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;
+    bool        m_mobileUi = false;
 
     bool        m_showSettings = false;
     State       m_settingsReturn = State::Menu;
@@ -480,15 +387,6 @@ private:
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;
-
-    // 增益宝箱抽奖状态（抽奖期间 m_time / 世界更新都冻结，只有这里的时间在走）
-    float       m_gachaTime = 0.0f;
-    int         m_gachaRarity = 0;
-    std::string m_gachaEffect;
-    bool        m_gachaPreview = false; // 截图走查：冻结在指定时间，不自动结算
-    bool        m_gachaSkipRequested = false;
-    bool        m_gachaBurstPlayed = false;
-    int         m_gachaNextTick = 0;
 };
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
