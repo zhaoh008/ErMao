@@ -56,6 +56,29 @@ if [ "${actual_appid}" != "${APP_ID}" ]; then
   exit 1
 fi
 
+# 关闭 WXGameKit 的“最佳实践检测”开发提示（“未使用 Wasm 代码分包 / 预下载能力”）。
+# 这两个提示是 Unity 插件的通用建议：wasm/data 已经走 game.json 的 wasmcode/data-package
+# 分包和 parallelPreloadSubpackages；WasmSplit 是 Unity 专用工具，自定义 Emscripten
+# 无法套用。提示只在开发/体验版出现，关闭避免手机端反复弹窗。
+if [ -f "${OUT_DIR}/minigame/wx-game-kit/config.json" ]; then
+  python3 - "${OUT_DIR}/minigame/wx-game-kit/config.json" <<'PYCFG'
+import json
+import sys
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    data = json.load(f)
+develop = data.setdefault("develop", {})
+develop["hideTimeLogModal"] = True
+monitor = develop.setdefault("monitor", {})
+monitor["enable"] = False
+monitor["showSuggestModal"] = False
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(data, f, ensure_ascii=False, indent=2)
+    f.write("\n")
+print("[wechat] disabled WXGameKit best-practice monitor popups")
+PYCFG
+fi
+
 # 转换工具会重写 framework.js；如果构建产物里的 title 补丁丢了，iOS 会在
 # SDL 创建窗口时直接抛 “Cannot assign to read only property 'title'”，
 # 这里在打包阶段硬性校验，避免再发一个启动即崩的 iPhone 包。
