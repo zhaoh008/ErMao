@@ -470,7 +470,8 @@ void WebApp::Update(float dt) {
 
     AudioSystem::Get().Update(dt);
 
-    const bool playing = m_survivors->GetState() == SurvivorsDirector::State::Playing;
+    const auto state = m_survivors->GetState();
+    const bool playing = state == SurvivorsDirector::State::Playing;
     if (playing) {
         m_accumulator += dt;
         int steps = 0;
@@ -481,6 +482,11 @@ void WebApp::Update(float dt) {
         }
         if (steps == kMaxSubSteps) m_accumulator = 0.0f;
         m_world.Update(dt);
+    }
+    // 抽奖动画由 SurvivorsDirector 自己推进（State::Gacha 时 UpdateChestGacha），
+    // 但此时已经不在 Playing；如果只按 Playing 调 Update，m_gachaTime 会永远停在
+    // 0，画面卡在开箱第一帧，点击也永远等不到 reveal。世界更新仍冻结，只推进导演。
+    if (playing || state == SurvivorsDirector::State::Gacha) {
         m_survivors->Update(m_world, dt);
     }
 
