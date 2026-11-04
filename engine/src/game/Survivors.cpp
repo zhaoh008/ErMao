@@ -52,7 +52,11 @@ int   g_killsSinceDrop = 0;
 int   g_killsSinceSkillDrop = 0;
 int   g_killsSincePotionDrop = 0;
 float g_gameTime = 0.0f;
+float g_lastSkillDropTime = 0.0f; // 上一次新技能掉落（生成）时的游戏时间，用于时间保底
 float g_playerDamageMultiplier = 1.0f; // 地图抽奖“攻击力”buff，所有技能伤害共用
+
+// 新技能时间保底：任何 60 秒窗口内至少掉落一个新技能，不要求击杀。
+constexpr float kSkillDropPitySeconds = 60.0f;
 
 // 不要用浮点 LCG：float 乘加后取模会退化成 0 / 0 / 0.655 的短周期，
 // 导致掉落类型、刷怪角度和特效几乎固定。mt19937 的 24 位结果足够用。
@@ -387,6 +391,8 @@ void SpawnPickup(World& world, const Vec2& position, int type) {
     if (sprite) sprite->color = GetPickupInfo(type).color;
     auto* component = pickup->AddComponent<SurvivorsPickupComponent>();
     component->type = type;
+    // 时间保底以“新技能真正掉到地上”为准；所有掉落路径（击杀/新手兜底/时间保底）共用。
+    if (skillUnlock) g_lastSkillDropTime = g_gameTime;
     g_pickups.push_back(pickup);
 }
 
@@ -398,6 +404,19 @@ int PickSkillUnlockType(const SurvivorsPlayerComponent& player) {
     if (candidates.empty()) return -1;
     return candidates[static_cast<size_t>(Random01() * static_cast<float>(candidates.size())) %
                       candidates.size()];
+}
+
+// 在玩家附近生成一个未拥有的新技能（仍需手动拾取）。返回是否成功生成。
+bool SpawnSkillUnlockNearPlayer(World& world, GameObject& playerObject, const SurvivorsPlayerComponent& player,
+                                float radius) {
+    if (player.SelectedSkillCount() >= kSurvivorsMaxLoadout) return false;
+    const int skill = PickSkillUnlockType(player);
+    if (skill < 0) return false;
+    const Vec2  playerPosition(playerObject.Position().x, playerObject.Position().y);
+    const float angle = Random01() * kTwoPi;
+    SpawnPickup(world, playerPosition + Vec2(std::cos(angle), std::sin(angle)) * radius,
+                static_cast<int>(SurvivorsPickupType::SkillUnlockBase) + skill);
+    return true;
 }
 
 int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
@@ -2428,6 +2447,7 @@ void SurvivorsDirector::Reset(World& world) {
     g_killsSinceSkillDrop = 0;
     g_killsSincePotionDrop = 0;
     g_gameTime = 0.0f;
+    g_lastSkillDropTime = 0.0f;
     g_autopilot = false;
     g_kills = 0;
     g_lastHitSfxTime = -10.0;
@@ -2582,15 +2602,21 @@ void SurvivorsDirector::Update(World& world, float dt) {
             catchUpPlayer ? catchUpPlayer->GetComponent<SurvivorsPlayerComponent>() : nullptr;
         if (catchUpComponent && catchUpComponent->SelectedSkillCount() < kSurvivorsMaxLoadout) {
             m_skillCatchUpTimer -= dt;
-            if (m_skillCatchUpTimer <= 0.0f) {
-                const int skill = PickSkillUnlockType(*catchUpComponent);
-                if (skill >= 0) {
-                    const Vec2 playerPosition(catchUpPlayer->Position().x, catchUpPlayer->Position().y);
-                    const float angle = Random01() * kTwoPi;
-                    const Vec2  dropPosition = playerPosition + Vec2(std::cos(angle), std::sin(angle)) * 3.0f;
-                    SpawnPickup(world, dropPosition, static_cast<int>(SurvivorsPickupType::SkillUnlockBase) + skill);
-                    m_skillCatchUpTimer = 2.0f;
-                }
+            if (m_skillCatchUpTimer <= 0.0f &&
+                SpawnSkillUnlockNearPlayer(world, *catchUpPlayer, *catchUpComponent, 3.0f)) {
+                m_skillCatchUpTimer = 2.0f;
+            }
+        }
+    }
+
+    // 新技能时间保底：最多 60 秒没有新技能掉落，就在玩家附近补一个。
+    // 不要求击杀，避免被怪追赶时长时间没有任何新技能掉落；仍然需要手动拾取。
+    if (m_time - g_lastSkillDropTime >= kSkillDropPitySeconds) {
+        GameObject* pityPlayer = FindPlayer(world);
+        auto*       pityComponent = pityPlayer ? pityPlayer->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+        if (pityComponent && pityComponent->SelectedSkillCount() < kSurvivorsMaxLoadout) {
+            if (SpawnSkillUnlockNearPlayer(world, *pityPlayer, *pityComponent, 3.0f)) {
+                LogInfo("[2D] 技能掉落时间保底：%.1f 秒未掉新技能，补一个", m_time);
             }
         }
     }
@@ -2824,6 +2850,7 @@ bool SurvivorsDirector::LoadGame(World& world) {
 
     const JsonValue& directorJson = root["director"];
     m_time = directorJson["time"].AsFloat(0.0f);
+    g_lastSkillDropTime = m_time; // 读档后从当前时间重新计时，避免一进游戏就触发时间保底
     m_kills = directorJson["kills"].AsInt(0);
     m_difficulty = directorJson["difficulty"].AsFloat(m_time / 60.0f);
     m_spawnTimer = (std::max)(0.35f, directorJson["spawnTimer"].AsFloat(0.8f));
@@ -3576,6 +3603,7 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     g_killsSinceSkillDrop = 0;
     g_killsSincePotionDrop = 0;
     g_gameTime = 0.0f;
+    g_lastSkillDropTime = 0.0f;
     LoadSurvivorsSettings();
 
     // 程序化宝石贴图（12x12 菱形）
