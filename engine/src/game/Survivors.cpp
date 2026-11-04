@@ -181,7 +181,7 @@ PickupInfo GetPickupInfo(int type) {
         if (skill >= 0 && skill < kSurvivorsSkillCount) return {kLabels[skill], kColors[skill]};
     }
     switch (static_cast<SurvivorsPickupType>(type)) {
-        case SurvivorsPickupType::ArrowSpread: return {"八向散射", Vec4(1.00f, 0.82f, 0.25f, 1.0f)};
+        case SurvivorsPickupType::ArrowSpread: return {"箭矢散射", Vec4(1.00f, 0.82f, 0.25f, 1.0f)};
         case SurvivorsPickupType::ArrowAttackSpeed: return {"箭矢攻速", Vec4(0.35f, 0.90f, 1.00f, 1.0f)};
         case SurvivorsPickupType::ArrowAttackDamage: return {"箭矢攻击", Vec4(1.00f, 0.40f, 0.35f, 1.0f)};
         case SurvivorsPickupType::ArrowHealthPotion: return {"血瓶", Vec4(1.00f, 0.35f, 0.55f, 1.0f)};
@@ -407,7 +407,8 @@ int PickUpgradePickupType(const SurvivorsPlayerComponent& player) {
     };
     std::vector<WeightedPickup> pool;
     if (player.HasSkill(0) && player.SkillLevel(0) < kSurvivorsMaxSkillLevel) {
-        if (!player.arrowSpread) pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowSpread), 8.0f});
+        if (player.arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel)
+            pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowSpread), 8.0f});
         if (player.arrowSpeedLevel < kSurvivorsMaxArrowSpeedLevel)
             pool.push_back({static_cast<int>(SurvivorsPickupType::ArrowAttackSpeed), 12.0f});
         if (player.arrowDamageLevel < kSurvivorsMaxArrowDamageLevel)
@@ -834,7 +835,7 @@ int SurvivorsPlayerComponent::SelectedSkillCount() const {
 int SurvivorsPlayerComponent::SkillLevel(int skill) const {
     if (!HasSkill(skill)) return 0;
     switch (skill) {
-        case 0: return 1 + arrowSpeedLevel + arrowDamageLevel + arrowRangeLevel + (arrowSpread ? 1 : 0);
+        case 0: return 1 + arrowSpeedLevel + arrowDamageLevel + arrowRangeLevel + arrowSpreadLevel;
         case 1: return lightningLevel;
         case 2: return bladeLevel;
         case 3: return frostLevel;
@@ -851,7 +852,8 @@ int SurvivorsPlayerComponent::SkillLevel(int skill) const {
 bool SurvivorsPlayerComponent::SkillMaxed(int skill) const {
     if (!HasSkill(skill)) return true;
     if (skill == 0) {
-        return arrowSpread && arrowSpeedLevel >= kSurvivorsMaxArrowSpeedLevel &&
+        return arrowSpreadLevel >= kSurvivorsMaxArrowSpreadLevel &&
+               arrowSpeedLevel >= kSurvivorsMaxArrowSpeedLevel &&
                arrowDamageLevel >= kSurvivorsMaxArrowDamageLevel &&
                arrowRangeLevel >= kSurvivorsMaxArrowRangeLevel;
     }
@@ -865,7 +867,7 @@ bool SurvivorsPlayerComponent::UnlockSkill(int skill) {
 
     loadoutMask |= (1 << skill);
     switch (skill) {
-        case 0: arrowSpread = false; break;
+        case 0: arrowSpreadLevel = 0; break;
         case 1: lightningLevel = 1; m_lightningTimer = 0.5f; break;
         case 2: bladeLevel = 1; break;
         case 3: frostLevel = 1; m_frostTimer = 1.0f; break;
@@ -893,6 +895,11 @@ float SurvivorsPlayerComponent::KillAttackSpeedBonus() const {
 float SurvivorsPlayerComponent::ArrowSpeedBonus() const {
     const float scale = m_killIntervalScale * m_dropIntervalScale;
     return scale > 1e-5f ? 1.0f / scale - 1.0f : 0.0f;
+}
+
+int SurvivorsPlayerComponent::ArrowDirections() const {
+    const int level = Clamp(arrowSpreadLevel, 0, kSurvivorsMaxArrowSpreadLevel);
+    return kSurvivorsArrowDirectionCounts[level];
 }
 
 float SurvivorsPlayerComponent::ArrowDamage() const {
@@ -943,8 +950,13 @@ int SurvivorsPlayerComponent::BladeCount() const {
     return level <= 0 ? 0 : (std::min)(8, 2 + (level - 1) / 3);
 }
 float SurvivorsPlayerComponent::BladeRadius() const {
+    // 环绕半径一级就到 2.6，随等级成长；满级大致维持原设计的外圈范围。
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
-    return (2.1f + 0.25f * static_cast<float>((std::max)(0, level - 1))) * buffRangeMultiplier;
+    return level <= 0 ? 0.0f : (2.6f + 0.22f * static_cast<float>(level - 1)) * buffRangeMultiplier;
+}
+float SurvivorsPlayerComponent::BladeSize() const {
+    const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
+    return level <= 0 ? 0.0f : 0.50f + 0.035f * static_cast<float>(level - 1);
 }
 float SurvivorsPlayerComponent::BladeSpeed() const {
     const int level = (std::min)(bladeLevel, kSurvivorsMaxSkillLevel);
@@ -1123,8 +1135,8 @@ std::string SurvivorsPlayerComponent::ApplyBuff(int rarity) {
             const int skill = owned[static_cast<size_t>(Random01() * static_cast<float>(owned.size())) % owned.size()];
             bool applied = false;
             if (skill == 0) {
-                if (!arrowSpread) {
-                    arrowSpread = true;
+                if (arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel) {
+                    ++arrowSpreadLevel;
                     applied = true;
                 } else if (arrowSpeedLevel < kSurvivorsMaxArrowSpeedLevel) {
                     ++arrowSpeedLevel;
@@ -1203,7 +1215,7 @@ void SurvivorsPlayerComponent::ResetCombatStats() {
     invulnerable = 0.0f;
     hitFlash = 0.0f;
     killCount = 0;
-    arrowSpread = false;
+    arrowSpreadLevel = 0;
     arrowSpeedLevel = 0;
     arrowDamageLevel = 0;
     arrowRangeLevel = 0;
@@ -1257,14 +1269,15 @@ void SurvivorsPlayerComponent::ApplyPickup(int type) {
     switch (pickupType) {
         case SurvivorsPickupType::ArrowSpread:
             if (!HasSkill(0)) break;
-            if (!arrowSpread) {
-                arrowSpread = true;
-                ShowPickupToast("获得：八向散射！");
-                PlaySfx("levelup", 0.55f, 1.15f);
+            if (arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel) {
+                ++arrowSpreadLevel;
+                ShowPickupToast("箭矢散射 Lv." + std::to_string(arrowSpreadLevel) + "：" +
+                                std::to_string(ArrowDirections()) + " 方向");
+                PlaySfx("levelup", 0.55f, 1.10f + 0.02f * static_cast<float>(arrowSpreadLevel));
             } else if (arrowDamageLevel < kSurvivorsMaxArrowDamageLevel) {
                 ++arrowDamageLevel;
                 RecomputeAttackDamage();
-                ShowPickupToast("重复散射：箭矢攻击力提升");
+                ShowPickupToast("散射已满级：箭矢攻击力提升");
                 PlaySfx("pickup", 0.50f, 0.90f);
             }
             break;
@@ -1383,9 +1396,10 @@ void SurvivorsPlayerComponent::ApplyLevelUpUpgrade(int skill, int sub) {
         case 0:
             switch (sub) {
                 case 0:
-                    if (!arrowSpread) {
-                        arrowSpread = true;
-                        ShowPickupToast("获得：八向散射！");
+                    if (arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel) {
+                        ++arrowSpreadLevel;
+                        ShowPickupToast("箭矢散射 Lv." + std::to_string(arrowSpreadLevel) + "：" +
+                                        std::to_string(ArrowDirections()) + " 方向");
                     }
                     break;
                 case 1:
@@ -1590,17 +1604,19 @@ void SurvivorsPlayerComponent::FireArrow(const Vec2& origin, const Vec2& directi
 }
 
 void SurvivorsPlayerComponent::FireAtNearestEnemy(const Vec2& origin) {
-    if (arrowSpread) {
-        // 八向散射：不再锁定目标，向 8 个方向各射一箭
-        for (int i = 0; i < 8; ++i) {
-            const float angle = static_cast<float>(i) * kTwoPi / 8.0f;
+    const int directions = ArrowDirections();
+    GameObject* nearest = FindNearestEnemy(origin, ArrowRange());
+    const Vec2 aim = nearest ? SafeDir(Vec2(nearest->Position().x, nearest->Position().y) - origin)
+                             : SafeDir(facing);
+    if (directions > 1) {
+        // 散射：方向数按 2/4/6/8/12 逐级成长；整圈均匀铺开，并让其中一箭对准最近目标。
+        const float baseAngle = std::atan2(aim.y, aim.x);
+        for (int i = 0; i < directions; ++i) {
+            const float angle = baseAngle + static_cast<float>(i) * kTwoPi / static_cast<float>(directions);
             FireArrow(origin, Vec2(std::cos(angle), std::sin(angle)), 0.65f);
         }
     } else {
-        GameObject* nearest = FindNearestEnemy(origin, ArrowRange());
-        const Vec2  direction = nearest ? SafeDir(Vec2(nearest->Position().x, nearest->Position().y) - origin)
-                                        : SafeDir(facing);
-        FireArrow(origin, direction, 1.0f);
+        FireArrow(origin, aim, 1.0f);
     }
     PlaySfx("shoot", 0.28f, 0.90f + Random01() * 0.20f);
 }
@@ -1874,6 +1890,7 @@ void SurvivorsPlayerComponent::UpdateBlades(float dt) {
 
     const Vec2 center(m_owner->Position().x, m_owner->Position().y);
     const int  bladeCount = BladeCount();
+    const float hitRadius = BladeSize() + 0.35f; // 命中范围跟飞剑视觉一起放大
     bool       hitAny = false;
     for (int i = 0; i < bladeCount; ++i) {
         const float angle = m_bladeAngle + static_cast<float>(i) * kTwoPi / static_cast<float>(bladeCount);
@@ -1881,7 +1898,7 @@ void SurvivorsPlayerComponent::UpdateBlades(float dt) {
         for (GameObject* enemy : g_enemies) {
             if (!enemy || !enemy->Active()) continue;
             const Vec2 position(enemy->Position().x, enemy->Position().y);
-            if (Length(position - blade) < 0.65f) {
+            if (Length(position - blade) < hitRadius) {
                 // 冰环联动：被冻结的目标受到回旋刃 1.75 倍伤害。
                 auto* enemyComponent = enemy->GetComponent<SurvivorsEnemyComponent>();
                 const bool frozen = enemyComponent && enemyComponent->slowTimer > 0.0f &&
@@ -2027,8 +2044,10 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
     }
 
     // 朝向按实际移动方向翻转，而不是只看向量左右，绕障碍时也能面向玩家。
-    if (sprite && Length(moved) > 0.001f) {
-        sprite->flipX = moved.x > 0.0f; // 兽人贴图默认朝左
+    // 兽人贴图是面向镜头的正视图（脸略朝画面右侧）：向右走保持原图，向左走才翻转。
+    // 之前条件写反了，向右追击玩家时会翻成背对玩家，看起来像“屁股对人倒着走”。
+    if (sprite && Length(moved) > 0.001f && std::abs(moved.x) > 1e-4f) {
+        sprite->flipX = moved.x < 0.0f;
     }
 }
 
@@ -2672,7 +2691,7 @@ bool SurvivorsDirector::SaveGame(World& world) {
     playerJson.Set("xpNext", player->xpNext);
     playerJson.Set("pendingLevelUps", player->pendingLevelUps);
     playerJson.Set("killCount", player->killCount);
-    playerJson.Set("arrowSpread", player->arrowSpread);
+    playerJson.Set("arrowSpreadLevel", player->arrowSpreadLevel);
     playerJson.Set("arrowSpeedLevel", player->arrowSpeedLevel);
     playerJson.Set("arrowDamageLevel", player->arrowDamageLevel);
     playerJson.Set("arrowRangeLevel", player->arrowRangeLevel);
@@ -2756,7 +2775,12 @@ bool SurvivorsDirector::LoadGame(World& world) {
     player->killCount = playerJson["killCount"].AsInt(player->killCount);
     player->playerClass = m_playerClass;
     player->loadoutMask = NormalizeLoadoutMask(savedMask, baseMask);
-    player->arrowSpread = player->HasSkill(0) && playerJson["arrowSpread"].AsBool(player->arrowSpread);
+    // 旧存档只有布尔 arrowSpread（八向 = 新体系 4 级），读档时换算过来。
+    const int legacySpreadLevel = playerJson["arrowSpread"].AsBool(false) ? 4 : 0;
+    player->arrowSpreadLevel =
+        player->HasSkill(0) ? Clamp(playerJson["arrowSpreadLevel"].AsInt(legacySpreadLevel), 0,
+                                    kSurvivorsMaxArrowSpreadLevel)
+                            : 0;
     player->arrowSpeedLevel = player->HasSkill(0) ? playerJson["arrowSpeedLevel"].AsInt(player->arrowSpeedLevel) : 0;
     player->arrowDamageLevel = player->HasSkill(0) ? playerJson["arrowDamageLevel"].AsInt(player->arrowDamageLevel) : 0;
     player->arrowRangeLevel = player->HasSkill(0) ? playerJson["arrowRangeLevel"].AsInt(player->arrowRangeLevel) : 0;
@@ -2849,8 +2873,8 @@ void SurvivorsDirector::GenerateLevelUpChoices(const SurvivorsPlayerComponent& p
     // 全都满级后补“生命补给”卡，保证三选一永远有内容。
     std::vector<SurvivorsLevelUpChoice> arrowOptions;
     std::vector<SurvivorsLevelUpChoice> skillOptions;
-    if (player.HasSkill(0)) {
-        if (!player.arrowSpread) arrowOptions.push_back({0, 0}); // 八向散射
+    if (player.HasSkill(0) && player.SkillLevel(0) < kSurvivorsMaxSkillLevel) {
+        if (player.arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel) arrowOptions.push_back({0, 0}); // 散射
         if (player.arrowSpeedLevel < kSurvivorsMaxArrowSpeedLevel) arrowOptions.push_back({0, 1});
         if (player.arrowDamageLevel < kSurvivorsMaxArrowDamageLevel) arrowOptions.push_back({0, 2});
         if (player.arrowRangeLevel < kSurvivorsMaxArrowRangeLevel) arrowOptions.push_back({0, 3});
@@ -2977,7 +3001,7 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 player->maxHp = 340.0f;
                 player->hp = 340.0f;
                 player->loadoutMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5);
-                player->arrowSpread = true;
+                player->arrowSpreadLevel = kSurvivorsMaxArrowSpreadLevel;
                 player->arrowSpeedLevel = kSurvivorsMaxArrowSpeedLevel;
                 player->arrowDamageLevel = kSurvivorsMaxArrowDamageLevel;
                 player->arrowRangeLevel = kSurvivorsMaxArrowRangeLevel;
@@ -3010,7 +3034,7 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 player->maxHp = 340.0f;
                 player->hp = 340.0f;
                 player->loadoutMask = (1 << 0) | (1 << 6) | (1 << 7) | (1 << 8) | (1 << 9);
-                player->arrowSpread = true;
+                player->arrowSpreadLevel = kSurvivorsMaxArrowSpreadLevel;
                 player->arrowSpeedLevel = kSurvivorsMaxArrowSpeedLevel;
                 player->arrowDamageLevel = kSurvivorsMaxArrowDamageLevel;
                 player->arrowRangeLevel = kSurvivorsMaxArrowRangeLevel;
@@ -3108,6 +3132,39 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                                PickEnemyType(m_time), EnemyHpScale(m_time), EnemySpeedScale(m_time),
                                EnemyDamageScale(m_time));
                 }
+            }
+        }
+    } else if (screen == "hud-orc") {
+        seed(false);
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->loadoutMask = 0;
+                player->hp = player->maxHp = 500.0f;
+                player->RefreshDerivedStats();
+            }
+        }
+        SpawnEnemy(world, Vec2(-4.2f, 0.0f), 0, 1.0f, 1.0f, 1.0f);
+        SpawnEnemy(world, Vec2(4.2f, 0.0f), 0, 1.0f, 1.0f, 1.0f);
+        SpawnEnemy(world, Vec2(0.0f, 4.2f), 0, 1.0f, 1.0f, 1.0f);
+        SpawnEnemy(world, Vec2(0.0f, -4.2f), 0, 1.0f, 1.0f, 1.0f);
+    } else if (screen.rfind("hud-bow", 0) == 0) {
+        seed(false);
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->loadoutMask = (1 << 0);
+                player->arrowSpreadLevel = Clamp(std::atoi(screen.c_str() + 7), 0, kSurvivorsMaxArrowSpreadLevel);
+                player->arrowSpeedLevel = 1;
+                player->arrowDamageLevel = 1;
+                player->RefreshDerivedStats();
+            }
+        }
+    } else if (screen.rfind("hud-blade", 0) == 0) {
+        seed(false);
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                player->loadoutMask = (1 << 2);
+                player->bladeLevel = Clamp(std::atoi(screen.c_str() + 9), 0, kSurvivorsMaxSkillLevel);
+                player->RefreshDerivedStats();
             }
         }
     } else if (screen == "pause") {
@@ -3229,17 +3286,23 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
         }
 
-        // 回旋刃
+        // 回旋刃：先画一圈环绕轨道，让飞剑的作用范围一眼可见。
         const int bladeCount = playerComponent->BladeCount();
-        for (int i = 0; i < bladeCount; ++i) {
-            const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
-                                                                      static_cast<float>(bladeCount);
-            const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
-            const Vec2 tangent(-std::sin(angle), std::cos(angle));
-            const ImVec2 p0 = project(tip - tangent * 0.32f);
-            const ImVec2 p1 = project(tip + tangent * 0.32f);
-            draw->AddLine(p0, p1, IM_COL32(225, 235, 255, 235), 3.0f);
-            draw->AddCircleFilled(project(tip), 3.0f, IM_COL32(255, 255, 255, 200));
+        if (bladeCount > 0) {
+            const float orbitRadius = playerComponent->BladeRadius() * pixelsPerUnit;
+            draw->AddCircle(centerScreen, orbitRadius, IM_COL32(196, 214, 255, 46), 72, 2.0f);
+            draw->AddCircle(centerScreen, orbitRadius - 2.0f, IM_COL32(196, 214, 255, 22), 72, 2.0f);
+            const float bladeLength = playerComponent->BladeSize();
+            for (int i = 0; i < bladeCount; ++i) {
+                const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
+                                                                          static_cast<float>(bladeCount);
+                const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
+                const Vec2 tangent(-std::sin(angle), std::cos(angle));
+                const ImVec2 p0 = project(tip - tangent * bladeLength);
+                const ImVec2 p1 = project(tip + tangent * bladeLength);
+                draw->AddLine(p0, p1, IM_COL32(225, 235, 255, 235), 4.0f);
+                draw->AddCircleFilled(project(tip), 4.0f, IM_COL32(255, 255, 255, 210));
+            }
         }
     }
 
@@ -3314,8 +3377,9 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
             const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
                                                                       static_cast<float>((std::max)(1, bladeCount));
             const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
-            drawSheet(m_ui.fxArcane, 7, 1, static_cast<int>(m_time * 18.0f + i) % 7, tip, 0.42f, 0.42f,
-                      IM_COL32(220, 235, 255, 165), angle);
+            const float bladeSize = playerComponent->BladeSize() * 1.15f;
+            drawSheet(m_ui.fxArcane, 7, 1, static_cast<int>(m_time * 18.0f + i) % 7, tip, bladeSize, bladeSize,
+                      IM_COL32(220, 235, 255, 165), angle + kPi * 0.5f);
         }
     }
 
@@ -3775,7 +3839,8 @@ void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
     t.Field("attackRange", FieldType::Float, &SurvivorsPlayerComponent::attackRange, "攻击范围", 1.0f, 30.0f);
     t.Field("projectileSpeed", FieldType::Float, &SurvivorsPlayerComponent::projectileSpeed, "箭速", 1.0f, 60.0f);
     t.Field("playerClass", FieldType::Int, &SurvivorsPlayerComponent::playerClass, "职业", 0.0f, 2.0f);
-    t.Field("arrowSpread", FieldType::Bool, &SurvivorsPlayerComponent::arrowSpread, "八向散射");
+    t.Field("arrowSpreadLevel", FieldType::Int, &SurvivorsPlayerComponent::arrowSpreadLevel, "箭矢散射等级",
+            0.0f, static_cast<float>(kSurvivorsMaxArrowSpreadLevel));
     t.Field("arrowSpeedLevel", FieldType::Int, &SurvivorsPlayerComponent::arrowSpeedLevel, "攻速强化", 0.0f, 99.0f);
     t.Field("arrowDamageLevel", FieldType::Int, &SurvivorsPlayerComponent::arrowDamageLevel, "攻击强化", 0.0f, 99.0f);
     t.Field("arrowRangeLevel", FieldType::Int, &SurvivorsPlayerComponent::arrowRangeLevel, "范围强化", 0.0f, 99.0f);

@@ -50,11 +50,14 @@ enum class SurvivorsPickupType : int {
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
 constexpr int kSurvivorsSkillCount = 10;
 constexpr int kSurvivorsMaxLoadout = 5;
-// 技能等级上限 20；箭矢强化合计最多 +19 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 1）。
+// 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
 constexpr int kSurvivorsMaxArrowDamageLevel = 8;
 constexpr int kSurvivorsMaxArrowRangeLevel = 4;
+// 箭矢散射：0 级单发锁定，1..5 级方向数为 2/4/6/8/12，逐级成长而不是一次跳到八向。
+constexpr int kSurvivorsMaxArrowSpreadLevel = 5;
+constexpr int kSurvivorsArrowDirectionCounts[kSurvivorsMaxArrowSpreadLevel + 1] = {1, 2, 4, 6, 8, 12};
 constexpr float kSurvivorsSkillDamageGrowth = 1.22f;
 constexpr int kSurvivorsClassCount = 3;
 
@@ -114,8 +117,8 @@ public:
     // 击杀越多，攻速越快（每击杀 +3%，递减叠加）
     int killCount = 0;
 
-    // 箭矢的掉落强化
-    bool  arrowSpread = false; // 八向散射
+    // 箭矢的掉落强化（散射方向数按 2/4/6/8/12 逐级成长）
+    int   arrowSpreadLevel = 0;
     int   arrowSpeedLevel = 0;
     int   arrowDamageLevel = 0;
     int   arrowRangeLevel = 0;
@@ -176,6 +179,7 @@ public:
     void CompleteLevelUp();
 
     // 当前生效数值（HUD 与投射物共用，避免两处公式不一致）
+    int   ArrowDirections() const; // 当前散射方向数（1 = 单发锁定）
     float ArrowDamage() const;
     float ArrowRange() const;
     float ArrowProjectileLife() const;
@@ -189,7 +193,8 @@ public:
 
     float BladeDamage() const;
     int   BladeCount() const;
-    float BladeRadius() const;
+    float BladeRadius() const; // 飞剑环绕半径（随等级成长）
+    float BladeSize() const;   // 飞剑视觉半长（随等级成长，和命中判定共用）
     float BladeSpeed() const;
 
     float FrostDamage() const;
@@ -371,7 +376,7 @@ public:
 // ---------------------------------------------------------------- 三选一候选
 struct SurvivorsLevelUpChoice {
     int skill = 0; // 0=箭矢 1=雷霆 2=回旋刃 3=霜环 4=毒雾 5=火球
-    int sub = 0;   // 箭矢专用：0=八向散射 1=攻速 2=攻击 3=范围
+    int sub = 0;   // 箭矢专用：0=散射 1=攻速 2=攻击 3=范围
 };
 
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
