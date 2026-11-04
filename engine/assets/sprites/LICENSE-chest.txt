@@ -1,0 +1,10 @@
+2D 幸存者补给箱图标（CC0 / Public Domain）
+
+本目录的 chest_sheet.png 用于 2D 幸存者拾取补给箱后的开箱抽奖动画；
+地图上的宝箱图标取自同目录的 Kenney Tiny Dungeon 图集（第 7 行第 7 列，许可见 LICENSE-kenney-tiny-dungeon.txt）。
+原始素材：Chest - Opening Animation 16x16
+作者：Natural_Privateer
+来源：https://opengameart.org/content/chest-opening-animation-16x16
+许可：CC0 1.0 Universal（https://creativecommons.org/publicdomain/zero/1.0/）
+原始文件：chest_plain_open_anim-sheet.png（32×32，2×2 帧，每帧 16×16）
+处理：原样使用；引擎按 UV 取第 0 帧（关闭）和第 1–3 帧（开启）。

@@ -37,6 +37,14 @@ std::vector<GameObject*> g_enemies; // 敌人注册表（技能/投射物用，�
 std::vector<GameObject*> g_pickups; // 技能强化掉落物（HUD 标签用）
 std::vector<GameObject*> g_buffChests; // 地图抽奖宝箱（小地图/上限用）
 
+// 增益宝箱拾取事件：组件先结算增益并登记效果，导演在本帧稍后冻结世界并接管抽奖动画。
+struct PendingBuffGacha {
+    bool        active = false;
+    int         rarity = 0;
+    std::string effect;
+};
+PendingBuffGacha g_pendingBuffGacha;
+
 bool  g_inputEnabled = true;
 bool  g_autopilot = false; // 仅平衡测试：自动走向宝箱/技能掉落，不读键盘
 int   g_kills = 0;
@@ -2165,13 +2173,9 @@ void SurvivorsBuffComponent::OnUpdate(float dt) {
     if (!world) return;
 
     if (auto* sprite = m_owner->GetComponent<SpriteRendererComponent>()) {
-        const Vec4 rarityColor = rarity >= 2 ? Vec4(1.0f, 0.55f, 1.0f, 1.0f)
-                                : rarity == 1 ? Vec4(1.0f, 0.82f, 0.30f, 1.0f)
-                                              : Vec4(0.70f, 0.92f, 1.0f, 1.0f);
-        const float pulse = 0.82f + 0.18f * std::sin(age * 5.0f);
-        sprite->color = Vec4(rarityColor.x, rarityColor.y, rarityColor.z, pulse);
-        sprite->offset = Vec2(0.0f, std::sin(age * 3.4f) * 0.22f);
-        sprite->rotation = age * 0.9f;
+        // 图标本身保持原色，稀有度由世界空间的彩色光环表达，避免把宝箱整体染成色块。
+        sprite->color = Vec4(1.0f, 1.0f, 1.0f, 0.86f + 0.14f * (0.5f + 0.5f * std::sin(age * 5.0f)));
+        sprite->offset = Vec2(0.0f, std::sin(age * 3.4f) * 0.12f);
     }
 
     if (age >= life) {
@@ -2185,7 +2189,10 @@ void SurvivorsBuffComponent::OnUpdate(float dt) {
     const Vec2  target(player->Position().x, player->Position().y);
     if (Length(target - position) < 1.3f) {
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) {
-            component->ApplyBuff(rarity);
+            // 先结算增益并拿到效果文本，由导演在本帧稍后冻结世界并播放抽奖动画。
+            g_pendingBuffGacha.active = true;
+            g_pendingBuffGacha.rarity = Clamp(rarity, 0, 2);
+            g_pendingBuffGacha.effect = component->ApplyBuff(rarity);
             world->DestroyObject(m_owner);
         }
     }
@@ -2285,6 +2292,32 @@ float WaveInterval(float time) {
 
 } // namespace
 
+// ================================================================ 增益宝箱展示数据
+Vec4 SurvivorsBuffRarityColor(int rarity) {
+    static const Vec4 kColors[3] = {Vec4(0.70f, 0.92f, 1.00f, 1.0f), Vec4(1.00f, 0.82f, 0.30f, 1.0f),
+                                    Vec4(1.00f, 0.55f, 1.00f, 1.0f)};
+    return kColors[Clamp(rarity, 0, 2)];
+}
+
+const char* SurvivorsBuffRarityName(int rarity) {
+    static const char* kNames[3] = {"普通", "稀有", "史诗"};
+    return kNames[Clamp(rarity, 0, 2)];
+}
+
+int SurvivorsBuffIconForEffect(const std::string& effect) {
+    if (effect.find("攻击力") != std::string::npos) return 2; // 回旋刃
+    if (effect.find("攻击速度") != std::string::npos) return 1; // 雷霆
+    if (effect.find("移动速度") != std::string::npos) return 0; // 箭矢
+    if (effect.find("最大生命") != std::string::npos || effect.find("生命恢复") != std::string::npos ||
+        effect.find("技能已满") != std::string::npos) {
+        return -1; // 生命图标
+    }
+    if (effect.find("技能范围") != std::string::npos) return 8;  // 棱镜
+    if (effect.find("全屏雷击") != std::string::npos) return 1;  // 雷霆
+    if (effect.find("随机技能") != std::string::npos) return 1;   // 雷霆
+    return 1;
+}
+
 void SurvivorsDirector::SpawnWave(World& world) {
     const size_t enemyCap = m_time > 540.0f ? 320 : 220;
     if (g_enemies.size() > enemyCap) return; // 上限，避免刷爆
@@ -2323,11 +2356,11 @@ void SurvivorsDirector::SpawnBuffChest(World& world) {
 
     const float roll = Random01();
     const int   rarity = roll < 0.10f ? 2 : (roll < 0.40f ? 1 : 0);
-    GameObject* chest = SpawnSprite(world, "增益宝箱", "pickup_proc", spawn, Vec2(1.35f, 1.35f), 4);
+    // 地图上用 Kenney Tiny Dungeon 的宝箱图标（第 7 行第 7 列），抽奖时再切到开启序列帧。
+    GameObject* chest = SpawnSprite(world, "增益宝箱", "sprites/kenney_tilemap.png", spawn, Vec2(1.15f, 1.15f), 4);
     if (auto* sprite = chest->GetComponent<SpriteRendererComponent>()) {
-        sprite->color = rarity >= 2 ? Vec4(1.0f, 0.55f, 1.0f, 1.0f)
-                        : rarity == 1 ? Vec4(1.0f, 0.82f, 0.30f, 1.0f)
-                                      : Vec4(0.70f, 0.92f, 1.0f, 1.0f);
+        ApplyTileSprite(sprite, 7, 7);
+        sprite->color = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
     }
     if (auto* component = chest->AddComponent<SurvivorsBuffComponent>()) component->rarity = rarity;
     g_buffChests.push_back(chest);
@@ -2370,6 +2403,7 @@ void SurvivorsDirector::Reset(World& world) {
     for (GameObject* chest : buffsToDestroy) {
         if (chest) world.DestroyObject(chest);
     }
+    g_pendingBuffGacha = PendingBuffGacha();
     ClearSkillEffects();
     g_killsSinceDrop = 0;
     g_killsSinceSkillDrop = 0;
@@ -2405,12 +2439,95 @@ void SurvivorsDirector::Reset(World& world) {
     m_confirmExit = false;
     m_toastTimer = 0.0f;
     m_toastText.clear();
+    ClearChestGacha();
     LogInfo("[2D] 开始游戏");
     ShowToast("猎杀开始：击杀怪物拾取强化；Esc 暂停");
 }
 
+// ================================================================ 导演：增益宝箱抽奖
+bool SurvivorsDirector::BeginChestGacha(World& world, int rarity, const std::string& effect) {
+    if (m_state != State::Playing) return false;
+    GameObject* playerObject = FindPlayer(world);
+    auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+    if (!player || player->hp <= 0.0f) return false;
+
+    m_gachaRarity = Clamp(rarity, 0, 2);
+    m_gachaEffect = effect;
+    m_gachaTime = 0.0f;
+    m_gachaPreview = false;
+    m_gachaSkipRequested = false;
+    m_gachaBurstPlayed = false;
+    m_gachaNextTick = 0;
+    m_state = State::Gacha;
+    PlaySfx("levelup", 0.42f, 1.22f);
+    LogInfo("[2D] 开启增益宝箱抽奖：稀有度 %d / 效果 %s", m_gachaRarity, m_gachaEffect.c_str());
+    return true;
+}
+
+void SurvivorsDirector::UpdateChestGacha(World& world, float dt) {
+    if (m_gachaPreview) return;
+    if (m_gachaSkipRequested) {
+        FinishChestGacha(world);
+        return;
+    }
+
+    m_gachaTime += dt;
+
+    static const float kTickTimes[3] = {0.30f, 0.56f, 0.82f};
+    while (m_gachaNextTick < 3 && m_gachaTime >= kTickTimes[m_gachaNextTick]) {
+        PlaySfx("pickup", 0.18f, 0.82f + 0.12f * static_cast<float>(m_gachaNextTick));
+        ++m_gachaNextTick;
+    }
+    if (!m_gachaBurstPlayed && m_gachaTime >= kSurvivorsGachaBurst) {
+        m_gachaBurstPlayed = true;
+        PlaySfx("magic", 0.65f, 0.92f);
+        PlaySfx("levelup", 0.50f, 1.35f);
+    }
+    if (m_gachaTime >= kSurvivorsGachaDuration) FinishChestGacha(world);
+}
+
+void SurvivorsDirector::FinishChestGacha(World& world) {
+    if (m_state != State::Gacha) return;
+    if (!m_gachaPreview) {
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                // 增益已在拾取时结算，抽奖只负责展示；关掉宝箱时给 0.8 秒无敌。
+                player->invulnerable = (std::max)(player->invulnerable, 0.8f);
+            }
+        }
+    }
+    m_state = State::Playing;
+    m_gachaTime = kSurvivorsGachaDuration;
+    m_gachaSkipRequested = false;
+    m_gachaBurstPlayed = false;
+    LogInfo("[2D] 抽奖完成：%s增益 / %s", SurvivorsBuffRarityName(m_gachaRarity), m_gachaEffect.c_str());
+}
+
+void SurvivorsDirector::ClearChestGacha() {
+    g_pendingBuffGacha = PendingBuffGacha();
+    m_gachaTime = 0.0f;
+    m_gachaRarity = 0;
+    m_gachaEffect.clear();
+    m_gachaPreview = false;
+    m_gachaSkipRequested = false;
+    m_gachaBurstPlayed = false;
+    m_gachaNextTick = 0;
+    if (m_state == State::Gacha) m_state = State::Playing;
+}
+
 void SurvivorsDirector::Update(World& world, float dt) {
+    if (m_state == State::Gacha) {
+        UpdateChestGacha(world, dt);
+        return;
+    }
     if (m_state != State::Playing) return;
+
+    // 增益宝箱在本帧世界更新里刚被拾取：立刻进入抽奖，世界从下一帧开始冻结。
+    if (g_pendingBuffGacha.active) {
+        const PendingBuffGacha pending = g_pendingBuffGacha;
+        g_pendingBuffGacha = PendingBuffGacha();
+        if (BeginChestGacha(world, pending.rarity, pending.effect)) return;
+    }
 
     m_time += dt;
     g_gameTime = m_time;
@@ -2500,6 +2617,11 @@ void SurvivorsDirector::TogglePause() {
     if (m_state == State::Prepare || m_state == State::Codex) {
         m_state = State::Menu;
         PlaySfx("click", 0.6f);
+        return;
+    }
+    if (m_state == State::Gacha) {
+        // 翻牌后允许 Esc 快速收起；抖动/光爆阶段不打断，避免误触跳过。
+        if (m_gachaTime >= kSurvivorsGachaReveal) m_gachaSkipRequested = true;
         return;
     }
     if (m_state == State::LevelUp) return; // 必须先完成三选一
@@ -2952,6 +3074,21 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 g_buffChests.push_back(nearChest);
             }
         }
+    } else if (screen == "chest") {
+        seed(false);
+        // 走查截图：固定放一个史诗宝箱，不进入拾取半径，方便和旧版图标做同场景对比。
+        GameObject* chest = SpawnSprite(world, "增益宝箱", "sprites/kenney_tilemap.png", Vec2(2.4f, 0.6f),
+                                        Vec2(1.15f, 1.15f), 4);
+        if (auto* sprite = chest->GetComponent<SpriteRendererComponent>()) ApplyTileSprite(sprite, 7, 7);
+        if (auto* buff = chest->AddComponent<SurvivorsBuffComponent>()) buff->rarity = 2;
+        g_buffChests.push_back(chest);
+    } else if (screen == "gacha" || screen == "gacha-burst") {
+        seed(false);
+        // 走查截图：直接进入抽奖并冻结在翻牌/光爆帧。
+        if (BeginChestGacha(world, 2, "全屏雷击")) {
+            m_gachaPreview = true;
+            m_gachaTime = screen == "gacha-burst" ? kSurvivorsGachaBurst + 0.22f : kSurvivorsGachaReveal + 0.35f;
+        }
     } else if (screen == "poison") {
         seed(false);
         if (GameObject* playerObject = FindPlayer(world)) {
@@ -3132,6 +3269,38 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
                       ToImColor(info.color, 1.0f), info.label);
         draw->AddCircleFilled(project(Vec2(pickup->Position().x, pickup->Position().y)), 7.0f,
                               ToImColor(info.color, 0.28f));
+    }
+
+    // 增益宝箱：图标保持原色，用稀有度光环 + 顶部标签告诉玩家箱子的品质。
+    for (GameObject* chest : g_buffChests) {
+        if (!chest || !chest->Active()) continue;
+        auto* component = chest->GetComponent<SurvivorsBuffComponent>();
+        if (!component) continue;
+        const Vec2   center(chest->Position().x, chest->Position().y);
+        const ImVec2 screen = project(center);
+        const Vec4   rarityColor = SurvivorsBuffRarityColor(component->rarity);
+        const float  pulse = 0.5f + 0.5f * std::sin(m_time * 4.5f + center.x * 1.3f);
+        draw->AddCircleFilled(screen, 30.0f + 5.0f * pulse, ToImColor(rarityColor, 0.10f), 32);
+        draw->AddCircle(screen, 31.0f + 4.0f * pulse, ToImColor(rarityColor, 0.30f + 0.25f * pulse), 32, 1.8f);
+        draw->AddCircle(screen, 42.0f + 7.0f * pulse, ToImColor(rarityColor, 0.12f), 32, 1.2f);
+        for (int i = 0; i < 4; ++i) {
+            const float angle = m_time * 1.2f + static_cast<float>(i) * kPi * 0.5f;
+            const Vec2  spark = center + Vec2(std::cos(angle), std::sin(angle)) * 0.95f;
+            const ImVec2 p = project(spark);
+            draw->AddCircleFilled(p, 2.2f + 1.4f * pulse, ToImColor(rarityColor, 0.85f), 8);
+            draw->AddCircle(p, 4.5f, ToImColor(rarityColor, 0.28f), 8, 1.0f);
+        }
+
+        char label[48];
+        std::snprintf(label, sizeof(label), "%s增益", SurvivorsBuffRarityName(component->rarity));
+        const ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(13.0f, FLT_MAX, 0.0f, label);
+        const ImVec2 textPos = project(Vec2(center.x, center.y + 1.15f));
+        const ImVec2 min(textPos.x - textSize.x * 0.5f - 5.0f, textPos.y - textSize.y - 3.0f);
+        const ImVec2 max(textPos.x + textSize.x * 0.5f + 5.0f, textPos.y + 1.0f);
+        draw->AddRectFilled(min, max, IM_COL32(8, 10, 15, 210), 4.0f);
+        draw->AddRect(min, max, ToImColor(rarityColor, 0.9f), 4.0f);
+        draw->AddText(ImGui::GetFont(), 13.0f, ImVec2(textPos.x - textSize.x * 0.5f, textPos.y - textSize.y),
+                      ToImColor(rarityColor, 1.0f), label);
     }
 
     // 技能特效贴图（线性采样，避免序列帧被拉成硬边）

@@ -42,6 +42,8 @@ struct SurvivorsUIAssets {
     Texture* icon[10]{}; // 箭矢 / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球 / 陨石 / 黑洞 / 棱镜 / 毒爆
     Texture* titleBackground = nullptr;
     Texture* floor = nullptr;
+    Texture* chestSheet = nullptr; // 2×2 宝箱开启序列帧（16×16/帧，OpenGameArt CC0）
+    Texture* chestTiles = nullptr; // Kenney Tiny Dungeon 图集：地图上的宝箱图标（第 7 行第 7 列）
 
     // 技能特效贴图（CC0，见 engine/assets/vfx/LICENSE-VFX.txt）
     Texture* fxArcane = nullptr;     // 雷霆命中
