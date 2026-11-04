@@ -495,6 +495,8 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
             if (tex->Status != ImTextureStatus_OK)
                 ImGui_ImplOpenGL3_UpdateTexture(tex);
 
+    // WebGL/WeChat iOS: glGetIntegerv/glIsEnabled state queries are unsupported and spam GL_INVALID_ENUM.
+#ifndef ERMAO_WEB
     // Backup GL state
     GLenum last_active_texture; glGetIntegerv(GL_ACTIVE_TEXTURE, (GLint*)&last_active_texture);
     glActiveTexture(GL_TEXTURE0);
@@ -534,6 +536,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
     GLboolean last_enable_primitive_restart = (!bd->GlProfileIsES3 && bd->GlVersion >= 310) ? glIsEnabled(GL_PRIMITIVE_RESTART) : GL_FALSE;
 #endif
 
+#endif // ERMAO_WEB
     // Support for GL 4.5 rarely used glClipControl(GL_UPPER_LEFT)
     bd->ClipOriginCurrent = bd->ClipOriginRequest;
     if (bd->ClipOriginCurrent == 0)
@@ -647,6 +650,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
     GL_CALL(glDeleteVertexArrays(1, &vertex_array_object));
 #endif
 
+#ifndef ERMAO_WEB
     // Restore modified GL state
     // This "glIsProgram()" check is required because if the program is "pending deletion" at the time of binding backup, it will have been deleted by now and will cause an OpenGL error. See #6220.
     if (last_program == 0 || glIsProgram(last_program)) glUseProgram(last_program);
@@ -684,6 +688,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
 
     glViewport(last_viewport[0], last_viewport[1], (GLsizei)last_viewport[2], (GLsizei)last_viewport[3]);
     glScissor(last_scissor_box[0], last_scissor_box[1], (GLsizei)last_scissor_box[2], (GLsizei)last_scissor_box[3]);
+#endif // ERMAO_WEB
     (void)bd; // Not all compilation paths use this
 }
 
@@ -722,8 +727,12 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
         GLuint gl_texture_id = 0;
 
         // Upload texture to graphics system (bilinear sampling is required).
+#ifdef ERMAO_WEB
+        GLint last_texture = 0;
+#else
         GLint last_texture;
         GL_CALL(glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture));
+#endif
         GL_CALL(glGenTextures(1, &gl_texture_id));
         GL_CALL(glBindTexture(GL_TEXTURE_2D, gl_texture_id));
         GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -746,8 +755,12 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
     {
         // Update selected blocks. We only ever write to textures regions which have never been used before!
         // This backend choose to use tex->Updates[] but you can use tex->UpdateRect to upload a single region.
+#ifdef ERMAO_WEB
+        GLint last_texture = 0;
+#else
         GLint last_texture;
         GL_CALL(glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture));
+#endif
 
         GLuint gl_tex_id = (GLuint)(intptr_t)tex->TexID;
         GL_CALL(glBindTexture(GL_TEXTURE_2D, gl_tex_id));
@@ -829,6 +842,13 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
 
     // Backup GL state
+#ifdef ERMAO_WEB
+    // WeChat iOS GL wrapper does not implement these queries; use clean defaults.
+    GLint last_texture = 0, last_array_buffer = 0;
+#ifdef IMGUI_IMPL_OPENGL_USE_VERTEX_ARRAY
+    GLint last_vertex_array = 0;
+#endif
+#else
     GLint last_texture, last_array_buffer;
     glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &last_array_buffer);
@@ -840,6 +860,7 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     GLint last_vertex_array;
     glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
 #endif
+#endif // ERMAO_WEB
 
     // Parse GLSL version string
     int glsl_version = 130;

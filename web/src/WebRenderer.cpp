@@ -106,6 +106,8 @@ bool WebRenderer::CompileProgram() {
 
 void WebRenderer::Render(const RenderScene& scene, u32 width, u32 height) {
     glViewport(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    // ImGui 在 WebGL 下不再恢复 GL scissor 状态（iOS 不支持状态查询），这里显式清掉。
+    glDisable(GL_SCISSOR_TEST);
     glClearColor(0.055f, 0.06f, 0.07f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 
