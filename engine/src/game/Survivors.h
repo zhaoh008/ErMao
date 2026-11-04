@@ -276,6 +276,15 @@ public:
     void  OnDestroy() override;
 };
 
+// 抽奖动画时间线：拾取增益宝箱后先冻结世界，抖动→光爆→翻牌，播完再继续。
+constexpr float kSurvivorsGachaBurst = 1.05f;
+constexpr float kSurvivorsGachaReveal = 1.32f;
+constexpr float kSurvivorsGachaDuration = 3.00f;
+
+Vec4        SurvivorsBuffRarityColor(int rarity);
+const char* SurvivorsBuffRarityName(int rarity);
+int         SurvivorsBuffIconForEffect(const std::string& effect); // 返回 m_ui.icon 下标；-1 表示生命图标
+
 // ---------------------------------------------------------------- 小地图快照
 struct SurvivorsMinimapMarker {
     Vec2 position;
@@ -368,7 +377,7 @@ struct SurvivorsLevelUpChoice {
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
-    enum class State { Menu, Prepare, Playing, Paused, LevelUp, GameOver, Codex };
+    enum class State { Menu, Prepare, Playing, Paused, LevelUp, Gacha, GameOver, Codex };
 
     void Reset(World& world);
     void Update(World& world, float dt);
@@ -384,6 +393,7 @@ public:
         m_selectedSkill = -1;
         m_pauseNotice.clear();
         m_confirmExit = false;
+        ClearChestGacha();
     }
     void  TogglePause();
     bool  WantsQuit() const { return m_wantsQuit; }
@@ -400,7 +410,7 @@ public:
 
     // UI 切图/字体在关卡构建完成后注入（资源管理器此时已有 floor_big 等程序化贴图）
     void InitializeUI(AssetManager& assets, ImFont* body, ImFont* large, ImFont* display);
-    // 截图/走查用：--ui-preview <menu|prepare|hud|levelup|pause|settings|result|codex>
+    // 截图/走查用：--ui-preview <menu|prepare|hud|buff|chest|gacha|gacha-burst|levelup|pause|settings|result|codex>
     void ApplyPreviewState(World& world, const std::string& screen);
 
     // 设置面板数据（模型层只暴露快照，避免把文件读写细节带进 UI）
@@ -419,12 +429,19 @@ private:
     void EnsureMusic();
     void ApplyAudioSettings();
 
+    // 增益宝箱抽奖：拾取后冻结世界，播完动画再继续
+    bool BeginChestGacha(World& world, int rarity, const std::string& effect);
+    void UpdateChestGacha(World& world, float dt);
+    void FinishChestGacha(World& world);
+    void ClearChestGacha();
+
     // UI 各页（实现见 SurvivorsUI.cpp）
     void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawGachaScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawSettingsScreen(float vx, float vy, float vw, float vh);
     void DrawResultScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawCodexScreen(float vx, float vy, float vw, float vh);
@@ -458,6 +475,15 @@ private:
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;
+
+    // 增益宝箱抽奖状态（抽奖期间 m_time / 世界更新都冻结，只有这里的时间在走）
+    float       m_gachaTime = 0.0f;
+    int         m_gachaRarity = 0;
+    std::string m_gachaEffect;
+    bool        m_gachaPreview = false; // 截图走查：冻结在指定时间，不自动结算
+    bool        m_gachaSkipRequested = false;
+    bool        m_gachaBurstPlayed = false;
+    int         m_gachaNextTick = 0;
 };
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件

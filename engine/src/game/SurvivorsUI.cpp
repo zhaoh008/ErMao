@@ -587,6 +587,75 @@ bool DrawSlider(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, 
     return changed;
 }
 
+// ---------------------------------------------------------------- 抽奖动画工具
+ImU32 ToImColor(const Vec4& color, float alphaScale = 1.0f) {
+    const int r = static_cast<int>(Clamp01(color.x) * 255.0f);
+    const int g = static_cast<int>(Clamp01(color.y) * 255.0f);
+    const int b = static_cast<int>(Clamp01(color.z) * 255.0f);
+    const int a = static_cast<int>(Clamp01(color.w * alphaScale) * 255.0f);
+    return IM_COL32(r, g, b, a);
+}
+
+ImU32 ToImColorFromU32(ImU32 color, float alphaScale) {
+    const int a = static_cast<int>(((color >> IM_COL32_A_SHIFT) & 0xFF) * Clamp01(alphaScale));
+    return (color & ~IM_COL32_A_MASK) | (static_cast<ImU32>(a) << IM_COL32_A_SHIFT);
+}
+
+float Hash01(int n) {
+    float x = std::sin(static_cast<float>(n) * 12.9898f + 78.233f) * 43758.5453f;
+    return x - std::floor(x);
+}
+
+float EaseOutCubic(float t) {
+    t = Clamp01(t);
+    return 1.0f - std::pow(1.0f - t, 3.0f);
+}
+
+float EaseOutBack(float t) {
+    t = Clamp01(t);
+    const float c1 = 1.70158f;
+    const float c3 = c1 + 1.0f;
+    return 1.0f + c3 * std::pow(t - 1.0f, 3.0f) + c1 * std::pow(t - 1.0f, 2.0f);
+}
+
+// 以中心为原点、可旋转地画一张精灵表里的单帧（用于宝箱开启序列帧）。
+void DrawSheetFrameRotated(ImDrawList* draw, const Canvas& c, Texture* texture, int columns, int rows, int frame,
+                           float cx, float cy, float width, float height, ImU32 tint, float rotation) {
+    if (!texture || columns <= 0 || rows <= 0) return;
+    frame = Clamp(frame, 0, columns * rows - 1);
+    const float u0 = static_cast<float>(frame % columns) / static_cast<float>(columns);
+    const float v0 = static_cast<float>(frame / columns) / static_cast<float>(rows);
+    const float u1 = u0 + 1.0f / static_cast<float>(columns);
+    const float v1 = v0 + 1.0f / static_cast<float>(rows);
+    const float cosR = std::cos(rotation);
+    const float sinR = std::sin(rotation);
+    const Vec2  right(cosR * width * 0.5f, sinR * width * 0.5f);
+    const Vec2  up(-sinR * height * 0.5f, cosR * height * 0.5f);
+    const ImVec2 p0 = c.P(cx - right.x - up.x, cy - right.y - up.y);
+    const ImVec2 p1 = c.P(cx + right.x - up.x, cy + right.y - up.y);
+    const ImVec2 p2 = c.P(cx + right.x + up.x, cy + right.y + up.y);
+    const ImVec2 p3 = c.P(cx - right.x + up.x, cy - right.y + up.y);
+    SetSamplerNearest(draw);
+    draw->AddImageQuad(TexId(texture), p0, p1, p2, p3, ImVec2(u0, v0), ImVec2(u1, v0), ImVec2(u1, v1),
+                       ImVec2(u0, v1), tint);
+    SetSamplerLinear(draw);
+}
+
+// 爆炸序列帧（8×8，前 40 帧是火球爆炸主体）。
+void DrawExplosionFrame(ImDrawList* draw, const Canvas& c, Texture* texture, int frame, float cx, float cy,
+                        float size, ImU32 tint) {
+    if (!texture) return;
+    constexpr int columns = 8;
+    constexpr int rows = 8;
+    frame = Clamp(frame, 0, columns * rows - 1);
+    const float u0 = static_cast<float>(frame % columns) / static_cast<float>(columns);
+    const float v0 = static_cast<float>(frame / columns) / static_cast<float>(rows);
+    const ImVec2 p0 = c.P(cx - size * 0.5f, cy - size * 0.5f);
+    const ImVec2 p1 = c.P(cx + size * 0.5f, cy + size * 0.5f);
+    SetSamplerLinear(draw);
+    draw->AddImage(TexId(texture), p0, p1, ImVec2(u0, v0), ImVec2(u0 + 1.0f / columns, v0 + 1.0f / rows), tint);
+}
+
 } // namespace
 
 // ================================================================ 资源加载
@@ -619,6 +688,9 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
 
     // 关卡里程序化生成的地面，用于出战准备的地图卡片
     floor = assets.GetTexture("floor_big");
+    // 增益宝箱图标/开箱序列帧（均为 CC0；图标取自 Kenney Tiny Dungeon，开箱帧来自 OpenGameArt）
+    chestSheet = assets.GetTextureAsset("sprites/chest_sheet.png");
+    chestTiles = assets.GetTextureAsset("sprites/kenney_tilemap.png");
 
     // 技能特效：CC0 序列帧/精灵表（下载来源见 engine/assets/vfx/LICENSE-VFX.txt）
     fxArcane = assets.GetTextureAsset("vfx/arcane_strip.png");
@@ -628,7 +700,7 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
     fxPoison = assets.GetTextureAsset("vfx/poison_mist.png");
 
     const bool ok = panel && slot && buttonNormal && buttonPrimary && barTrack && barHealthFill && barXpFill &&
-                    titleBackground && body;
+                    titleBackground && chestSheet && chestTiles && body;
     if (!ok) LogWarn("[2D] UI 部分切图/字体缺失，界面会退回纯色绘制");
     return ok;
 }
@@ -686,6 +758,11 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
                 DrawLevelUpScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
                 break;
             }
+            case State::Gacha: {
+                DrawHudScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight, false);
+                DrawGachaScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
+                break;
+            }
             case State::GameOver:
                 DrawResultScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
                 break;
@@ -711,7 +788,7 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
             if (player->pickupToastTimer > 0.0f) toast = player->pickupToast;
         }
     }
-    if (!toast.empty() && m_state != State::LevelUp) {
+    if (!toast.empty() && m_state != State::LevelUp && m_state != State::Gacha) {
         const float timer = m_toastTimer > 0.0f ? m_toastTimer : 2.0f;
         DrawToast(viewportX, viewportY, viewportWidth, viewportHeight, toast, timer);
     }
@@ -1099,6 +1176,258 @@ void SurvivorsDirector::DrawPauseScreen(World& world, float vx, float vy, float 
     }
     DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted,
                      "Esc 继续战斗 · 暂停时玩法与计时冻结");
+}
+
+// ================================================================ 增益宝箱抽奖
+void SurvivorsDirector::DrawGachaScreen(World& world, float vx, float vy, float vw, float vh) {
+    (void)world;
+    Canvas      c = MakeCanvas(vx, vy, vw, vh);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+
+    const float t = m_gachaTime;
+    const float burst = kSurvivorsGachaBurst;
+    const float reveal = kSurvivorsGachaReveal;
+    const int   rarity = Clamp(m_gachaRarity, 0, 2);
+    const Vec4  rarityColor = SurvivorsBuffRarityColor(rarity);
+    const ImU32 rarityU32 = ToImColor(rarityColor, 1.0f);
+    const int   buffIcon = SurvivorsBuffIconForEffect(m_gachaEffect);
+    Texture*    iconTexture = buffIcon >= 0 ? m_ui.icon[buffIcon] : m_ui.iconHealth;
+
+    const float cx = c.w * 0.5f;
+    const float cy = c.h * 0.50f;
+    const float fade = Clamp01(t / 0.28f);
+
+    // 背景压暗 + 上下渐变，把注意力集中到中央。
+    draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(7, 5, 12, static_cast<int>(225.0f * fade)));
+    draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h * 0.30f), IM_COL32(4, 3, 8, 150),
+                                  IM_COL32(4, 3, 8, 150), IM_COL32(4, 3, 8, 0), IM_COL32(4, 3, 8, 0));
+    draw->AddRectFilledMultiColor(c.P(0, c.h * 0.70f), c.P(c.w, c.h), IM_COL32(4, 3, 8, 0),
+                                  IM_COL32(4, 3, 8, 0), IM_COL32(4, 3, 8, 150), IM_COL32(4, 3, 8, 150));
+
+    // 中央光晕：层层同心圆做出柔光。
+    const float glow = 0.35f + 0.65f * Clamp01(t / 0.85f);
+    for (int i = 12; i >= 1; --i) {
+        const float radius = 58.0f + static_cast<float>(i) * 24.0f;
+        const float alpha = glow * (0.020f + 0.018f * (1.0f - static_cast<float>(i) / 12.0f));
+        draw->AddCircleFilled(c.P(cx, cy), c.V(radius), ToImColor(rarityColor, alpha), 48);
+    }
+
+    // 旋转光束：抖动阶段逐渐变长，光爆后更亮。
+    if (t > 0.16f) {
+        const float rayGrow = Clamp01((t - 0.16f) / 0.70f);
+        const float rayAlpha = (0.10f + 0.12f * rayGrow) * (t > reveal ? 0.65f : 1.0f);
+        const float rayRot = t * (t > burst ? 0.85f : 0.55f);
+        constexpr int rayCount = 24;
+        for (int i = 0; i < rayCount; ++i) {
+            const float angle = rayRot + static_cast<float>(i) * kTwoPi / static_cast<float>(rayCount);
+            const float length = (150.0f + 150.0f * rayGrow) * (0.75f + 0.5f * Hash01(i + 3));
+            const float width = 0.020f + 0.035f * Hash01(i + 17);
+            const ImVec2 p0 = c.P(cx + std::cos(angle) * 48.0f, cy + std::sin(angle) * 48.0f);
+            const ImVec2 p1 = c.P(cx + std::cos(angle - width) * length, cy + std::sin(angle - width) * length);
+            const ImVec2 p2 = c.P(cx + std::cos(angle + width) * length, cy + std::sin(angle + width) * length);
+            draw->AddTriangleFilled(p0, p1, p2, ToImColor(rarityColor, rayAlpha));
+        }
+    }
+
+    // 漂浮粒子：开箱前围绕宝箱，光爆后向外飞散并淡出。
+    const float burstProgress = (std::max)(0.0f, t - burst);
+    for (int i = 0; i < 38; ++i) {
+        const float phase = Hash01(i * 7 + 1) * kTwoPi;
+        const float speed = 0.7f + 1.5f * Hash01(i * 5 + 9);
+        float radius = 0.0f;
+        float alpha = 0.0f;
+        if (t < burst) {
+            radius = 95.0f + 120.0f * Hash01(i + 23);
+            alpha = 0.25f + 0.55f * Hash01(i + 41);
+        } else {
+            const float spread = Clamp01(burstProgress / 1.1f);
+            radius = 110.0f + spread * (240.0f + 180.0f * Hash01(i + 23));
+            alpha = (1.0f - spread) * (0.45f + 0.55f * Hash01(i + 41));
+        }
+        const float angle = phase + t * speed * (t < burst ? 1.1f : 2.0f);
+        const float px = cx + std::cos(angle) * radius;
+        const float py = cy + std::sin(angle) * radius * 0.72f;
+        const float size = 1.0f + 3.2f * Hash01(i + 61);
+        const ImU32 color = (i % 3 == 0) ? kGoldBright : rarityU32;
+        draw->AddCircleFilled(c.P(px, py), c.V(size), ToImColorFromU32(color, alpha), 8);
+        if (i % 5 == 0) {
+            draw->AddLine(c.P(px - size * 3.0f, py), c.P(px + size * 3.0f, py), ToImColorFromU32(color, alpha * 0.8f),
+                          1.0f);
+            draw->AddLine(c.P(px, py - size * 3.0f), c.P(px, py + size * 3.0f), ToImColorFromU32(color, alpha * 0.8f),
+                          1.0f);
+        }
+    }
+
+    // 光爆震屏（只作用于宝箱和爆炸，不晃卡片）。
+    float shakeX = 0.0f;
+    float shakeY = 0.0f;
+    if (t > burst) {
+        const float decay = (std::max)(0.0f, 0.30f - (t - burst)) / 0.30f;
+        const float amp = 26.0f * decay;
+        shakeX = std::sin(t * 137.0f) * amp;
+        shakeY = std::cos(t * 113.0f) * amp;
+    }
+    const float chestX = cx + shakeX;
+    const float chestY = cy + shakeY;
+
+    // 宝箱：先关闭 + 抖动，然后在 burst 时刻逐帧打开。
+    if (t < burst) {
+        const float enter = Clamp01(t / 0.38f);
+        const float chestScale = 0.70f + 0.30f * EaseOutBack(enter);
+        const float charge = Clamp01((t - 0.34f) / (burst - 0.34f));
+        const float tilt = std::sin(t * 31.0f) * 0.05f * charge;
+        draw->AddCircle(c.P(chestX, chestY), c.V(105.0f + 22.0f * charge),
+                        ToImColor(rarityColor, 0.20f + 0.18f * charge), 48, c.V(2.0f));
+        draw->AddCircle(c.P(chestX, chestY), c.V(142.0f + 30.0f * charge),
+                        ToImColor(rarityColor, 0.08f + 0.10f * charge), 48, c.V(1.2f));
+        DrawSheetFrameRotated(draw, c, m_ui.chestTiles, 12, 11, 7 * 12 + 7, chestX, chestY, 190.0f * chestScale,
+                              190.0f * chestScale, IM_COL32_WHITE, tilt);
+    } else {
+        const float openTime = t - burst;
+
+        // 光爆闪光放在宝箱下面，用多层低透明同心圆而不是一块实心圆，避免盖住宝箱和爆炸。
+        if (openTime < 0.30f) {
+            const float flash = 1.0f - openTime / 0.30f;
+            for (int i = 6; i >= 1; --i) {
+                const float radius = (90.0f + static_cast<float>(i) * 38.0f) * (0.75f + 0.25f * (1.0f - flash));
+                draw->AddCircleFilled(c.P(cx, cy), c.V(radius),
+                                      IM_COL32(255, 238, 205, static_cast<int>(16.0f * flash)), 48);
+            }
+            draw->AddCircle(c.P(cx, cy), c.V(70.0f + 160.0f * (1.0f - flash)),
+                            IM_COL32(255, 246, 220, static_cast<int>(110.0f * flash)), 48, c.V(3.0f));
+        }
+
+        // 金色冲击波：两圈错开的扩散光环。
+        if (openTime < 0.55f) {
+            for (int ring = 0; ring < 2; ++ring) {
+                const float delay = static_cast<float>(ring) * 0.10f;
+                if (openTime < delay) continue;
+                const float ringT = Clamp01((openTime - delay) / 0.48f);
+                const float radius = 96.0f + 235.0f * EaseOutCubic(ringT);
+                const int   alpha = static_cast<int>(210.0f * (1.0f - ringT));
+                draw->AddCircle(c.P(chestX, chestY), c.V(radius), ToImColor(rarityColor, alpha / 255.0f), 64,
+                                c.V(4.0f * (1.0f - ringT) + 1.0f));
+                draw->AddCircle(c.P(chestX, chestY), c.V(radius * 0.91f), IM_COL32(255, 245, 220, alpha / 3), 64,
+                                c.V(1.5f));
+            }
+        }
+
+        // 小幅火焰残影垫在宝箱后面，避免大块烟雾糊住画面。
+        const float explosionT = Clamp01(openTime / 0.50f);
+        const int   explosionFrame = 8 + static_cast<int>(explosionT * 31.0f);
+        DrawExplosionFrame(draw, c, m_ui.fxExplosion, explosionFrame, chestX, chestY, 250.0f + 70.0f * explosionT,
+                           IM_COL32(255, 196, 120, static_cast<int>(190.0f * (1.0f - 0.55f * explosionT))));
+
+        const int   frame = openTime < 0.07f ? 1 : (openTime < 0.14f ? 2 : 3);
+        const float openAlpha = 1.0f - 0.72f * Clamp01((openTime - 0.30f) / 0.90f);
+        DrawSheetFrameRotated(draw, c, m_ui.chestSheet, 2, 2, frame, chestX, chestY, 205.0f, 205.0f,
+                              ToImColor(Vec4(1, 1, 1, 1), openAlpha), 0.0f);
+    }
+
+    // 顶部标题：开箱期间提示，翻牌后让位给卡面。
+    if (t < reveal) {
+        DrawTextCentered(draw, m_ui, c, 30.0f, cx, cy - 245.0f, kGoldBright, "增益宝箱开启");
+        char subtitle[64];
+        std::snprintf(subtitle, sizeof(subtitle), "%s增益 · 正在抽取", SurvivorsBuffRarityName(rarity));
+        DrawTextCentered(draw, m_ui, c, 15.0f, cx, cy - 198.0f, ToImColor(rarityColor, 1.0f), subtitle);
+    }
+
+    // 翻牌：奖励卡从 0.7 倍弹到 1 倍，带稀有度光边与图标。
+    if (t >= reveal) {
+        const float p = Clamp01((t - reveal) / 0.34f);
+        float       scale = EaseOutBack(p);
+        scale = (std::max)(0.05f, scale);
+
+        constexpr float baseW = 600.0f;
+        constexpr float baseH = 344.0f;
+        const float     baseX = cx - baseW * 0.5f;
+        const float     baseY = cy - baseH * 0.5f;
+        auto PX = [&](float x) { return cx + (x - cx) * scale; };
+        auto PY = [&](float y) { return cy + (y - cy) * scale; };
+        auto TS = [&](float v) { return v * scale; };
+
+        const ImVec2 cardMin = c.P(PX(baseX), PY(baseY));
+        const ImVec2 cardMax = c.P(PX(baseX + baseW), PY(baseY + baseH));
+
+        draw->AddRectFilled(c.P(PX(baseX) - 8.0f, PY(baseY) - 8.0f),
+                            c.P(PX(baseX + baseW) + 8.0f, PY(baseY + baseH) + 8.0f), ToImColor(rarityColor, 0.18f),
+                            c.V(14.0f));
+        draw->AddRectFilled(cardMin, cardMax, IM_COL32(27, 21, 33, 248), c.V(10.0f * scale));
+        draw->AddRectFilledMultiColor(cardMin, cardMax, ToImColor(rarityColor, 0.20f), ToImColor(rarityColor, 0.10f),
+                                      IM_COL32(10, 8, 15, 0), IM_COL32(10, 8, 15, 0));
+        draw->AddRect(cardMin, cardMax, rarityU32, c.V(10.0f * scale), 0, c.V(2.2f * scale));
+
+        // 四角装饰线
+        const float corner = TS(22.0f);
+        const float inset = TS(10.0f);
+        const ImU32 cornerColor = ToImColor(rarityColor, 0.85f);
+        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY) + inset), c.P(PX(baseX) + inset + corner, PY(baseY) + inset),
+                      cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY) + inset), c.P(PX(baseX) + inset, PY(baseY) + inset + corner),
+                      cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY) + inset),
+                      c.P(PX(baseX + baseW) - inset - corner, PY(baseY) + inset), cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY) + inset),
+                      c.P(PX(baseX + baseW) - inset, PY(baseY) + inset + corner), cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY + baseH) - inset),
+                      c.P(PX(baseX) + inset + corner, PY(baseY + baseH) - inset), cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX) + inset, PY(baseY + baseH) - inset),
+                      c.P(PX(baseX) + inset, PY(baseY + baseH) - inset - corner), cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset),
+                      c.P(PX(baseX + baseW) - inset - corner, PY(baseY + baseH) - inset), cornerColor, c.V(2.0f));
+        draw->AddLine(c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset),
+                      c.P(PX(baseX + baseW) - inset, PY(baseY + baseH) - inset - corner), cornerColor, c.V(2.0f));
+
+        char tag[64];
+        std::snprintf(tag, sizeof(tag), "%s增益", SurvivorsBuffRarityName(rarity));
+        DrawTextCentered(draw, m_ui, c, TS(15.0f), cx, PY(baseY + 16.0f), rarityU32, tag);
+
+        // 图标框
+        const float iconBox = 118.0f;
+        const float iconX = baseX + 30.0f;
+        const float iconY = baseY + 58.0f;
+        const ImVec2 iconMin = c.P(PX(iconX), PY(iconY));
+        const ImVec2 iconMax = c.P(PX(iconX + iconBox), PY(iconY + iconBox));
+        draw->AddRectFilled(iconMin, iconMax, ToImColor(rarityColor, 0.14f), c.V(8.0f * scale));
+        draw->AddRect(iconMin, iconMax, ToImColor(rarityColor, 0.85f), c.V(8.0f * scale), 0, c.V(1.5f));
+        if (iconTexture) {
+            DrawImage(draw, c, iconTexture, PX(iconX + 11.0f), PY(iconY + 11.0f), TS(iconBox - 22.0f),
+                      TS(iconBox - 22.0f));
+        }
+
+        // 文案
+        DrawText(draw, m_ui, c, TS(32.0f), PX(baseX + 176.0f), PY(baseY + 56.0f), kText, "宝箱增益");
+        DrawWrapped(draw, m_ui, c, TS(15.0f), PX(baseX + 176.0f), PY(baseY + 102.0f), TS(baseW - 208.0f), kTextDim,
+                    "来自地图增益宝箱的随机效果，已在本局生效。", 1.4f);
+        draw->AddLine(c.P(PX(baseX + 176.0f), PY(baseY + 156.0f)),
+                      c.P(PX(baseX + baseW - 30.0f), PY(baseY + 156.0f)), kRule, c.V(1.2f));
+        DrawText(draw, m_ui, c, TS(13.0f), PX(baseX + 176.0f), PY(baseY + 172.0f), kTextMuted, "获得效果");
+        DrawText(draw, m_ui, c, TS(21.0f), PX(baseX + 176.0f), PY(baseY + 194.0f), kGoldBright,
+                 m_gachaEffect.c_str());
+
+        // 稀有度三星：当前品质点亮。
+        for (int i = 0; i < 3; ++i) {
+            const ImVec2 center = c.P(PX(baseX + baseW - 42.0f - static_cast<float>(i) * 22.0f), PY(baseY + 26.0f));
+            const float  r = c.V(5.0f * scale);
+            const ImU32  color = i < rarity + 1 ? rarityU32 : IM_COL32(80, 70, 88, 150);
+            draw->AddQuadFilled(ImVec2(center.x, center.y - r), ImVec2(center.x + r, center.y),
+                                ImVec2(center.x, center.y + r), ImVec2(center.x - r, center.y), color);
+        }
+
+        // 收取提示放在卡片底部，避免和身后的宝箱/爆炸叠在一起。
+        draw->AddLine(c.P(PX(baseX + 30.0f), PY(baseY + baseH - 58.0f)),
+                      c.P(PX(baseX + baseW - 30.0f), PY(baseY + baseH - 58.0f)), kRule, c.V(1.2f));
+        const float hintAlpha = 0.55f + 0.45f * (0.5f + 0.5f * std::sin((t - reveal) * 5.0f));
+        DrawTextCentered(draw, m_ui, c, TS(15.0f), cx, PY(baseY + baseH - 38.0f), ToImColor(rarityColor, hintAlpha),
+                         "点击 / 空格 收取 · 等待自动关闭");
+    }
+
+    // 点击或空格跳过（只允许在翻牌后）。
+    if (!m_gachaPreview && t >= reveal &&
+        (ImGui::IsMouseClicked(ImGuiMouseButton_Left) || ImGui::IsKeyPressed(ImGuiKey_Space, false) ||
+         ImGui::IsKeyPressed(ImGuiKey_Enter, false))) {
+        m_gachaSkipRequested = true;
+    }
 }
 
 // ================================================================ 设置
