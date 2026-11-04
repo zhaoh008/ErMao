@@ -13,59 +13,70 @@ MARKER = "/* ERMAO_WECHAT_LOG */"
 LOGGER = r"""
 /* ERMAO_WECHAT_LOG */
 (function () {
-  var rt = null;
   try {
-    if (typeof wx !== 'undefined' && wx.getRealtimeLogManager) {
-      rt = wx.getRealtimeLogManager();
-      try { rt.setFilterMsg('ermao'); } catch (e) {}
-      try { rt.addFilterMsg('wechat'); } catch (e) {}
-    }
-  } catch (e) {}
-  var origLog = (typeof console !== 'undefined' && console.log) ? console.log : function () {};
-  var origError = (typeof console !== 'undefined' && console.error) ? console.error : function () {};
-  function send(level, tag, args) {
-    var text = '';
+    var rt = null;
     try {
-      text = Array.prototype.map.call(args, function (a) {
-        if (typeof a === 'string') return a;
-        try { return JSON.stringify(a); } catch (e) { return String(a); }
-      }).join(' ');
-    } catch (e) { text = '[unserializable]'; }
-    if (rt) {
-      try { (rt[level] || rt.info).call(rt, '[ERMAO ' + tag + '] ' + text); } catch (e) {}
-    }
-    try {
-      if (level === 'error') origError('[ERMAO ' + tag + '] ' + text);
-      else origLog('[ERMAO ' + tag + '] ' + text);
+      if (typeof wx !== 'undefined' && wx.getRealtimeLogManager) {
+        rt = wx.getRealtimeLogManager();
+        try { rt.setFilterMsg('ermao'); } catch (e) {}
+        try { rt.addFilterMsg('wechat'); } catch (e) {}
+      }
     } catch (e) {}
-  }
-  try {
-    if (typeof wx !== 'undefined') {
-      if (wx.getSystemInfoSync) send('info', 'sys', [JSON.stringify(wx.getSystemInfoSync())]);
-      if (wx.getLaunchOptionsSync) send('info', 'launch', [JSON.stringify(wx.getLaunchOptionsSync())]);
+    try { if (typeof wx !== 'undefined' && wx.setStorageSync) wx.setStorageSync('ermao_logger_installed', '1'); } catch (e) {}
+    var origLog = (typeof console !== 'undefined' && console.log) ? console.log : function () {};
+    var origError = (typeof console !== 'undefined' && console.error) ? console.error : function () {};
+    function send(level, tag, args) {
+      var text = '';
+      try {
+        text = Array.prototype.map.call(args, function (a) {
+          if (typeof a === 'string') return a;
+          try { return JSON.stringify(a); } catch (e) { return String(a); }
+        }).join(' ');
+      } catch (e) { text = '[unserializable]'; }
+      if (rt) {
+        try { (rt[level] || rt.info).call(rt, '[ERMAO ' + tag + '] ' + text); } catch (e) {}
+      }
+      try {
+        if (level === 'error') origError('[ERMAO ' + tag + '] ' + text);
+        else origLog('[ERMAO ' + tag + '] ' + text);
+      } catch (e) {}
     }
-  } catch (e) {}
-  var g = (typeof GameGlobal !== 'undefined') ? GameGlobal : ((typeof window !== 'undefined') ? window : null);
-  if (g && g.addEventListener) {
-    g.addEventListener('error', function (e) {
-      send('error', 'uncaught', [e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack]);
-    });
-    g.addEventListener('unhandledrejection', function (e) {
-      send('error', 'rejection', [e.reason && (e.reason.stack || e.reason.message || e.reason)]);
-    });
+    send('info', 'logger', ['installed']);
+    try {
+      if (typeof wx !== 'undefined') {
+        if (wx.getSystemInfoSync) send('info', 'sys', [JSON.stringify(wx.getSystemInfoSync())]);
+        if (wx.getLaunchOptionsSync) send('info', 'launch', [JSON.stringify(wx.getLaunchOptionsSync())]);
+      }
+    } catch (e) {}
+    var g = (typeof GameGlobal !== 'undefined') ? GameGlobal : ((typeof window !== 'undefined') ? window : null);
+    if (g) {
+      try {
+        if (g.addEventListener) {
+          g.addEventListener('error', function (e) {
+            send('error', 'uncaught', [e.message, e.filename, e.lineno, e.colno, e.error && e.error.stack]);
+          });
+          g.addEventListener('unhandledrejection', function (e) {
+            send('error', 'rejection', [e.reason && (e.reason.stack || e.reason.message || e.reason)]);
+          });
+        }
+      } catch (e) {}
+      try {
+        g.onerror = function (message, source, lineno, colno, error) {
+          send('error', 'onerror', [message, source, lineno, colno, error && error.stack]);
+        };
+      } catch (e) {}
+    }
+    try {
+      if (typeof console !== 'undefined') {
+        console.error = function () {
+          send('error', 'console', arguments);
+          return origError.apply(console, arguments);
+        };
+      }
+    } catch (e) {}
+  } catch (e) {
+    try { console.error('[ERMAO logger] init failed', e); } catch (e2) {}
   }
-  if (g) {
-    g.onerror = function (message, source, lineno, colno, error) {
-      send('error', 'onerror', [message, source, lineno, colno, error && error.stack]);
-    };
-  }
-  if (typeof console !== 'undefined') {
-    console.error = function () {
-      send('error', 'console', arguments);
-      return origError.apply(console, arguments);
-    };
-  }
-  send('info', 'logger', ['installed']);
 })();
 """
 
