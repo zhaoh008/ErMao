@@ -62,6 +62,44 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
 当前 2D 资源约 5.1MB，转换工具支持 CDN/分包；主包超限时按转换工具文档调整
 `--cdn-url` / `--load-from-subpackage`。
 
+## iOS 与安卓的差异 / 排错
+
+同一份 wasm 包在安卓能跑、iPhone 报“程序遇到错误”，通常不是玩法代码的差异，而是
+两端小游戏运行时不同：
+
+- **JS 引擎**：安卓是 V8（JIT），iOS 普通小游戏模式是 JavaScriptCore（无 JIT）；
+  打开 iOS 高性能模式后才是 WKWebView + JIT。本 AppID 未开通高性能模式
+  （插件日志 `canUseHighPerformance: false`），所以 iOS 走的是无 JIT 的普通模式。
+- **DOM/Canvas 适配层**：Emscripten/SDL2 启动窗口时依赖 `document.title`、
+  `devicePixelRatio`、`canvas.getBoundingClientRect` 等浏览器 API；微信 iOS 与
+  安卓提供的 shim 并不完全一致，缺失时 SDL 会抛异常，微信只显示“程序遇到错误”，
+  没有可读堆栈。`document.title` 只读的问题已在 `patch_webgl_glue.py` +
+  `WebApp::Init` 中防护；其余最小接口在 `WebApp::Init` 的
+  `InstallWeChatCompatShims()` 中补齐（浏览器里是 no-op）。
+- **WebAssembly**：iOS/安卓都走微信的 `WXWebAssembly` 路径；这里用 WebGL1、
+  无 SIMD/多线程，wasm 只用到 MVP + sign-ext，iOS 15+ 均支持。初始堆已从 128MB
+  降到 32MB、最大 256MB，避免 iOS 运行时对声明 2GB 上限的额外压力。
+- **iOS GL 状态查询兼容**：微信 iOS 的 WXWebGL 对 `glGetIntegerv` 的多个 pname
+  （`GL_TEXTURE_BINDING_2D` 32873、`GL_CURRENT_PROGRAM` 35725 等）返回 undefined，
+  每帧打印 `GL_INVALID_ENUM in glGet0v`，既刷屏又明显卡顿。ImGui 的 OpenGL3 后端
+  默认每帧保存/恢复大量 GL 状态；Emscripten 构建下现在跳过整段保存/恢复（渲染
+  状态由 WebRenderer / ImGui 自己每帧显式设置），初始化时的
+  `GL_ARRAY_BUFFER_BINDING` 查询也跳过，清屏前关闭上一帧 UI 留下的 scissor，
+  纹理上传前清空旧 GL 错误。桌面 GL 路径保持原行为。
+
+- **调试**：微信的“真机调试”只支持安卓；iOS 无 vConsole 时用
+  `WECHAT_DEBUG_LOG=1 ./web/tools/package-wechat.sh ...` 打包，会在 `game.js`
+  最前面注入 `ermao-logger.js`：实时日志（运维中心筛 `ermao`）、`wx.setEnableDebug`
+  打开 vConsole、首个未捕获错误直接 `wx.showModal` 显示在手机上，并记录
+  SDL/GL/字体/资源启动阶段与 DOM/Canvas 能力快照。打包脚本还会校验
+  `framework.js` 的 `document.title` 保护，防止再发启动即崩的 iPhone 包。
+
+### 预览二维码固定位置
+
+最新微信小游戏预览码统一写到 **`D:\GameEngine\dist\web-mobile-export\wechat-preview.png`**
+（每次构建覆盖更新），不要再按版本/日期/修复名另起文件名；导入/扫码只认这一个路径。
+`wechat-preview-info.json` 同步更新。
+
 ## 当前范围
 
 - ✅ 2D 幸存者：菜单、出战准备、HUD、暂停、设置、结算、技能图鉴

@@ -199,6 +199,22 @@
 #define GL_UPPER_LEFT 0x8CA2
 #endif
 
+// WeChat iOS WXWebGL returns undefined (and leaves GL_INVALID_ENUM) for
+// GL_TEXTURE_BINDING_2D. ImGui only saves the binding to restore it, and our
+// renderer rebinds its own textures every frame, so on Emscripten avoid the
+// query entirely instead of poisoning the next glGetError() check (which broke
+// procedural texture upload on iOS).
+static GLuint ImGui_ImplOpenGL3_GetTextureBinding2D()
+{
+#if defined(__EMSCRIPTEN__)
+    return 0;
+#else
+    GLint texture = 0;
+    glGetIntegerv(GL_TEXTURE_BINDING_2D, &texture);
+    return (GLuint)texture;
+#endif
+}
+
 // Vertex arrays are not supported on ES2/WebGL1 unless Emscripten which uses an extension
 #ifndef IMGUI_IMPL_OPENGL_ES2
 #define IMGUI_IMPL_OPENGL_USE_VERTEX_ARRAY
@@ -495,11 +511,12 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
             if (tex->Status != ImTextureStatus_OK)
                 ImGui_ImplOpenGL3_UpdateTexture(tex);
 
+#ifndef __EMSCRIPTEN__
     // Backup GL state
     GLenum last_active_texture; glGetIntegerv(GL_ACTIVE_TEXTURE, (GLint*)&last_active_texture);
     glActiveTexture(GL_TEXTURE0);
     GLuint last_program; glGetIntegerv(GL_CURRENT_PROGRAM, (GLint*)&last_program);
-    GLuint last_texture; glGetIntegerv(GL_TEXTURE_BINDING_2D, (GLint*)&last_texture);
+    GLuint last_texture = ImGui_ImplOpenGL3_GetTextureBinding2D();
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_BIND_SAMPLER
     GLuint last_sampler; if (bd->HasBindSampler) { glGetIntegerv(GL_SAMPLER_BINDING, (GLint*)&last_sampler); } else { last_sampler = 0; }
 #endif
@@ -533,6 +550,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_PRIMITIVE_RESTART
     GLboolean last_enable_primitive_restart = (!bd->GlProfileIsES3 && bd->GlVersion >= 310) ? glIsEnabled(GL_PRIMITIVE_RESTART) : GL_FALSE;
 #endif
+#endif // !__EMSCRIPTEN__
 
     // Support for GL 4.5 rarely used glClipControl(GL_UPPER_LEFT)
     bd->ClipOriginCurrent = bd->ClipOriginRequest;
@@ -647,6 +665,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
     GL_CALL(glDeleteVertexArrays(1, &vertex_array_object));
 #endif
 
+#ifndef __EMSCRIPTEN__
     // Restore modified GL state
     // This "glIsProgram()" check is required because if the program is "pending deletion" at the time of binding backup, it will have been deleted by now and will cause an OpenGL error. See #6220.
     if (last_program == 0 || glIsProgram(last_program)) glUseProgram(last_program);
@@ -684,6 +703,7 @@ void    ImGui_ImplOpenGL3_RenderDrawData(ImDrawData* draw_data)
 
     glViewport(last_viewport[0], last_viewport[1], (GLsizei)last_viewport[2], (GLsizei)last_viewport[3]);
     glScissor(last_scissor_box[0], last_scissor_box[1], (GLsizei)last_scissor_box[2], (GLsizei)last_scissor_box[3]);
+#endif // !__EMSCRIPTEN__
     (void)bd; // Not all compilation paths use this
 }
 
@@ -722,8 +742,7 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
         GLuint gl_texture_id = 0;
 
         // Upload texture to graphics system (bilinear sampling is required).
-        GLint last_texture;
-        GL_CALL(glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture));
+        GLint last_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D();
         GL_CALL(glGenTextures(1, &gl_texture_id));
         GL_CALL(glBindTexture(GL_TEXTURE_2D, gl_texture_id));
         GL_CALL(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR));
@@ -746,8 +765,7 @@ void ImGui_ImplOpenGL3_UpdateTexture(ImTextureData* tex)
     {
         // Update selected blocks. We only ever write to textures regions which have never been used before!
         // This backend choose to use tex->Updates[] but you can use tex->UpdateRect to upload a single region.
-        GLint last_texture;
-        GL_CALL(glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture));
+        GLint last_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D();
 
         GLuint gl_tex_id = (GLuint)(intptr_t)tex->TexID;
         GL_CALL(glBindTexture(GL_TEXTURE_2D, gl_tex_id));
@@ -829,9 +847,10 @@ bool    ImGui_ImplOpenGL3_CreateDeviceObjects()
     ImGui_ImplOpenGL3_Data* bd = ImGui_ImplOpenGL3_GetBackendData();
 
     // Backup GL state
-    GLint last_texture, last_array_buffer;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
+    GLint last_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D(), last_array_buffer = 0;
+#ifndef __EMSCRIPTEN__
     glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &last_array_buffer);
+#endif
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_BIND_BUFFER_PIXEL_UNPACK
     GLint last_pixel_unpack_buffer = 0;
     if (bd->GlVersion >= 210) { glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &last_pixel_unpack_buffer); glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0); }
@@ -1151,8 +1170,8 @@ bool    ImGui_ImplOpenGL3_Init(const char* glsl_version)
 
     // Make an arbitrary GL call (we don't actually need the result)
     // IF YOU GET A CRASH HERE: it probably means the OpenGL function loader didn't do its job. Let us know!
-    GLint current_texture;
-    glGetIntegerv(GL_TEXTURE_BINDING_2D, &current_texture);
+    GLint current_texture = (GLint)ImGui_ImplOpenGL3_GetTextureBinding2D();
+    (void)current_texture;
 
     // Detect extensions we support
 #ifdef IMGUI_IMPL_OPENGL_MAY_HAVE_POLYGON_MODE

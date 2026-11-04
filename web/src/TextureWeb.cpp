@@ -55,6 +55,10 @@ bool Texture::CreateFromRGBA(u32 width, u32 height, const u8* rgba, bool srgb, b
     std::vector<u8> linearStorage;
     const u8* uploadPixels = srgb ? LinearizeForSrgb(rgba, width, height, linearStorage) : rgba;
 
+    // 微信 iOS WXWebGL 对 GL_TEXTURE_BINDING_2D 等查询会返回 undefined 并遗留
+    // GL_INVALID_ENUM；先清掉旧错误，避免把它误判成本次 glTexImage2D 失败。
+    while (glGetError() != GL_NO_ERROR) {}
+
     GLuint handle = 0;
     glGenTextures(1, &handle);
     if (handle == 0) return false;

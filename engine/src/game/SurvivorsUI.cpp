@@ -65,6 +65,8 @@ const SkillMeta kSkills[10] = {
 struct Canvas {
     ImVec2 origin;
     float  scale = 1.0f;
+    // 手机横屏（vh<520）对文字额外放大；布局尺寸不变，只放大字号。
+    float  textScale = 1.0f;
     float  w = 1600.0f;
     float  h = 900.0f;
 
@@ -79,6 +81,8 @@ Canvas MakeCanvas(float vx, float vy, float vw, float vh) {
 #ifdef ERMAO_WEB
     // 手机横屏高度通常 360~430 CSS px：允许缩到 0.40，保证 900 设计高度能完整放下。
     c.scale = Clamp(vh / 900.0f, 0.40f, 1.25f);
+    // 按 900 设计高度缩到 0.43 后，15px 字只有 6px；手机横屏把字号再放大 30%。
+    c.textScale = (vh < 520.0f) ? 1.30f : 1.0f;
 #else
     c.scale = Clamp(vh / 900.0f, 0.70f, 1.25f);
 #endif
@@ -107,10 +111,10 @@ ImFont* PickFont(const SurvivorsUIAssets& ui, float size) {
     return ImGui::GetFont();
 }
 
-ImVec2 MeasureText(const SurvivorsUIAssets& ui, float size, const char* text) {
+ImVec2 MeasureText(const SurvivorsUIAssets& ui, const Canvas& c, float size, const char* text) {
     ImFont* font = PickFont(ui, size);
     if (!font || !text) return ImVec2(0, 0);
-    return font->CalcTextSizeA(size, FLT_MAX, 0.0f, text);
+    return font->CalcTextSizeA(c.V(size * c.textScale), FLT_MAX, 0.0f, text);
 }
 
 void DrawText(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float size, float x, float y,
@@ -118,18 +122,18 @@ void DrawText(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, fl
     if (!text || !*text) return;
     ImFont* font = PickFont(ui, size);
     if (!font) return;
-    draw->AddText(font, c.V(size), c.P(x, y), color, text);
+    draw->AddText(font, c.V(size * c.textScale), c.P(x, y), color, text);
 }
 
 void DrawTextRight(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float size, float rightX,
                    float y, ImU32 color, const char* text) {
-    const ImVec2 measured = MeasureText(ui, c.V(size), text);
+    const ImVec2 measured = MeasureText(ui, c, size, text);
     DrawText(draw, ui, c, size, rightX - measured.x / c.scale, y, color, text);
 }
 
 void DrawTextCentered(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float size, float centerX,
                       float y, ImU32 color, const char* text) {
-    const ImVec2 measured = MeasureText(ui, c.V(size), text);
+    const ImVec2 measured = MeasureText(ui, c, size, text);
     DrawText(draw, ui, c, size, centerX - measured.x / c.scale * 0.5f, y, color, text);
 }
 
@@ -154,14 +158,15 @@ float DrawWrapped(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c
     if (!text || !*text) return 0.0f;
     ImFont* font = PickFont(ui, size);
     if (!font) return 0.0f;
+    const float scaledSize = size * c.textScale;
     const float maxPx = c.V(wrapWidth);
     float       cursorY = y;
     std::string line;
     std::string candidate;
     auto emit = [&]() {
         if (line.empty()) return;
-        draw->AddText(font, c.V(size), c.P(x, cursorY), color, line.c_str());
-        cursorY += size * lineGap;
+        draw->AddText(font, c.V(scaledSize), c.P(x, cursorY), color, line.c_str());
+        cursorY += scaledSize * lineGap;
         line.clear();
     };
 
@@ -174,7 +179,7 @@ float DrawWrapped(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c
         const size_t length = Utf8CharLength(static_cast<unsigned char>(*p));
         candidate = line;
         candidate.append(p, length);
-        const ImVec2 measured = font->CalcTextSizeA(c.V(size), FLT_MAX, 0.0f, candidate.c_str());
+        const ImVec2 measured = font->CalcTextSizeA(c.V(scaledSize), FLT_MAX, 0.0f, candidate.c_str());
         if (!line.empty() && measured.x > maxPx) {
             emit();
             line.assign(p, length);
@@ -875,28 +880,78 @@ namespace {
 void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world,
                           float time) {
     const SurvivorsMinimapSnapshot snapshot = BuildSurvivorsMinimapSnapshot(world);
-    const float panelW = 238.0f;
-    const float panelH = 158.0f;
-    const float panelX = c.w - panelW - 24.0f;
-    const float panelY = c.h - panelH - 24.0f;
+    const bool mobile = c.textScale > 1.0f;
+    // 小地图固定在右上角（避开手机端 vConsole/调试按钮），竖版并扩大。
+    const float panelW = mobile ? 250.0f : 260.0f;
+    const float panelH = mobile ? 280.0f : 300.0f;
+    const float panelX = c.w - panelW - (mobile ? 16.0f : 24.0f);
+    const float panelY = mobile ? 88.0f : 72.0f;
     DrawPanel(draw, ui, c, panelX, panelY, panelW, panelH);
     DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 9.0f, kGold, "地图");
-    DrawTextRight(draw, ui, c, 11.0f, panelX + panelW - 14.0f, panelY + 12.0f, kTextMuted, "宝箱 / 掉落 / 怪");
 
+    const float headerH = 32.0f;
+    const float legendH = 46.0f;
     const float mapX = panelX + 12.0f;
-    const float mapY = panelY + 32.0f;
+    const float mapY = panelY + headerH;
     const float mapW = panelW - 24.0f;
-    const float mapH = panelH - 44.0f;
+    const float mapH = panelH - headerH - 12.0f - legendH;
     draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(15, 18, 26, 230), c.V(4.0f));
     draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(74, 70, 58, 255), c.V(4.0f),
                   c.V(1.0f));
 
     const Vec2 half = snapshot.arenaHalf;
+    // 保持地图真实宽高比，竖版面板内上下居中，避免被拉伸。
+    const float arenaW = half.x * 2.0f;
+    const float arenaH = half.y * 2.0f;
+    float viewW = mapW;
+    float viewH = mapW * (arenaH / arenaW);
+    if (viewH > mapH) {
+        viewH = mapH;
+        viewW = mapH * (arenaW / arenaH);
+    }
+    const float viewX = mapX + (mapW - viewW) * 0.5f;
+    const float viewY = mapY + (mapH - viewH) * 0.5f;
+    float mapWorldLeft = -half.x;
+    float mapWorldBottom = -half.y;
+    float mapWorldW = arenaW;
+    float mapWorldH = arenaH;
+    if (mobile) {
+        // 手机竖版：按面板比例放大到接近整高，宽度裁到玩家附近，地图内容更大。
+        const float aspect = mapW / mapH;
+        float vH = arenaH * 0.95f;
+        float vW = vH * aspect;
+        if (vW > arenaW) { vW = arenaW; vH = vW / aspect; }
+        const float maxX = (std::max)(0.0f, half.x - vW * 0.5f);
+        const float maxY = (std::max)(0.0f, half.y - vH * 0.5f);
+        const float cx = Clamp(snapshot.player.x, -maxX, maxX);
+        const float cy = Clamp(snapshot.player.y, -maxY, maxY);
+        mapWorldLeft = cx - vW * 0.5f;
+        mapWorldBottom = cy - vH * 0.5f;
+        mapWorldW = vW;
+        mapWorldH = vH;
+    }
+    const float mapScreenX = mobile ? mapX : viewX;
+    const float mapScreenY = mobile ? mapY : viewY;
+    const float mapScreenW = mobile ? mapW : viewW;
+    const float mapScreenH = mobile ? mapH : viewH;
     auto toMap = [&](const Vec2& position) {
-        const float u = Clamp01((position.x + half.x) / (half.x * 2.0f));
-        const float v = Clamp01((position.y + half.y) / (half.y * 2.0f));
-        return c.P(mapX + u * mapW, mapY + (1.0f - v) * mapH);
+        const float u = Clamp01((position.x - mapWorldLeft) / mapWorldW);
+        const float v = Clamp01((position.y - mapWorldBottom) / mapWorldH);
+        return c.P(mapScreenX + u * mapScreenW, mapScreenY + (1.0f - v) * mapScreenH);
     };
+
+    // 底部图例：怪 / 宝箱 / 掉落，竖版面板留白用来放说明。
+    {
+        const float legendY = panelY + panelH - 34.0f;
+        const float dotY = legendY + 7.0f;
+        auto legend = [&](float x, ImU32 color, const char* label) {
+            draw->AddCircleFilled(c.P(x, dotY), c.V(3.0f), color, 8);
+            DrawText(draw, ui, c, 11.0f, x + 8.0f, legendY, kTextMuted, label);
+        };
+        legend(panelX + 16.0f, IM_COL32(235, 92, 82, 220), "怪");
+        legend(panelX + 72.0f, IM_COL32(255, 220, 90, 255), "宝箱");
+        legend(panelX + 140.0f, IM_COL32(95, 230, 140, 220), "掉落");
+    }
 
     for (const SurvivorsMinimapRect& obstacle : snapshot.obstacles) {
         const ImVec2 min = toMap(obstacle.center - obstacle.half);
@@ -1775,7 +1830,7 @@ void SurvivorsDirector::DrawToast(float vx, float vy, float vw, float vh, const 
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const float alpha = Clamp01(timer / 0.35f);
-    const ImVec2 measured = MeasureText(m_ui, c.V(15.0f), text.c_str());
+    const ImVec2 measured = MeasureText(m_ui, c, 15.0f, text.c_str());
     const float  textW = measured.x / c.scale;
     const float  w = textW + 40.0f;
     const float  h = 38.0f;

@@ -34,7 +34,7 @@ constexpr int   kMaxSubSteps = 5;
 // 2D 幸存者 UI 用到的全部字符（从 ImGuiLayer.cpp 的同名字形表复制）。
 // 字体子集 ErMaoUI.ttf 就是按这份表 + 源文件中的中文生成的。
 const char* kSurvivorsUIGlyphs =
-    "·×“”→、。一上下不与丛个中为主之乐了二人件休会伤住体使保倍倒值偏停入八关具兽内册再写冰冻准减出击刃分切到制刻前力加动化升半单卡即去发取可史各名后向吸命和回围图在地坏型士备复外大失好姆始子字存完定宝害家对寿射将少就局已并幸幽序度开弃强当录径得怪恢戏成战手打扩找技把择拾持挑损据提支攻放效敌散数整文斗新方旋无时明景暂最有木未本杀束来析柱标档检槽次每毒毛没法活测游满演潮火灰灵炸点爆片牢物猎率玩环现球瓶生用界的目矢知短石确碍示离秒称移程立等箭箱类精系索级纯经结绕绘统继绩绪续缩缺置者背能自色英范草莱获菜落蛛蜘血行角解计认设说读象败起距踏躲转载近返进连退选速道避部里重量鉴钉锁间附隔障雷雾霆霜面音页项额飞验骑骷髅高默！（），：；三且世业丢两久乎乘九也书于互些仅从以优伴但位低余例依侧信做像允元先光免全共其冒冲决冷几列则初别刷劈区十却历压原双反变叠口另只右号同否周响唯器团固圆场均坐垂域基塌墙多够太头奥如它实宫容宽导封小尝尾层屏展工左布带帧常幅应底廊廓式引张弹形影微心必态性息悬慢或截房所才投抖折抽拉拖拥指按挡挤捡掉排接携撞收断既旧易是显暖暗暴更朝期术机条板构果枝架染查栏样格桌桶模横橙正此步死比永沿注洗浮淡清源烟焰牌特状由电画留白直相看真着砖础硬碰磁磨秃稍穿窄窗端符第签算粒素纹线终给绿缓群翻而职致苔菱补表被裁裂装要见观视觉让许证试询调贴资走足跟跳轨轮较辑边达过还远迹透逐递通逻遍遮那都配醒采释针钮铺锅锚镜长闪际限除随需露青靠顶顺须颜飘饰馈";
+    "·×“”→、。一上下不与丛个中为主之乐了二人件休会伤住体使保倍倒值偏停入八关具兽内册再写冰冻准减出击刃分切到制刻前力加动化升半单卡即去发取可史各名后向吸命和回围图在地坏型士备复外大失好姆始子字存完定宝害家对寿射将少就局已并幸幽序度开弃强当录径得怪恢戏成战手打扩找技把择拾持挑损据提支攻放效敌散数整文斗新方旋无时明景暂最有木未本杀束来析柱标档检槽次每毒毛没法活测游满演潮火灰灵炸点爆片牢物猎率玩环现球瓶生用界的目矢知短石确碍示离秒称移程立等箭箱类精系索级纯经结绕绘统继绩绪续缩缺置者背能自色英范草莱获菜落蛛蜘血行角解计认设说读象败起距踏躲转载近返进连退选速道避部里重量鉴钉锁间附隔障雷雾霆霜面音页项额飞验骑骷髅高默！（），：；三且世业丢两久乎乘九也书于互些仅从以优伴但位低余例依侧信做像允元先光免全共其冒冲决冷几列则初别刷劈区十却历压原双反变叠口另只右号同否周响唯器团固圆场均坐垂域基塌墙多够太头奥如它实宫容宽导封小尝尾层屏展工左布带帧常幅应底廊廓式引张弹形影微心必态性息悬慢或截房所才投抖折抽拉拖拥指按挡挤捡掉排接携撞收断既旧易是显暖暗暴更朝期术机条板构果枝架染查栏样格桌桶模横橙正此步死比永沿注洗浮淡清源烟焰牌特状由电画留白直相看真着砖础硬碰磁磨秃稍穿窄窗端符第签算粒素纹线终给绿缓群翻而职致苔菱补表被裁裂装要见观视觉让许证试询调贴资走足跟跳轨轮较辑边达过还远迹透逐递通逻遍遮那都配醒采释针钮铺锅锚镜长闪际限除随需露青靠顶顺须颜飘饰馈侠创剑受启增天奖巨师平待普棱洞益稀空腐蚀衡诗路踪输追造闭降陨黑";
 
 ImFont* AddFont(ImGuiIO& io, const char* path, float size, const ImWchar* ranges) {
     if (!path || !*path) return nullptr;
@@ -43,6 +43,94 @@ ImFont* AddFont(ImGuiIO& io, const char* path, float size, const ImWchar* ranges
     config.OversampleV = 1;
     config.PixelSnapH = true;
     return io.Fonts->AddFontFromFileTTF(path, size, &config, ranges);
+}
+
+// 微信小游戏 iOS 与安卓的 DOM/Canvas 适配层并不相同。Emscripten/SDL2 在创建
+// 窗口时依赖若干浏览器 API（全局 devicePixelRatio、canvas.getBoundingClientRect、
+// document.body.style 等），安卓/开发者工具里有，iOS 真机上可能缺失；缺失时
+// SDL 会直接抛异常，微信只显示“程序遇到错误”，没有可读堆栈。
+// 这里在 SDL 之前补齐最小接口；浏览器里什么都不做。返回被补丁的位掩码。
+int InstallWeChatCompatShims() {
+    return EM_ASM_INT({
+        try {
+            if (typeof wx === 'undefined') return 0;
+            var info = {};
+            try { info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync(); } catch (e) {}
+            var dpr = info.pixelRatio || 1;
+            var changed = 0;
+
+            if (typeof devicePixelRatio === 'undefined') {
+                try { window.devicePixelRatio = dpr; changed |= 1; } catch (e) {}
+                try { globalThis.devicePixelRatio = dpr; } catch (e) {}
+            }
+            if (typeof window !== 'undefined') {
+                if (!window.innerWidth) { try { window.innerWidth = info.windowWidth || 1280; changed |= 2; } catch (e) {} }
+                if (!window.innerHeight) { try { window.innerHeight = info.windowHeight || 720; changed |= 4; } catch (e) {} }
+            }
+
+            var cv = null;
+            try { cv = (typeof Module !== 'undefined' && Module.canvas) ? Module.canvas : null; } catch (e) {}
+            if (!cv) { try { cv = (typeof canvas !== 'undefined') ? canvas : null; } catch (e) {} }
+            if (cv) {
+                if (!cv.style) { try { cv.style = {}; changed |= 8; } catch (e) {} }
+                if (!cv.getBoundingClientRect) {
+                    try {
+                        cv.getBoundingClientRect = function () {
+                            var w = cv.width || info.windowWidth || 1280;
+                            var h = cv.height || info.windowHeight || 720;
+                            var r = {};
+                            r.left = 0;
+                            r.top = 0;
+                            r.right = w;
+                            r.bottom = h;
+                            r.width = w;
+                            r.height = h;
+                            return r;
+                        };
+                        changed |= 16;
+                    } catch (e) {}
+                }
+            }
+
+            if (typeof document !== 'undefined') {
+                if (!document.body) { try { document.body = {}; changed |= 32; } catch (e) {} }
+                try { if (document.body && !document.body.style) { document.body.style = {}; changed |= 64; } } catch (e) {}
+                if (!document.documentElement) { try { document.documentElement = {}; changed |= 128; } catch (e) {} }
+                try {
+                    if (document.documentElement && !document.documentElement.style) {
+                        document.documentElement.style = {};
+                        changed |= 256;
+                    }
+                } catch (e) {}
+            }
+
+            try {
+                var cap = 'dpr=' + (typeof devicePixelRatio) + ' canvas=' + (cv ? 'yes' : 'no') +
+                    ' rect=' + (cv && cv.getBoundingClientRect ? 'yes' : 'no') +
+                    ' body=' + ((typeof document !== 'undefined' && document.body) ? 'yes' : 'no');
+                if (typeof GameGlobal !== 'undefined' && GameGlobal.__ermaoStage) {
+                    GameGlobal.__ermaoStage('caps.post ' + cap);
+                }
+            } catch (e) {}
+
+            return changed;
+        } catch (e) {
+            return -1;
+        }
+    });
+}
+
+// 把启动阶段发到实时日志：iOS 真机没有 vConsole 时，至少能从运维中心看到
+// 卡在 SDL/GL/字体/资源中的哪一步。由微信调试包注入的 ermao-logger.js 接收；
+// 浏览器/普通包里是 no-op。
+void WeChatDebugStage(const char* stage) {
+    EM_ASM({
+        try {
+            if (typeof GameGlobal !== 'undefined' && GameGlobal.__ermaoStage) {
+                GameGlobal.__ermaoStage(UTF8ToString($0));
+            }
+        } catch (e) {}
+    }, stage);
 }
 
 } // namespace
@@ -57,6 +145,14 @@ WebApp::~WebApp() {
 bool WebApp::Init() {
     Log::Init("");
     Timer::Init();
+
+    const int shims = InstallWeChatCompatShims();
+    if (shims != 0) {
+        LogInfo("[Web] 微信 DOM/Canvas 兼容补丁: mask=0x%X（0 表示浏览器/无需补）", static_cast<unsigned>(shims));
+    }
+    char shimStage[64];
+    std::snprintf(shimStage, sizeof(shimStage), "shim.done mask=0x%X", static_cast<unsigned>(shims));
+    WeChatDebugStage(shimStage);
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
         LogError("[Web] SDL_Init 失败: %s", SDL_GetError());
@@ -83,14 +179,22 @@ bool WebApp::Init() {
         LogError("[Web] 创建窗口失败: %s", SDL_GetError());
         return false;
     }
+    WeChatDebugStage("sdl.window");
 
     m_glContext = SDL_GL_CreateContext(m_window);
     if (!m_glContext) {
         LogError("[Web] 创建 GLES2 上下文失败: %s", SDL_GetError());
         return false;
     }
+    WeChatDebugStage("gl.context");
     SDL_GL_MakeCurrent(m_window, m_glContext);
+#ifndef __EMSCRIPTEN__
     SDL_GL_SetSwapInterval(1);
+#else
+    // Emscripten 的 SDL_GL_SetSwapInterval 会在 main() 创建 main loop 之前调用
+    // emscripten_set_main_loop_timing，打印 “Cannot set timing mode ...”；浏览器/
+    // 微信本来就由 requestAnimationFrame 驱动，这里跳过即可。
+#endif
 
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
@@ -111,6 +215,7 @@ bool WebApp::Init() {
         LogError("[Web] ImGui OpenGL3 后端初始化失败");
         return false;
     }
+    WeChatDebugStage("imgui.init");
 
     // 2D UI 会用平台回调切换采样器；OpenGL 后端没有该回调时补一个空实现，
     // 避免 ImDrawList::AddCallback(nullptr)。
@@ -122,6 +227,7 @@ bool WebApp::Init() {
         LogError("[Web] 2D 渲染器初始化失败");
         return false;
     }
+    WeChatDebugStage("renderer.init");
 
     m_assets.Init();
     RegisterSurvivorsComponents();
@@ -131,6 +237,7 @@ bool WebApp::Init() {
     m_survivors = new SurvivorsDirector();
     m_survivors->InitializeUI(m_assets, m_bodyFont, m_largeFont, m_displayFont);
     m_survivors->ReturnToMenu();
+    WeChatDebugStage("game.ready");
 
     m_camera.aspect = 16.0f / 9.0f;
     m_camera.position = Vec3(0.0f, 0.0f, 10.0f);
@@ -164,7 +271,9 @@ bool WebApp::Init() {
     if (search && std::strstr(search, "mobile=1")) m_mobile = true;
     if (isWeChat) {
         // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
+        WeChatDebugStage("game.autostart.before");
         m_survivors->Reset(m_world);
+        WeChatDebugStage("game.autostart.after");
     }
 
     // 截图/自动化：在进入 requestAnimationFrame 前同步推进 N 个固定步。
@@ -190,6 +299,7 @@ bool WebApp::Init() {
     }
 
     m_initialised = true;
+    WeChatDebugStage("init.done");
     LogInfo("[Web] 初始化完成（%s，触摸 %s）", "WebGL 1.0 / GLES2", m_mobile ? "是" : "否");
     return true;
 }
@@ -360,7 +470,8 @@ void WebApp::Update(float dt) {
 
     AudioSystem::Get().Update(dt);
 
-    const bool playing = m_survivors->GetState() == SurvivorsDirector::State::Playing;
+    const auto state = m_survivors->GetState();
+    const bool playing = state == SurvivorsDirector::State::Playing;
     if (playing) {
         m_accumulator += dt;
         int steps = 0;
@@ -371,6 +482,11 @@ void WebApp::Update(float dt) {
         }
         if (steps == kMaxSubSteps) m_accumulator = 0.0f;
         m_world.Update(dt);
+    }
+    // 抽奖动画由 SurvivorsDirector 自己推进（State::Gacha 时 UpdateChestGacha），
+    // 但此时已经不在 Playing；如果只按 Playing 调 Update，m_gachaTime 会永远停在
+    // 0，画面卡在开箱第一帧，点击也永远等不到 reveal。世界更新仍冻结，只推进导演。
+    if (playing || state == SurvivorsDirector::State::Gacha) {
         m_survivors->Update(m_world, dt);
     }
 
