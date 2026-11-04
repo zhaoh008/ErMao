@@ -106,6 +106,9 @@ bool WebRenderer::CompileProgram() {
 
 void WebRenderer::Render(const RenderScene& scene, u32 width, u32 height) {
     glViewport(0, 0, static_cast<GLsizei>(width), static_cast<GLsizei>(height));
+    // ImGui 在 Emscripten 下不再恢复 GL 状态，UI 绘制后 scissor 可能仍开着；
+    // 必须在清屏前关掉，否则 clear 会被上一帧的 UI 裁剪矩形限制。
+    glDisable(GL_SCISSOR_TEST);
     glClearColor(0.055f, 0.06f, 0.07f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
 

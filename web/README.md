@@ -79,11 +79,12 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
 - **WebAssembly**：iOS/安卓都走微信的 `WXWebAssembly` 路径；这里用 WebGL1、
   无 SIMD/多线程，wasm 只用到 MVP + sign-ext，iOS 15+ 均支持。初始堆已从 128MB
   降到 32MB、最大 256MB，避免 iOS 运行时对声明 2GB 上限的额外压力。
-- **iOS GL 查询兼容**：微信 iOS 的 WXWebGL 对 `glGetIntegerv(GL_TEXTURE_BINDING_2D)`
-  返回 undefined，并在 GL 状态里留下 `GL_INVALID_ENUM`。ImGui 的 OpenGL3 后端会
-  查询该绑定，纹理上传代码随后 `glGetError()` 会把旧错误误判成 `glTexImage2D`
-  失败（日志特征：`glGet0v(32873)` + `glTexImage2D 失败: 12x12 (0x0500)`）。现在
-  Emscripten 构建下 ImGui 跳过该查询，纹理上传前也会清空旧 GL 错误。
+- **iOS GL 状态查询兼容**：微信 iOS 的 WXWebGL 对 `glGetIntegerv` 的多个 pname
+  （`GL_TEXTURE_BINDING_2D` 32873、`GL_CURRENT_PROGRAM` 35725 等）返回 undefined，
+  每帧打印 `GL_INVALID_ENUM in glGet0v`，既刷屏又明显卡顿。ImGui 的 OpenGL3 后端
+  默认每帧保存/恢复大量 GL 状态；Emscripten 构建下现在跳过整段保存/恢复（渲染
+  状态由 WebRenderer / ImGui 自己每帧显式设置），清屏前关闭上一帧 UI 留下的
+  scissor，纹理上传前清空旧 GL 错误。桌面 GL 路径保持原行为。
 
 - **调试**：微信的“真机调试”只支持安卓；iOS 无 vConsole 时用
   `WECHAT_DEBUG_LOG=1 ./web/tools/package-wechat.sh ...` 打包，会在 `game.js`
