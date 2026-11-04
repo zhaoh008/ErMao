@@ -1,0 +1,30 @@
+2D 技能特效贴图（CC0 / Public Domain）
+
+本目录贴图用于 2D 幸存者 demo 的技能特效，均从 OpenGameArt.org 下载并重新裁切为
+引擎使用的横向序列帧/精灵表。原始素材均为 CC0（Creative Commons Zero），可商用、
+可修改，无需署名；这里保留来源以便追溯。
+
+- arcane_strip.png
+  来源：Arcane Magic Effect（作者 Snabisch）
+  https://opengameart.org/content/arcane-magic-effect
+  原始文件：Arcane_Effect.zip / 01/Arcane_Effect_1..7.png
+  处理：7 帧统一居中缩放到 128×128，横向拼成 896×128 序列帧。
+
+- water_strip.png
+  来源：Water Magic Effect（作者 Snabisch）
+  https://opengameart.org/content/water-magic-effect
+  原始文件：Water_Effect.zip / 01/Water__01..05.png
+  处理：5 帧统一居中缩放到 160×160，横向拼成 800×160 序列帧。
+
+- fireball.png
+  来源：Fireball Spritesheet（作者 umplix）
+  https://opengameart.org/content/fireball-spritesheet
+  原始文件：fireball_10.png（2×2 帧，每帧 128×128）
+
+- explosion.png
+  来源：Explosion Sheet（作者 StumpyStrust）
+  https://opengameart.org/content/explosion-sheet
+  原始文件：boom3.png（8×8 帧，每帧 128×128，共 64 帧）
+
+另外技能特效还复用了仓库已有的 Kenney Particle Pack（CC0）：
+engine/assets/particles/LICENSE-kenney-particle.txt

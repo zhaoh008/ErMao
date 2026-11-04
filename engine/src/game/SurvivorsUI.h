@@ -1,7 +1,7 @@
 // ErMao Engine - 2D 幸存者 UI 资源与设置快照
 //
 // 这里只声明资源句柄，不把 Dear ImGui 的头文件带进游戏层头文件；
-// 具体绘制在 SurvivorsUI.cpp 中完成。
+// 具体绘制在 SurvivorsUI.cpp 中完成；技能特效贴图也在这里统一加载。
 #pragma once
 
 struct ImFont;
@@ -42,6 +42,13 @@ struct SurvivorsUIAssets {
     Texture* icon[6]{}; // 箭矢 / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球
     Texture* titleBackground = nullptr;
     Texture* floor = nullptr;
+
+    // 技能特效贴图（CC0，见 engine/assets/vfx/LICENSE-VFX.txt）
+    Texture* fxArcane = nullptr;     // 雷霆命中
+    Texture* fxWater = nullptr;      // 霜环爆发
+    Texture* fxFireball = nullptr;   // 火球飞行
+    Texture* fxExplosion = nullptr;  // 火球爆炸
+    Texture* fxPoison = nullptr;     // 毒雾粒子
 
     ImFont* body = nullptr;
     ImFont* large = nullptr;
