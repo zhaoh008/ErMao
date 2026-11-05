@@ -62,7 +62,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.3.0";
+constexpr const char* kSurvivorsVersion = "0.3.1";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
