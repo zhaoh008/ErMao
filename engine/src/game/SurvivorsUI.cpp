@@ -730,7 +730,8 @@ bool SurvivorsUIAssets::Load(AssetManager& assets, ImFont* bodyFont, ImFont* lar
 
 // ================================================================ 导演：主绘制入口
 void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, float viewportWidth,
-                               float viewportHeight) {
+                               float viewportHeight, const Vec4& safeInsets) {
+    m_safeInsets = safeInsets;
     EnsureMusic();
     if (viewportWidth < 8.0f || viewportHeight < 8.0f) return;
 
@@ -817,6 +818,12 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
     }
 }
 
+bool SurvivorsDirector::HitPauseButton(float screenX, float screenY) const {
+    const Vec4& rect = m_pauseHit;
+    return rect.z > 0.0f && rect.w > 0.0f && screenX >= rect.x && screenX <= rect.x + rect.z &&
+           screenY >= rect.y && screenY <= rect.y + rect.w;
+}
+
 // ================================================================ 主菜单
 void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float vw, float vh) {
     Canvas c = MakeCanvas(vx, vy, vw, vh);
@@ -884,6 +891,122 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
 
 // ================================================================ 战斗 HUD
 namespace {
+
+// ---------------------------------------------------------------- 手机 HUD 布局（mobile-hud 原型）
+// 原型尺寸以 CSS 像素给出；这里按当前画布缩放换算成设计单位，保证不同屏宽下比例一致。
+struct HudRect {
+    float x = 0.0f, y = 0.0f, w = 0.0f, h = 0.0f;
+};
+
+struct MobileHudLayout {
+    bool  portrait = false;
+    float px = 1.0f;   // 1 CSS 像素对应的设计单位
+    float font = 1.0f; // DrawText 字号：CSS 像素 * font
+    float left = 0.0f, right = 0.0f, top = 0.0f, bottom = 0.0f;
+    HudRect status, pause, map, dock;
+    float slot = 0.0f, gap = 0.0f;
+};
+
+MobileHudLayout BuildMobileHud(const Canvas& c, const Vec4& safe) {
+    MobileHudLayout hud;
+    hud.portrait = c.h > c.w;
+    hud.px = 1.0f / c.scale;
+    hud.font = 1.0f / (c.scale * c.textScale);
+    // safe 为屏幕四边安全区内边距（CSS 像素），再留 12px 呼吸位。
+    hud.left = (safe.x + 12.0f) * hud.px;
+    hud.right = c.w - (safe.z + 12.0f) * hud.px;
+    hud.bottom = c.h - (safe.w + 12.0f) * hud.px;
+    // 竖屏额外保留顶部空间：部分宿主启动时不报告安全区/胶囊位置。
+    const float clearance = hud.portrait ? 60.0f : 0.0f;
+    hud.top = ((std::max)(safe.y, clearance) + 14.0f) * hud.px;
+
+    const float available = (std::max)(0.0f, hud.right - hud.left);
+    const float row = (std::min)(460.0f * hud.px, available);
+    const float rowX = hud.portrait ? std::round((hud.left + hud.right - row) * 0.5f) : hud.left;
+    const float statusW = (std::max)(0.0f, row - 49.0f * hud.px);
+    hud.status = {rowX, hud.top, statusW, 66.0f * hud.px};
+    hud.pause = {rowX + statusW + 5.0f * hud.px, hud.top, 44.0f * hud.px, 44.0f * hud.px};
+
+    const float mapSize = (hud.portrait ? 78.0f : 104.0f) * hud.px;
+    const bool  mapBeside = !hud.portrait && available >= row + mapSize + 12.0f * hud.px;
+    hud.map = {hud.right - mapSize, mapBeside ? hud.top : hud.top + 74.0f * hud.px, mapSize, mapSize};
+
+    // 本局最多 5 个技能，固定 5 个槽位（空格子提示容量）。
+    hud.gap = 5.0f * hud.px;
+    const float slotLimit = (available - hud.gap * 4.0f) / static_cast<float>(kSurvivorsMaxLoadout);
+    hud.slot = (std::max)(24.0f * hud.px, (std::min)(39.0f * hud.px, slotLimit));
+    const float dockW = hud.slot * static_cast<float>(kSurvivorsMaxLoadout) +
+                        hud.gap * static_cast<float>(kSurvivorsMaxLoadout - 1);
+    hud.dock = {hud.left + (available - dockW) * 0.5f, hud.bottom - hud.slot, dockW, hud.slot};
+    return hud;
+}
+
+// 紧凑雷达：以玩家为中心显示 22 个世界单位内的敌人/宝箱/掉落，范围外的最近宝箱用边缘箭头指向。
+void DrawMobileRadar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world,
+                     const MobileHudLayout& hud) {
+    const SurvivorsMinimapSnapshot snapshot = BuildSurvivorsMinimapSnapshot(world);
+    const float                 px = hud.px;
+    const HudRect&              rect = hud.map;
+    DrawPanel(draw, ui, c, rect.x, rect.y, rect.w, rect.h);
+    DrawText(draw, ui, c, 10.0f * hud.font, rect.x + 7.0f * px, rect.y + 4.0f * px, kTextMuted, "雷达");
+
+    const float inset = 6.0f * px;
+    const float innerX = rect.x + inset;
+    const float innerY = rect.y + 15.0f * px;
+    const float innerW = rect.w - inset * 2.0f;
+    const float innerH = rect.h - 21.0f * px;
+    draw->AddRectFilled(c.P(innerX, innerY), c.P(innerX + innerW, innerY + innerH), IM_COL32(15, 18, 26, 225),
+                        c.V(2.0f * px));
+    // 三层同心方框，沿用原型雷达的刻度感。
+    for (int i = 0; i < 3; ++i) {
+        const float step = static_cast<float>(i) * 6.0f * px;
+        draw->AddRect(c.P(innerX + step, innerY + step), c.P(innerX + innerW - step, innerY + innerH - step),
+                      IM_COL32(40, 55, 66, 255), 0.0f, 0, c.V(px));
+    }
+
+    const float cx = innerX + innerW * 0.5f;
+    const float cy = innerY + innerH * 0.5f;
+    const float radius = (std::max)(0.0f, (std::min)(innerW, innerH) * 0.5f - 2.0f * px);
+    constexpr float kRadarRange = 22.0f;
+    auto plot = [&](const Vec2& worldPos, float size, ImU32 color) {
+        const float dx = (worldPos.x - snapshot.player.x) / kRadarRange;
+        const float dy = (worldPos.y - snapshot.player.y) / kRadarRange;
+        if (std::fabs(dx) > 1.0f || std::fabs(dy) > 1.0f) return;
+        draw->AddCircleFilled(c.P(cx + dx * radius, cy - dy * radius), c.V(size * px), color, 8);
+    };
+
+    float nearestChestDistance = 1e9f;
+    Vec2  nearestChestDir(1.0f, 0.0f);
+    for (const SurvivorsMinimapMarker& marker : snapshot.markers) {
+        if (marker.kind == 2) {
+            plot(marker.position, 1.6f, IM_COL32(235, 92, 82, 220));
+        } else if (marker.kind == 1) {
+            plot(marker.position, 1.4f, IM_COL32(95, 230, 140, 220));
+        } else {
+            plot(marker.position, 2.0f, IM_COL32(255, 220, 90, 255));
+            const Vec2  offset = marker.position - snapshot.player;
+            const float distance = Length(offset);
+            if (distance < nearestChestDistance) {
+                nearestChestDistance = distance;
+                nearestChestDir = distance > 0.001f ? offset / distance : Vec2(1.0f, 0.0f);
+            }
+        }
+    }
+    // 玩家：原型中的青绿小方块。
+    draw->AddRectFilled(c.P(cx - 2.5f * px, cy - 2.5f * px), c.P(cx + 2.5f * px, cy + 2.5f * px),
+                        IM_COL32(103, 228, 192, 255), c.V(px));
+    // 雷达范围外的最近宝箱：在边缘画一个金色箭头。
+    if (nearestChestDistance > kRadarRange && nearestChestDistance < 1e8f) {
+        const float sx = nearestChestDir.x;
+        const float sy = -nearestChestDir.y;
+        const float ax = cx + sx * radius * 0.86f;
+        const float ay = cy + sy * radius * 0.86f;
+        const ImVec2 tip = c.P(ax + sx * 5.0f * px, ay + sy * 5.0f * px);
+        const ImVec2 left = c.P(ax - sy * 3.5f * px, ay + sx * 3.5f * px);
+        const ImVec2 right = c.P(ax + sy * 3.5f * px, ay - sx * 3.5f * px);
+        draw->AddTriangleFilled(tip, left, right, IM_COL32(255, 215, 80, 240));
+    }
+}
 
 void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, World& world,
                           float time) {
@@ -1023,6 +1146,13 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
 
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
+
+    // 手机竖屏/横屏走 mobile-hud 原型的紧凑布局（顶栏合并状态、雷达缩小、5 槽固定底栏）。
+    if (c.textScale > 1.0f) {
+        DrawMobileHudScreen(world, vx, vy, vw, vh, interactive);
+        return;
+    }
+
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     auto*       player = PlayerOf(world);
 
@@ -1063,6 +1193,7 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     // 右上暂停
     const float pauseW = 136.0f;
     const float pauseX = c.w - 24.0f - pauseW;
+    m_pauseHit = Vec4(c.P(pauseX, 20.0f).x, c.P(pauseX, 20.0f).y, c.V(pauseW), c.V(44.0f));
     if (interactive) {
         if (DrawButton(draw, m_ui, c, "##hud_pause", "Esc 暂停", pauseX, 20.0f, pauseW, 44.0f, false, false, 17.0f)) {
             TogglePause();
@@ -1125,6 +1256,155 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     }
 
     DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
+}
+
+// mobile-hud 原型的战斗 HUD：一块顶栏（等级/计时/击杀 + 生命/经验）、44px 暂停键、
+// 右上雷达、底部 5 个固定技能槽；摇杆不再绘制，整块屏幕都可以按下拖动。
+void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, float vw, float vh,
+                                             bool interactive) {
+    Canvas      c = MakeCanvas(vx, vy, vw, vh);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    auto*       player = PlayerOf(world);
+    const MobileHudLayout hud = BuildMobileHud(c, m_safeInsets);
+    const float           px = hud.px;
+
+    const float hp = player ? player->hp : 0.0f;
+    const float maxHp = player ? player->maxHp : 100.0f;
+    const float xp = player ? player->xp : 0.0f;
+    const float xpNext = player ? player->xpNext : 12.0f;
+    const int   level = player ? player->level : 1;
+    const float hpRatio = maxHp > 0.0f ? Clamp01(hp / maxHp) : 0.0f;
+    const float xpRatio = xpNext > 0.0f ? Clamp01(xp / xpNext) : 0.0f;
+
+    // ------------------------------------------------------------ 顶栏状态
+    const HudRect& s = hud.status;
+    DrawPanel(draw, m_ui, c, s.x, s.y, s.w, s.h);
+    char value[64];
+    std::snprintf(value, sizeof(value), "LV %d", level);
+    DrawText(draw, m_ui, c, 12.0f * hud.font, s.x + 10.0f * px, s.y + 9.0f * px, kGold, value);
+    DrawTextCentered(draw, m_ui, c, 22.0f * hud.font, s.x + s.w * 0.5f, s.y + 4.0f * px, kGoldBright,
+                     FormatClock(m_time).c_str());
+    std::snprintf(value, sizeof(value), "击杀 %d", m_kills);
+    DrawTextRight(draw, m_ui, c, 11.5f * hud.font, s.x + s.w - 10.0f * px, s.y + 10.0f * px, kTextDim, value);
+    draw->AddLine(c.P(s.x + 10.0f * px, s.y + 30.0f * px), c.P(s.x + s.w - 10.0f * px, s.y + 30.0f * px),
+                  IM_COL32(83, 97, 107, 128), c.V(px));
+
+    const float barX = s.x + 26.0f * px;
+    const float barW = (std::max)(0.0f, s.w - 94.0f * px);
+    auto compactBar = [&](float y, float ratio, Texture* fillTexture, ImU32 color) {
+        draw->AddRectFilled(c.P(barX, y), c.P(barX + barW, y + 8.0f * px), IM_COL32(8, 11, 18, 255), c.V(px));
+        draw->AddLine(c.P(barX, y + 7.5f * px), c.P(barX + barW, y + 7.5f * px), IM_COL32(69, 80, 93, 255),
+                      c.V(px));
+        const float clamped = Clamp01(ratio);
+        const float fill = barW * clamped;
+        if (fill <= 0.0f) return;
+        if (fillTexture) {
+            SetSamplerLinear(draw);
+            draw->AddImage(TexId(fillTexture), c.P(barX, y), c.P(barX + fill, y + 7.0f * px),
+                           ImVec2(0.0f, 0.0f), ImVec2(clamped, 1.0f), IM_COL32_WHITE);
+            SetSamplerLinear(draw);
+        } else {
+            draw->AddRectFilled(c.P(barX, y), c.P(barX + fill, y + 7.0f * px), color);
+        }
+    };
+    if (m_ui.iconHealth) {
+        DrawImage(draw, c, m_ui.iconHealth, s.x + 9.0f * px, s.y + 34.0f * px, 12.0f * px, 12.0f * px);
+    }
+    compactBar(s.y + 36.0f * px, hpRatio, m_ui.barHealthFill, kRed);
+    std::snprintf(value, sizeof(value), "%.0f/%.0f", hp, maxHp);
+    DrawTextRight(draw, m_ui, c, 10.0f * hud.font, s.x + s.w - 10.0f * px, s.y + 35.0f * px, kText, value);
+    if (m_ui.iconXp) {
+        DrawImage(draw, c, m_ui.iconXp, s.x + 9.0f * px, s.y + 48.0f * px, 12.0f * px, 12.0f * px);
+    }
+    compactBar(s.y + 50.0f * px, xpRatio, m_ui.barXpFill, kMint);
+    std::snprintf(value, sizeof(value), "%.0f/%.0f", xp, xpNext);
+    DrawTextRight(draw, m_ui, c, 10.0f * hud.font, s.x + s.w - 10.0f * px, s.y + 49.0f * px, kMint, value);
+
+    // ------------------------------------------------------------ 暂停键
+    const HudRect& p = hud.pause;
+    m_pauseHit = Vec4(c.P(p.x, p.y).x, c.P(p.x, p.y).y, c.V(p.w), c.V(p.h));
+    if (interactive) {
+        ImGui::SetCursorScreenPos(c.P(p.x, p.y));
+        if (ImGui::InvisibleButton("##hud_pause", c.S(p.w, p.h))) {
+            TogglePause();
+            return;
+        }
+    }
+    DrawPanel(draw, m_ui, c, p.x, p.y, p.w, p.h);
+    draw->AddRectFilled(c.P(p.x + 16.0f * px, p.y + 14.0f * px), c.P(p.x + 20.0f * px, p.y + 30.0f * px),
+                        kGold);
+    draw->AddRectFilled(c.P(p.x + 24.0f * px, p.y + 14.0f * px), c.P(p.x + 28.0f * px, p.y + 30.0f * px),
+                        kGold);
+
+    // ------------------------------------------------------------ 技能槽（固定 5 个）
+    int slotSkills[kSurvivorsMaxLoadout];
+    for (int& skill : slotSkills) skill = -1;
+    int slotCount = 0;
+    if (player) {
+        for (int skill = 0; skill < kSurvivorsSkillCount && slotCount < kSurvivorsMaxLoadout; ++skill) {
+            if (player->HasSkill(skill)) slotSkills[slotCount++] = skill;
+        }
+    }
+    int hoveredSkill = -1;
+    for (int slot = 0; slot < kSurvivorsMaxLoadout; ++slot) {
+        const int   skill = slotSkills[slot];
+        const float x = hud.dock.x + (hud.slot + hud.gap) * static_cast<float>(slot);
+        const float y = hud.dock.y;
+        const float size = hud.slot;
+        if (skill < 0) {
+            draw->AddRectFilled(c.P(x, y), c.P(x + size, y + size), IM_COL32(12, 15, 22, 180), c.V(4.0f * px));
+            DrawNineSlice(draw, c, m_ui.slot, x, y, size, size, 12.0f, IM_COL32(255, 255, 255, 90));
+            DrawTextCentered(draw, m_ui, c, 14.0f * hud.font, x + size * 0.5f, y + size * 0.5f - 7.0f * px,
+                             kTextMuted, "·");
+            continue;
+        }
+        if (interactive) {
+            ImGui::SetCursorScreenPos(c.P(x, y));
+            if (ImGui::InvisibleButton((std::string("##skill") + std::to_string(skill)).c_str(),
+                                       c.S(size, size))) {
+                m_selectedSkill = (m_selectedSkill == skill) ? -1 : skill;
+            }
+            if (ImGui::IsItemHovered()) hoveredSkill = skill;
+        }
+        DrawNineSlice(draw, c, m_ui.slot, x, y, size, size, 12.0f);
+        const float iconSize = size - 8.0f * px;
+        if (m_ui.icon[skill]) {
+            DrawImage(draw, c, m_ui.icon[skill], x + 4.0f * px, y + 3.0f * px, iconSize, iconSize);
+        }
+        const int  skillLevel = player ? SkillLevel(*player, skill) : 0;
+        char       levelText[16];
+        std::snprintf(levelText, sizeof(levelText), "%d", skillLevel);
+        const float badgeW = 13.0f * px;
+        const float badgeH = 10.0f * px;
+        draw->AddRectFilled(c.P(x + size - badgeW - 2.0f * px, y + size - badgeH - 2.0f * px),
+                            c.P(x + size - 2.0f * px, y + size - 2.0f * px), IM_COL32(16, 21, 30, 220),
+                            c.V(2.0f * px));
+        DrawTextCentered(draw, m_ui, c, 9.0f * hud.font, x + size - badgeW * 0.5f - 2.0f * px,
+                         y + size - badgeH - 1.0f * px, kGold, levelText);
+    }
+    if (interactive && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) {
+        m_selectedSkill = -1;
+    }
+
+    // 技能说明：悬停优先，点击可钉住（桌面/平板鼠标仍可用；触屏按下屏幕会直接移动）。
+    const int shownSkill = (interactive && hoveredSkill >= 0) ? hoveredSkill : (interactive ? m_selectedSkill : -1);
+    if (shownSkill >= 0 && shownSkill < kSurvivorsSkillCount && player) {
+        const float tipW = (std::min)(342.0f, c.w - 48.0f);
+        const float tipH = 106.0f;
+        const float tipX = c.w * 0.5f - tipW * 0.5f;
+        const float tipY = hud.dock.y - tipH - 14.0f;
+        DrawPanel(draw, m_ui, c, tipX, tipY, tipW, tipH);
+        DrawTextCentered(draw, m_ui, c, 17.0f, c.w * 0.5f, tipY + 16.0f, kText, kSkills[shownSkill].name);
+        char levelText[32];
+        std::snprintf(levelText, sizeof(levelText), "Lv.%d", SkillLevel(*player, shownSkill));
+        DrawTextRight(draw, m_ui, c, 13.0f, tipX + tipW - 22.0f, tipY + 18.0f, kGold, levelText);
+        DrawTextCentered(draw, m_ui, c, 14.0f, c.w * 0.5f, tipY + 42.0f, kTextDim, kSkills[shownSkill].desc);
+        const std::string stat = SkillStatLine(*player, shownSkill);
+        DrawTextCentered(draw, m_ui, c, 12.5f, c.w * 0.5f, tipY + 64.0f, kMint, stat.c_str());
+        DrawTextCentered(draw, m_ui, c, 11.5f, c.w * 0.5f, tipY + 86.0f, kTextMuted, "点击技能槽钉住说明");
+    }
+
+    DrawMobileRadar(draw, m_ui, c, world, hud);
 }
 
 // ================================================================ 升级三选一
@@ -1249,8 +1529,10 @@ void SurvivorsDirector::DrawPauseScreen(World& world, float vx, float vy, float 
         DrawWrapped(draw, m_ui, c, 13.0f, panelX + 40.0f, panelY + 444.0f, panelW - 80.0f,
                     m_pauseNotice.find("失败") != std::string::npos ? kRed : kGold, m_pauseNotice.c_str(), 1.4f);
     }
-    DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted,
-                     "Esc 继续战斗 · 暂停时玩法与计时冻结");
+    char pauseHint[96];
+    std::snprintf(pauseHint, sizeof(pauseHint), "Esc 继续战斗 · %s 测试版 · 暂停时玩法与计时冻结",
+                  kSurvivorsVersion);
+    DrawTextCentered(draw, m_ui, c, 12.0f, c.w * 0.5f, panelY + panelH - 22.0f, kTextMuted, pauseHint);
 }
 
 // ================================================================ 增益宝箱抽奖
@@ -1763,8 +2045,10 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
             draw->AddQuadFilled(c.P(markerX, markerY - 6.0f), c.P(markerX + 6.0f, markerY),
                                 c.P(markerX, markerY + 6.0f), c.P(markerX - 6.0f, markerY), kGoldBright);
             DrawTextCentered(draw, m_ui, c, 22.0f, cardX + cardW * 0.5f, cardY + 158.0f, kText, "灰石地牢");
-            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 190.0f, kTextDim,
-                             "90×54 · 石柱、木箱与火把");
+            char mapInfo[64];
+            std::snprintf(mapInfo, sizeof(mapInfo), "%.0f×%.0f · 石柱、木箱与火把", kSurvivorsMapWidth,
+                          kSurvivorsMapHeight);
+            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 190.0f, kTextDim, mapInfo);
         } else {
             DrawText(draw, m_ui, c, 22.0f, cardX + 16.0f, cardY + 22.0f, kText, "生存目标");
             DrawWrapped(draw, m_ui, c, 14.0f, cardX + 16.0f, cardY + 62.0f, cardW - 32.0f, kText,
@@ -1845,7 +2129,13 @@ void SurvivorsDirector::DrawToast(float vx, float vy, float vw, float vh, const 
     const float  w = textW + 40.0f;
     const float  h = 38.0f;
     const float  x = c.w * 0.5f - w * 0.5f;
-    const float  y = 96.0f;
+    float        y = 96.0f;
+    if (c.textScale > 1.0f) {
+        // 手机 HUD 顶栏更高：Toast 放到顶栏下方，避开雷达。
+        const float px = 1.0f / c.scale;
+        const float top = ((std::max)(m_safeInsets.y, c.h > c.w ? 60.0f : 0.0f) + 14.0f) * px;
+        y = top + 80.0f * px;
+    }
     draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), IM_COL32(6, 8, 12, static_cast<int>(214 * alpha)),
                         c.V(5.0f));
     draw->AddRect(c.P(x, y), c.P(x + w, y + h), IM_COL32(240, 205, 120, static_cast<int>(170 * alpha)),

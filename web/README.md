@@ -39,7 +39,7 @@ python3 -m http.server 8000 -d build-web
 # 浏览器打开 http://localhost:8000/index.html
 # 自动开局并预推进 300 个固定步（5 秒游戏时间），首帧即截图状态：
 # http://localhost:8000/index.html?play=1&frames=300
-# 手机触控 UI（强制触摸模式，方便桌面截图）：
+# 手机视口（竖屏或 844×390 横屏会自动切换手机 HUD；触控由浏览器/微信提供）：
 # http://localhost:8000/index.html?play=1&frames=300&mobile=1
 ```
 
@@ -105,14 +105,16 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
   （`JavaScript-side Wasm function table mirror is out of date!`）。构建后用
   `patch_webgl_glue.py` 把该函数改为直接读 `wasmTable.get()`，不再依赖镜像缓存。
 
-- 手机竖屏：`game.json` 的 `deviceOrientation` 改为 `portrait`；`MakeCanvas` 在竖屏视口使用 1600 设计高度（宽度约 736），字号 1.3x；HUD 的等级/计时移到生命/经验面板下方，小地图固定在右上角，宽面板按 `c.w-40` 收窄。桌面/横屏保持原布局。
+- 手机竖屏：`game.json` 的 `deviceOrientation` 改为 `portrait`；`MakeCanvas` 在竖屏视口使用 1600 设计高度（宽度约 736），字号 1.3x。
+- 手机战斗 HUD 按手机 HUD 原型（mobile-hud）重排：等级/计时/击杀与生命/经验合并为一块顶栏，44px 暂停键紧随其后，雷达缩小到右上角（竖屏在顶栏下方），技能槽固定为底部 5 格；普通桌面 HUD 不变。
+- 手机 HUD 从微信 `safeArea` 与菜单胶囊位置换算内边距，竖屏再额外保留顶部空间，避免被刘海/状态栏/胶囊遮挡。
 
 ## 当前范围
 
 - ✅ 2D 幸存者：菜单、出战准备、HUD、暂停、设置、结算、技能图鉴
 - ✅ 2D 精灵批处理、正交相机、程序化贴图、序列帧
 - ✅ ImGui 中文 UI（内置 Apache-2.0 的 WenQuanYi Micro Hei 子集字体）
-- ✅ 手机触控：左半屏虚拟摇杆 + 右上角暂停按钮；画布随窗口/DPR 调整
+- ✅ 手机触控：隐藏摇杆，屏幕任意位置按下拖动即可移动；顶栏暂停键可触摸，暂停后的按钮仍可触摸；画布随窗口/DPR 调整
 - ✅ 浏览器 H5 与微信小游戏共用同一份 wasm 产物
 - ⏳ 音频：接口已保留，当前静音（下一步接 SDL2 音频 / Web Audio）
 - ⏳ 3D/Vulkan/编辑器：未纳入本阶段

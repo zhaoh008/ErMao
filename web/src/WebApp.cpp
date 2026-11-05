@@ -270,6 +270,34 @@ bool WebApp::Init() {
     }) != 0;
     if (search && std::strstr(search, "mobile=1")) m_mobile = true;
     if (isWeChat) {
+        // 手机 HUD 需要避开刘海、状态栏与微信胶囊：读取 safeArea 与菜单按钮底边。
+        // 宿主不提供时保持 0，HUD 会自行在竖屏保留顶部空间。
+        auto inset = [](int edge) -> float {
+            return static_cast<float>(EM_ASM_DOUBLE({
+                try {
+                    var info = wx.getWindowInfo ? wx.getWindowInfo() : wx.getSystemInfoSync();
+                    var safe = info.safeArea || {};
+                    var w = info.windowWidth || 0;
+                    var h = info.windowHeight || 0;
+                    if ($0 === 0) {
+                        var top = safe.top || 0;
+                        try {
+                            var capsule = wx.getMenuButtonBoundingClientRect();
+                            if (capsule && capsule.bottom) top = Math.max(top, capsule.bottom);
+                        } catch (e) {}
+                        return top;
+                    }
+                    if ($0 === 1) return safe.left || 0;
+                    if ($0 === 2) return (safe.right && w > safe.right) ? (w - safe.right) : 0;
+                    return (safe.bottom && h > safe.bottom) ? (h - safe.bottom) : 0;
+                } catch (e) {
+                    return 0;
+                }
+            }, edge));
+        };
+        m_safeInsets = Vec4(inset(1), inset(0), inset(2), inset(3));
+        LogInfo("[Web] 安全区（CSS 像素）：左 %.1f 上 %.1f 右 %.1f 下 %.1f", m_safeInsets.x, m_safeInsets.y,
+                m_safeInsets.z, m_safeInsets.w);
         // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
         WeChatDebugStage("game.autostart.before");
         m_survivors->Reset(m_world);
@@ -427,27 +455,30 @@ void WebApp::ProcessEvent(SDL_Event& event) {
             const bool down = event.type == SDL_FINGERDOWN;
             const bool up = event.type == SDL_FINGERUP;
 
-            if (down) {
-                m_touchFinger = event.tfinger.fingerId;
-                // 右上角是游戏 HUD 的“Esc 暂停”区域：触摸等价于按 Esc。
-                if (m_survivors && x > static_cast<float>(ww) - 170.0f && y < 90.0f) {
-                    const auto state = m_survivors->GetState();
-                    if (state == SurvivorsDirector::State::Playing || state == SurvivorsDirector::State::Paused) {
-                        m_survivors->TogglePause();
+            if (down && m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Playing) {
+                // 暂停键是战斗 HUD 里唯一需要点的按钮；其余任意位置都立刻成为摇杆原点。
+                if (m_survivors->HitPauseButton(x, y)) {
+                    if (m_touchActive) {
+                        m_touchActive = false;
+                        m_touchFinger = -1;
+                        ReleaseTouchKeys();
                     }
+                    m_survivors->TogglePause();
                     break;
                 }
-                // 左半屏下方 = 摇杆；其余触摸交给 ImGui（按钮/菜单）。
-                if (m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Playing &&
-                    x < static_cast<float>(ww) * 0.45f && y > static_cast<float>(wh) * 0.45f) {
+                // 只让第一根手指驱动移动；摇杆 UI 完全隐藏，屏幕任意位置按下即可拖动。
+                if (!m_touchActive) {
                     m_touchActive = true;
+                    m_touchFinger = event.tfinger.fingerId;
                     m_touchOrigin = Vec2(x, y);
                     m_touchPosition = Vec2(x, y);
                 }
-            } else if (m_touchActive && (up || event.type == SDL_FINGERMOTION)) {
+            } else if (m_touchActive && event.tfinger.fingerId == m_touchFinger &&
+                       (event.type == SDL_FINGERMOTION || up)) {
                 m_touchPosition = Vec2(x, y);
                 if (up) {
                     m_touchActive = false;
+                    m_touchFinger = -1;
                     ReleaseTouchKeys();
                 }
             }
@@ -524,11 +555,11 @@ void WebApp::Render() {
     m_renderer.Render(m_scene, static_cast<u32>(drawableWidth), static_cast<u32>(drawableHeight));
 
     if (m_survivors) {
-        m_survivors->DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(windowWidth), static_cast<float>(windowHeight));
+        m_survivors->DrawUI(m_world, 0.0f, 0.0f, static_cast<float>(windowWidth),
+                            static_cast<float>(windowHeight), m_safeInsets);
         m_survivors->DrawCombatFeedback(m_world, m_scene.camera2D, 0.0f, 0.0f,
                                         static_cast<float>(windowWidth), static_cast<float>(windowHeight));
     }
-    DrawTouchUI(static_cast<float>(windowWidth), static_cast<float>(windowHeight));
 }
 
 void WebApp::ApplyStyle() {
@@ -627,36 +658,6 @@ void WebApp::ReleaseTouchKeys() {
     m_touchKeys = 0;
 }
 
-void WebApp::DrawTouchUI(float width, float height) {
-    if (!m_mobile || !m_survivors) return;
-    const auto state = m_survivors->GetState();
-    if (state != SurvivorsDirector::State::Playing && state != SurvivorsDirector::State::Paused) return;
-
-    ImDrawList* draw = ImGui::GetForegroundDrawList();
-    const float baseX = m_touchActive ? m_touchOrigin.x : 96.0f;
-    const float baseY = m_touchActive ? m_touchOrigin.y : height - 96.0f;
-    const ImU32 ring = IM_COL32(255, 255, 255, 42);
-    const ImU32 knob = IM_COL32(255, 214, 96, 110);
-    draw->AddCircleFilled(ImVec2(baseX, baseY), 58.0f, ring, 40);
-    draw->AddCircle(ImVec2(baseX, baseY), 58.0f, IM_COL32(255, 255, 255, 80), 40, 2.0f);
-
-    float knobX = baseX;
-    float knobY = baseY;
-    if (m_touchActive) {
-        const float dx = m_touchPosition.x - m_touchOrigin.x;
-        const float dy = m_touchPosition.y - m_touchOrigin.y;
-        const float length = std::sqrt(dx * dx + dy * dy);
-        const float radius = 58.0f;
-        if (length > radius) {
-            knobX += dx / length * radius;
-            knobY += dy / length * radius;
-        } else {
-            knobX += dx;
-            knobY += dy;
-        }
-    }
-    draw->AddCircleFilled(ImVec2(knobX, knobY), 24.0f, knob, 28);
-}
 
 void WebApp::Quit() {
     m_running = false;

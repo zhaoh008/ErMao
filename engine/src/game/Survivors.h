@@ -50,6 +50,19 @@ enum class SurvivorsPickupType : int {
 // 一局最多拥有 5 个技能：职业给的 1 个基础技能 + 最多 4 个掉落技能。
 constexpr int kSurvivorsSkillCount = 10;
 constexpr int kSurvivorsMaxLoadout = 5;
+
+// 地图面积相对原 90×54 基准扩大 5 倍（长宽各 ×√5）。玩家/敌人/宝箱的移动与刷新边界
+// 都从这里派生，避免扩大地面后还把怪锁在旧范围里。
+constexpr float kSurvivorsMapScale = 2.2360679f;
+constexpr float kSurvivorsMapWidth = 90.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsMapHeight = 54.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsArenaHalfX = 43.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsArenaHalfY = 25.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
+constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
+
+// 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
+constexpr const char* kSurvivorsVersion = "0.2.6";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -161,7 +174,7 @@ public:
     bool  alive = true;
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
-    Vec2  arenaHalf{43.0f, 25.0f};
+    Vec2  arenaHalf{kSurvivorsArenaHalfX, kSurvivorsArenaHalfY};
 
     void OnUpdate(float dt) override;
     void AddXp(float amount);
@@ -301,7 +314,7 @@ struct SurvivorsMinimapRect {
 };
 struct SurvivorsMinimapSnapshot {
     Vec2                              player;
-    Vec2                              arenaHalf{43.0f, 25.0f};
+    Vec2                              arenaHalf{kSurvivorsArenaHalfX, kSurvivorsArenaHalfY};
     std::vector<SurvivorsMinimapMarker> markers;
     std::vector<SurvivorsMinimapRect>   obstacles;
 };
@@ -386,7 +399,12 @@ public:
 
     void Reset(World& world);
     void Update(World& world, float dt);
-    void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight);
+    // safeInsets：左/上/右/下的系统安全区内边距（CSS 像素）。Web/微信宿主传入，
+    // 桌面端保持 0；手机 HUD 据此避开刘海、状态栏与微信胶囊。
+    void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight,
+                const Vec4& safeInsets = Vec4(0.0f, 0.0f, 0.0f, 0.0f));
+    // 触摸命中战斗 HUD 的暂停键（屏幕 CSS 像素，由最近一次 DrawUI 记录）。
+    bool HitPauseButton(float screenX, float screenY) const;
     // 头顶血条（世界坐标 → 屏幕）+ 漂浮伤害数字（2D 版）
     void DrawCombatFeedback(World& world, const Camera2D& camera, float viewportX, float viewportY,
                             float viewportWidth, float viewportHeight);
@@ -444,6 +462,7 @@ private:
     void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
+    void DrawMobileHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawGachaScreen(World& world, float vx, float vy, float vw, float vh);
@@ -480,6 +499,10 @@ private:
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;
+
+    // 手机 HUD：系统安全区（CSS 像素内边距）与暂停键屏幕命中框（x/y/w/h，CSS 像素）。
+    Vec4 m_safeInsets{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4 m_pauseHit{0.0f, 0.0f, 0.0f, 0.0f};
 
     // 增益宝箱抽奖状态（抽奖期间 m_time / 世界更新都冻结，只有这里的时间在走）
     float       m_gachaTime = 0.0f;

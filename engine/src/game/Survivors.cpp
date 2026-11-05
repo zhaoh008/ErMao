@@ -2251,8 +2251,8 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
     for (int attempt = 0; attempt < 8 && CircleHitsObstacle(spawn, archetype.contactRadius); ++attempt) {
         spawn += Vec2(RandomRange(-1.5f, 1.5f), RandomRange(-1.5f, 1.5f));
     }
-    spawn.x = Clamp(spawn.x, -40.0f, 40.0f);
-    spawn.y = Clamp(spawn.y, -22.0f, 22.0f);
+    spawn.x = Clamp(spawn.x, -kSurvivorsSpawnHalfX, kSurvivorsSpawnHalfX);
+    spawn.y = Clamp(spawn.y, -kSurvivorsSpawnHalfY, kSurvivorsSpawnHalfY);
 
     GameObject* enemy = SpawnSprite(world, archetype.name,
                                     archetype.animator ? "sprites/orc_walk.png" : "sprites/kenney_tilemap.png",
@@ -2385,7 +2385,7 @@ void SurvivorsDirector::SpawnBuffChest(World& world) {
         const float angle = Random01() * kTwoPi;
         const float distance = RandomRange(12.0f, 20.0f);
         const Vec2  candidate = origin + Vec2(std::cos(angle), std::sin(angle)) * distance;
-        if (std::fabs(candidate.x) <= 40.0f && std::fabs(candidate.y) <= 22.0f &&
+        if (std::fabs(candidate.x) <= kSurvivorsSpawnHalfX && std::fabs(candidate.y) <= kSurvivorsSpawnHalfY &&
             !CircleHitsObstacle(candidate, 0.7f)) {
             spawn = candidate;
             break;
@@ -3683,7 +3683,7 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         assets.CreateTextureRGBA("grass_proc", size, size, grass.data());
     }
 
-    // 地面：16x16 程序化石砖，64x64 重复成大贴图，1 个精灵铺满 90x54
+    // 地面：16x16 程序化石砖，64x64 重复成大贴图，2×2 张铺满扩大后的地图
     {
         const int size = 16;
         std::vector<u8> pixels(size * size * 4, 0);
@@ -3730,18 +3730,29 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
             }
         }
         assets.CreateTextureRGBA("floor_big", bigSize, bigSize, big.data());
-        SpawnSprite(world, "地面", "floor_big", Vec2(0.0f, 0.0f), Vec2(90.0f, 54.0f), -10);
+        // 2×2 张同样的石砖贴图铺满扩大后的地图，砖块世界尺寸与旧地图基本一致。
+        const float floorW = kSurvivorsMapWidth * 0.5f;
+        const float floorH = kSurvivorsMapHeight * 0.5f;
+        for (int gy = 0; gy < 2; ++gy) {
+            for (int gx = 0; gx < 2; ++gx) {
+                const Vec2 center((gx == 0 ? -0.5f : 0.5f) * floorW, (gy == 0 ? -0.5f : 0.5f) * floorH);
+                SpawnSprite(world, "地面", "floor_big", center, Vec2(floorW, floorH), -10);
+            }
+        }
     }
 
-    // 地图装饰：草和石子（无碰撞）
-    for (int i = 0; i < 80; ++i) {
-        const Vec2 position(RandomRange(-42.0f, 42.0f), RandomRange(-24.0f, 24.0f));
+    const float decorHalfX = kSurvivorsArenaHalfX - 1.0f;
+    const float decorHalfY = kSurvivorsArenaHalfY - 1.0f;
+
+    // 地图装饰：草和石子（无碰撞）。面积扩大 5 倍，数量也按 5 倍补足，避免大块空地。
+    for (int i = 0; i < 400; ++i) {
+        const Vec2 position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
         if (Length(position) < 2.5f) continue;
         if (CircleHitsObstacle(position, 0.8f)) continue;
         SpawnSprite(world, "草丛", "grass_proc", position, Vec2(0.85f, 0.85f), -9);
     }
-    for (int i = 0; i < 60; ++i) {
-        const Vec2 position(RandomRange(-42.0f, 42.0f), RandomRange(-24.0f, 24.0f));
+    for (int i = 0; i < 300; ++i) {
+        const Vec2 position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
         if (Length(position) < 2.5f) continue;
         if (CircleHitsObstacle(position, 0.6f)) continue;
         SpawnSprite(world, "石子", "pebble_proc", position, Vec2(0.55f, 0.55f), -9);
@@ -3760,14 +3771,23 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         }
     }
 
-    // 火把：纯装饰，但给暗色地图一点暖色光源
+    // 火把：纯装饰，但给暗色地图一点暖色光源；位置随地图同比例放大并补足外圈。
+    auto spawnTorch = [&](const Vec2& position) {
+        GameObject* torch =
+            SpawnSprite(world, "火把", "sprites/kenney_tilemap.png", position, Vec2(1.1f, 1.1f), -8);
+        if (auto* sprite = torch->GetComponent<SpriteRendererComponent>()) ApplyTileSprite(sprite, 10, 5);
+        g_torches.push_back(position);
+    };
     const Vec2 torchPositions[] = {{-10.0f, 6.0f},  {10.0f, 6.0f},  {-10.0f, -6.0f}, {10.0f, -6.0f},
                                    {-20.0f, 12.0f}, {20.0f, 12.0f}, {-20.0f, -12.0f}, {20.0f, -12.0f},
                                    {-30.0f, 0.0f},  {30.0f, 0.0f}};
-    for (const Vec2& position : torchPositions) {
-        GameObject* torch = SpawnSprite(world, "火把", "sprites/kenney_tilemap.png", position, Vec2(1.1f, 1.1f), -8);
-        if (auto* sprite = torch->GetComponent<SpriteRendererComponent>()) ApplyTileSprite(sprite, 10, 5);
-        g_torches.push_back(position);
+    for (const Vec2& base : torchPositions) {
+        spawnTorch(Vec2(base.x * kSurvivorsMapScale, base.y * kSurvivorsMapScale));
+    }
+    for (int i = 0; i < 24; ++i) {
+        const Vec2 position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
+        if (CircleHitsObstacle(position, 0.9f)) continue;
+        spawnTorch(position);
     }
 
     // 地图障碍：石柱、木箱、木桶、书架、围栏、桌子、大锅
@@ -3792,16 +3812,19 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         {-4.0f, -5.0f, 0.7f, 0.6f, 6, 3},     {7.0f, 5.0f, 0.7f, 0.6f, 6, 6},
         {-10.0f, 1.0f, 0.6f, 0.55f, 5, 6},    {10.0f, -1.0f, 0.6f, 0.55f, 5, 6},
     };
-    for (const ObstacleSpec& spec : obstacles) {
-        GameObject* object = SpawnSprite(world, "障碍", "sprites/kenney_tilemap.png", Vec2(spec.x, spec.y),
-                                         Vec2(spec.hx * 2.0f + 0.35f, spec.hy * 2.0f + 0.35f), 0);
+    auto spawnObstacle = [&](float x, float y, float hx, float hy, int row, int col) {
+        GameObject* object = SpawnSprite(world, "障碍", "sprites/kenney_tilemap.png", Vec2(x, y),
+                                         Vec2(hx * 2.0f + 0.35f, hy * 2.0f + 0.35f), 0);
         if (auto* sprite = object->GetComponent<SpriteRendererComponent>()) {
-            ApplyTileSprite(sprite, spec.row, spec.col);
+            ApplyTileSprite(sprite, row, col);
             sprite->color = Vec4(0.95f, 0.95f, 0.95f, 1.0f);
         }
-        g_obstacles.push_back({Vec2(spec.x, spec.y), Vec2(spec.hx, spec.hy)});
+        g_obstacles.push_back({Vec2(x, y), Vec2(hx, hy)});
+    };
+    for (const ObstacleSpec& spec : obstacles) {
+        spawnObstacle(spec.x * kSurvivorsMapScale, spec.y * kSurvivorsMapScale, spec.hx, spec.hy, spec.row,
+                      spec.col);
     }
-
     // 玩家
     GameObject* player = SpawnSprite(world, "玩家", "sprites/soldier_idle.png", Vec2(0.0f, 0.0f), Vec2(1.8f, 1.8f), 5);
     auto* animator = player->AddComponent<SpriteAnimatorComponent>();
@@ -3813,8 +3836,10 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     }
     animator->OnUpdate(0.0f);
     auto* playerComponent = player->AddComponent<SurvivorsPlayerComponent>();
-    playerComponent->arenaHalf = Vec2(43.0f, 25.0f);
+    playerComponent->arenaHalf = Vec2(kSurvivorsArenaHalfX, kSurvivorsArenaHalfY);
     playerComponent->RefreshDerivedStats();
+    LogInfo("[2D] 地图边界：玩家 ±%.1f × ±%.1f，刷怪/宝箱 ±%.1f × ±%.1f", playerComponent->arenaHalf.x,
+            playerComponent->arenaHalf.y, kSurvivorsSpawnHalfX, kSurvivorsSpawnHalfY);
 
     // 装饰随机数固定，避免关卡每次加载长得不一样；玩法随机数再复位
     g_rng.seed(0x12345u);
