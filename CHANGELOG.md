@@ -73,6 +73,7 @@
 
 ### Fixed
 
+- 2D 幸存者：读档时 `loadoutMask` 仍按 6 位（`& 0x3F`）截断，陨石/黑洞/棱镜光束/毒爆（bit 6–9）在“保存并返回主菜单 → 继续游戏”后静默丢失；现与 `NormalizeLoadoutMask` 的 10 位上限（`0x3FF`）对齐（ERMAO-AUDIT-075）
 - 微信 8.0.80/iOS：WasmPatch 改动 wasm 函数表导致 Emscripten `getWasmTableEntry` 的 `wasmTableMirror` 断言 abort（“JavaScript-side Wasm function table mirror is out of date!”）；构建 glue 改为直接读 `wasmTable.get()`，修复启动后立即报“游戏遇到错误”
 - Web/微信小游戏：抽奖动画开始时导演状态为 `Gacha`，`WebApp::Update` 只在 `Playing` 时推进导演，`m_gachaTime` 停在 0，开箱动画卡死、点击也等不到 reveal；`Gacha` 状态也继续推进导演（世界更新仍冻结），安卓 H5 同样受益
 - 微信小游戏 iOS：ImGui 每帧 `glGetIntegerv` 保存 GL 状态，WXWebGL 对 `GL_TEXTURE_BINDING_2D`/`GL_CURRENT_PROGRAM`/`GL_ARRAY_BUFFER_BINDING` 等多个 pname 返回 undefined，`glGet0v` 日志刷屏并明显卡顿；Emscripten 下跳过每帧与初始化时的 GL 状态查询/恢复，清屏前关闭 scissor，保留桌面 GL 行为
