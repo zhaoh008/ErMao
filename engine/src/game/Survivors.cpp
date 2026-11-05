@@ -2784,7 +2784,7 @@ bool SurvivorsDirector::LoadGame(World& world) {
     m_playerClass = Clamp(playerJson["playerClass"].AsInt(kSurvivorsDefaultClass), 0,
                           kSurvivorsClassCount - 1);
     const int baseSkill = kSurvivorsClasses[m_playerClass].baseSkill;
-    int       savedMask = playerJson["loadoutMask"].AsInt(1 << baseSkill) & 0x3F;
+    int       savedMask = playerJson["loadoutMask"].AsInt(1 << baseSkill) & 0x3FF;
     savedMask |= (1 << baseSkill);
     const int baseMask = 1 << baseSkill;
     Reset(world);
