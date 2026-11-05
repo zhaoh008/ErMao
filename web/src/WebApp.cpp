@@ -257,7 +257,14 @@ bool WebApp::Init() {
     if (search && std::strstr(search, "play=1")) {
         m_survivors->Reset(m_world);
     }
+    // 截图走查：与桌面 --ui-preview 共用同一份状态构造逻辑。
     if (search) {
+        const char* preview = std::strstr(search, "ui-preview=");
+        if (preview) {
+            std::string screen;
+            for (const char* p = preview + 11; *p && *p != '&' && *p != '#'; ++p) screen.push_back(*p);
+            if (!screen.empty()) m_survivors->ApplyPreviewState(m_world, screen);
+        }
         const char* frames = std::strstr(search, "frames=");
         if (frames) m_prewarmFrames = std::atoi(frames + 7);
     }
@@ -620,9 +627,22 @@ bool WebApp::LoadFonts() {
 
     m_bodyFont = AddFont(io, fontPath.c_str(), 24.0f, ranges.Data);
     m_largeFont = AddFont(io, fontPath.c_str(), 48.0f, ranges.Data);
-    m_displayFont = AddFont(io, fontPath.c_str(), 96.0f, ranges.Data);
+
+    // 标题用素材包里的书法字体子集（只含“二毛幸存者”+ASCII），正文仍用 Apache-2.0 的
+    // 文泉驿子集，保证小字号中文清晰。
+    const std::string titleFontPath = FileSystem::AssetPath("fonts/InkWashTitle.ttf");
+    if (!titleFontPath.empty()) {
+        ImFontGlyphRangesBuilder titleBuilder;
+        titleBuilder.AddRanges(io.Fonts->GetGlyphRangesDefault());
+        titleBuilder.AddText("二毛幸存者");
+        ImVector<ImWchar> titleRanges;
+        titleBuilder.BuildRanges(&titleRanges);
+        m_displayFont = AddFont(io, titleFontPath.c_str(), 96.0f, titleRanges.Data);
+    }
+    if (!m_displayFont) m_displayFont = AddFont(io, fontPath.c_str(), 96.0f, ranges.Data);
     if (!m_bodyFont || !m_largeFont || !m_displayFont) return false;
-    LogInfo("[Web] UI 字体: %s", fontPath.c_str());
+    LogInfo("[Web] UI 字体: %s / 标题 %s", fontPath.c_str(),
+            titleFontPath.empty() ? "(BODY)" : titleFontPath.c_str());
     return true;
 }
 

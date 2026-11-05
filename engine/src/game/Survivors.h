@@ -62,7 +62,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.2.6";
+constexpr const char* kSurvivorsVersion = "0.3.0";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -338,6 +338,7 @@ public:
     float poisonTimer = 0.0f;
     float bobPhase = 0.0f;
     float contactRadius = 0.75f;
+    float visualHeight = 1.6f; // 精灵世界高度（头顶血条定位用）
     int   dropCount = 1;
     Vec4  baseColor{1.0f, 1.0f, 1.0f, 1.0f};
 
@@ -347,6 +348,19 @@ public:
 private:
     float m_attackTimer = 0.0f;
     float m_strafeSign = 0.0f; // 绕障碍时的固定转向，避免左右抖动
+};
+
+// ---------------------------------------------------------------- 尸体/墨点（短生命周期装饰）
+class SurvivorsCorpseComponent : public Component {
+public:
+    ER_COMPONENT(SurvivorsCorpseComponent, "Survivors Corpse")
+
+    float life = 0.8f;
+    float age = 0.0f;
+    float startAlpha = 1.0f;
+    bool  fade = true;
+
+    void OnUpdate(float dt) override;
 };
 
 // ---------------------------------------------------------------- 投射物
