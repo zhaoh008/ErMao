@@ -1,0 +1,24 @@
+水墨国风素材登记（2D 幸存者）
+
+来源：用户提供的素材包
+  D:\GameEngine\game\Q版水墨国风（行侠仗义五千年）
+用途：本项目 2D 幸存者演示的画面、UI 与技能特效重构。
+授权：素材版权归原权利方所有；由用户在本地提供并指定用于本项目。
+      公开分发、商用或再分发前，需要用户确认已获得相应授权。
+      本目录只保存实际用到的子集，原始素材包不入库。
+
+目录内容（由 tools/import_inkwash_assets.py 从素材包烘焙）：
+  menu.jpg                 主菜单背景（场景背景/jj_bg_03 + 笔触 + 印章合成）
+  ground.png               桃花谷无缝草地（8×5 铺地）
+  panel/slot/btn_*         水墨漆面面板、技能槽、按钮
+  bar_* / crest / chest*   进度条、纹章、宝箱
+  icon_0..9                十种武学图标
+  hero_0..2                职业立绘
+  prop_*                   古树、香炉、山石、石灯、酒坛、石案
+  player_* / enemy_*       玩家与怪物 idle/run/death 横向序列帧
+  fx_*                     剑气、雷、霜、毒、火、陨石、黑洞、棱镜、毒爆、墨点
+  arrow.png                箭矢
+
+字体：
+  fonts/InkWashTitle.ttf   素材包 Font/MiniJYH.ttf 的子集（仅标题+ASCII）
+  fonts/ErMaoUI.ttf        仍为 WenQuanYi Micro Hei（Apache-2.0）子集，补充了新 UI 文案

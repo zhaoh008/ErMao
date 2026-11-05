@@ -376,24 +376,91 @@ GameObject* SpawnSprite(World& world, const std::string& name, const std::string
 }
 
 void SpawnGem(World& world, const Vec2& position, float value) {
-    GameObject* gem = SpawnSprite(world, "宝石", "gem_proc", position, Vec2(0.5f, 0.5f), 3);
+    GameObject* gem = SpawnSprite(world, "宝石", "inkwash/gem.png", position, Vec2(0.55f, 0.55f), 3);
     auto*       component = gem->AddComponent<SurvivorsGemComponent>();
     component->value = value;
     component->magnetRange = 6.0f;
+    if (auto* sprite = gem->GetComponent<SpriteRendererComponent>()) {
+        sprite->color = Vec4(0.95f, 1.0f, 0.95f, 1.0f);
+    }
+}
+
+// 掉落物统一使用对应武学的道具图标；技能本身用大图标、强化用略小的图标。
+int PickupSkillIndex(int type) {
+    switch (static_cast<SurvivorsPickupType>(type)) {
+        case SurvivorsPickupType::ArrowSpread:
+        case SurvivorsPickupType::ArrowAttackSpeed:
+        case SurvivorsPickupType::ArrowAttackDamage:
+        case SurvivorsPickupType::ArrowRange: return 0;
+        case SurvivorsPickupType::LightningUpgrade: return 1;
+        case SurvivorsPickupType::BladeUpgrade: return 2;
+        case SurvivorsPickupType::FrostUpgrade: return 3;
+        case SurvivorsPickupType::PoisonUpgrade: return 4;
+        case SurvivorsPickupType::FireballUpgrade: return 5;
+        case SurvivorsPickupType::MeteorUpgrade: return 6;
+        case SurvivorsPickupType::SingularityUpgrade: return 7;
+        case SurvivorsPickupType::PrismUpgrade: return 8;
+        case SurvivorsPickupType::PlagueUpgrade: return 9;
+        default: return -1;
+    }
+}
+
+const char* PickupTexture(int type) {
+    if (IsSkillUnlockType(type)) {
+        const int skill = SkillFromUnlockType(type);
+        static const char* kPaths[kSurvivorsSkillCount] = {
+            "inkwash/icon_0.png", "inkwash/icon_1.png", "inkwash/icon_2.png", "inkwash/icon_3.png",
+            "inkwash/icon_4.png", "inkwash/icon_5.png", "inkwash/icon_6.png", "inkwash/icon_7.png",
+            "inkwash/icon_8.png", "inkwash/icon_9.png"};
+        if (skill >= 0 && skill < kSurvivorsSkillCount) return kPaths[skill];
+    }
+    if (static_cast<SurvivorsPickupType>(type) == SurvivorsPickupType::ArrowHealthPotion) {
+        return "inkwash/health.png";
+    }
+    const int skill = PickupSkillIndex(type);
+    if (skill >= 0) {
+        static const char* kPaths[kSurvivorsSkillCount] = {
+            "inkwash/icon_0.png", "inkwash/icon_1.png", "inkwash/icon_2.png", "inkwash/icon_3.png",
+            "inkwash/icon_4.png", "inkwash/icon_5.png", "inkwash/icon_6.png", "inkwash/icon_7.png",
+            "inkwash/icon_8.png", "inkwash/icon_9.png"};
+        return kPaths[skill];
+    }
+    return "inkwash/xp.png";
 }
 
 void SpawnPickup(World& world, const Vec2& position, int type) {
     const bool  skillUnlock = IsSkillUnlockType(type);
     const float size = skillUnlock ? 1.15f : 0.85f;
-    GameObject* pickup = SpawnSprite(world, skillUnlock ? "技能掉落" : "强化道具", "pickup_proc", position,
+    GameObject* pickup = SpawnSprite(world, skillUnlock ? "技能掉落" : "强化道具", PickupTexture(type), position,
                                      Vec2(size, size), 4);
     auto*       sprite = pickup->GetComponent<SpriteRendererComponent>();
-    if (sprite) sprite->color = GetPickupInfo(type).color;
+    if (sprite) sprite->color = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
     auto* component = pickup->AddComponent<SurvivorsPickupComponent>();
     component->type = type;
     // 时间保底以“新技能真正掉到地上”为准；所有掉落路径（击杀/新手兜底/时间保底）共用。
     if (skillUnlock) g_lastSkillDropTime = g_gameTime;
     g_pickups.push_back(pickup);
+}
+
+// 短命装饰：死亡残影 / 墨点。sprite 用 addComponent 的动画组件播放序列帧。
+void SpawnCorpse(World& world, const Vec2& position, const std::string& texture, int columns, float size,
+                 float life, float alpha, const Vec4& tint = Vec4(1, 1, 1, 1), float fps = 12.0f) {
+    GameObject* corpse = SpawnSprite(world, "残影", texture, position, Vec2(size, size), 2);
+    if (auto* sprite = corpse->GetComponent<SpriteRendererComponent>()) {
+        sprite->color = Vec4(tint.x, tint.y, tint.z, tint.w * alpha);
+        sprite->offset = Vec2(0.0f, size * 0.5f);
+    }
+    if (columns > 1) {
+        if (auto* animator = corpse->AddComponent<SpriteAnimatorComponent>()) {
+            animator->fps = fps;
+            animator->loop = false;
+            animator->OnUpdate(0.0f);
+        }
+    }
+    if (auto* component = corpse->AddComponent<SurvivorsCorpseComponent>()) {
+        component->life = life;
+        component->startAlpha = alpha;
+    }
 }
 
 int PickSkillUnlockType(const SurvivorsPlayerComponent& player) {
@@ -762,37 +829,29 @@ void UpdateFireballs(World& world, float dt) {
 }
 
 // ---------------------------------------------------------------- 敌人外观
-void ApplyTileSprite(SpriteRendererComponent* sprite, int row, int col) {
-    constexpr float tileWidth = 16.0f / 192.0f;
-    constexpr float tileHeight = 16.0f / 176.0f;
-    sprite->texture = "sprites/kenney_tilemap.png";
-    sprite->uv = Vec4(static_cast<float>(col) * tileWidth, static_cast<float>(row) * tileHeight,
-                      static_cast<float>(col + 1) * tileWidth, static_cast<float>(row + 1) * tileHeight);
-}
-
 struct EnemyArchetype {
     const char* name;
     float       hp;
     float       speed;
     float       damage;
     float       xp;
-    float       scale;
+    float       spriteWidth;   // 精灵世界宽度（高度按序列帧画布比例）
     float       contactRadius;
     float       attackInterval;
     Vec4        color;
-    int         tileRow;
-    int         tileCol;
-    bool        animator;
+    const char* runTexture;
+    const char* deathTexture;
+    int         deathFrames;
 };
 
 const EnemyArchetype kEnemyArchetypes[] = {
-    // name          hp    speed  dmg   xp   scale contact atkInt color                              row col anim
-    {"兽人",         18.0f, 1.90f, 8.0f, 3.0f, 1.70f, 0.75f, 0.80f, Vec4(1.00f, 1.00f, 1.00f, 1.00f), -1, -1, true},
-    {"史莱姆",       34.0f, 1.15f, 5.0f, 4.0f, 1.45f, 0.70f, 1.10f, Vec4(0.70f, 1.00f, 0.75f, 1.00f),  9,  0, false},
-    {"幽灵",         12.0f, 3.10f, 7.0f, 2.5f, 1.50f, 0.65f, 0.70f, Vec4(0.78f, 0.88f, 1.00f, 0.88f), 10,  1, false},
-    {"蜘蛛",         10.0f, 3.80f, 5.0f, 2.0f, 1.25f, 0.60f, 0.55f, Vec4(1.00f, 0.86f, 0.76f, 1.00f), 10,  2, false},
-    {"骷髅骑士",     62.0f, 1.60f, 12.0f, 8.0f, 1.85f, 0.85f, 0.95f, Vec4(0.82f, 0.88f, 1.00f, 1.00f),  8,  0, false},
-    {"兽人精英",    120.0f, 1.45f, 16.0f, 18.0f, 2.60f, 1.10f, 1.00f, Vec4(1.00f, 0.65f, 0.45f, 1.00f), -1, -1, true},
+    // name        hp    speed  dmg   xp   sprite contact atkInt color                                 run                          death                          frames
+    {"山贼",       18.0f, 1.90f, 8.0f, 3.0f, 2.15f, 0.75f, 0.80f, Vec4(1.00f, 1.00f, 1.00f, 1.00f), "inkwash/enemy_0_run.png", "inkwash/enemy_0_death.png", 5},
+    {"石人",       34.0f, 1.15f, 5.0f, 4.0f, 1.95f, 0.70f, 1.10f, Vec4(0.92f, 1.00f, 0.94f, 1.00f), "inkwash/enemy_1_run.png", "inkwash/enemy_1_death.png", 5},
+    {"飞鹰",       12.0f, 3.10f, 7.0f, 2.5f, 2.70f, 0.65f, 0.70f, Vec4(0.84f, 0.92f, 1.00f, 0.94f), "inkwash/enemy_2_run.png", "inkwash/enemy_2_death.png", 10},
+    {"毒蛛",       10.0f, 3.80f, 5.0f, 2.0f, 1.55f, 0.60f, 0.55f, Vec4(0.96f, 0.86f, 1.00f, 1.00f), "inkwash/enemy_3_run.png", "inkwash/enemy_3_death.png", 5},
+    {"官兵",       62.0f, 1.60f, 12.0f, 8.0f, 2.35f, 0.85f, 0.95f, Vec4(0.94f, 0.96f, 1.00f, 1.00f), "inkwash/enemy_4_run.png", "inkwash/enemy_4_death.png", 5},
+    {"虎王",      120.0f, 1.45f, 16.0f, 18.0f, 3.25f, 1.10f, 1.00f, Vec4(1.00f, 0.90f, 0.82f, 1.00f), "inkwash/enemy_5_run.png", "inkwash/enemy_5_death.png", 4},
 };
 
 int PickEnemyType(float time) {
@@ -1573,14 +1632,18 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
         m_owner->SetPosition(position);
         if (Length(next - oldPosition) > 0.001f) facing = SafeDir(next - oldPosition);
 
-        if (sprite && sprite->texture != "sprites/soldier_walk.png") {
-            sprite->texture = "sprites/soldier_walk.png";
+        const std::string runTexture = "inkwash/player_" + std::to_string(Clamp(playerClass, 0, 2)) + "_run.png";
+        if (sprite && sprite->texture != runTexture) {
+            sprite->texture = runTexture;
             if (animator) animator->Play(12.0f);
         }
         if (sprite) sprite->flipX = facing.x < 0.0f;
-    } else if (sprite && sprite->texture != "sprites/soldier_idle.png") {
-        sprite->texture = "sprites/soldier_idle.png";
-        if (animator) animator->Play(6.0f);
+    } else if (sprite) {
+        const std::string idleTexture = "inkwash/player_" + std::to_string(Clamp(playerClass, 0, 2)) + "_idle.png";
+        if (sprite->texture != idleTexture) {
+            sprite->texture = idleTexture;
+            if (animator) animator->Play(6.0f);
+        }
     }
 
     // 自动攻击：有敌人时锁定最近目标；没有目标时朝面朝方向射击
@@ -1609,11 +1672,11 @@ void SurvivorsPlayerComponent::FireArrow(const Vec2& origin, const Vec2& directi
     const Vec2  spawn = origin + dir * 0.55f;
     const float angle = std::atan2(dir.y, dir.x);
 
-    GameObject* arrow = SpawnSprite(*world, "箭", "sprites/arrow.png", spawn, Vec2(0.9f, 0.9f), 2);
+    GameObject* arrow = SpawnSprite(*world, "箭", "inkwash/arrow.png", spawn, Vec2(0.95f, 0.48f), 2);
     if (auto* sprite = arrow->GetComponent<SpriteRendererComponent>()) {
-        sprite->uv = Vec4(0.219f, 0.406f, 0.812f, 0.625f);
-        sprite->rotation = angle;
-        sprite->color = Vec4(1.0f, 0.95f, 0.6f, 1.0f);
+        // 素材箭头的箭尖朝左，飞行方向是 +X，因此整体再转 180°。
+        sprite->rotation = angle + kPi;
+        sprite->color = Vec4(1.0f, 0.93f, 0.72f, 1.0f);
     }
 
     auto* projectile = arrow->AddComponent<SurvivorsProjectileComponent>();
@@ -1993,6 +2056,13 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
         SpawnPickupForKill(*world, position, *this);
         ++g_kills;
         PlaySfx("death", 0.30f, 0.90f + Random01() * 0.20f);
+        if (type >= 0 && type < static_cast<int>(SurvivorsEnemyType::Count)) {
+            const EnemyArchetype& archetype = kEnemyArchetypes[type];
+            SpawnCorpse(*world, position, archetype.deathTexture, archetype.deathFrames,
+                        visualHeight * 0.92f, 0.62f, 0.85f, Vec4(1, 1, 1, 1), 12.0f);
+            SpawnCorpse(*world, position + Vec2(0.0f, 0.25f), "inkwash/fx_ink.png", 1, 1.15f, 0.32f, 0.55f,
+                        Vec4(0.16f, 0.15f, 0.13f, 1.0f));
+        }
         g_enemies.erase(std::remove(g_enemies.begin(), g_enemies.end(), m_owner), g_enemies.end());
         world->DestroyObject(m_owner);
         return;
@@ -2067,6 +2137,21 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
     // 之前条件写反了，向右追击玩家时会翻成背对玩家，看起来像“屁股对人倒着走”。
     if (sprite && Length(moved) > 0.001f && std::abs(moved.x) > 1e-4f) {
         sprite->flipX = moved.x < 0.0f;
+    }
+}
+
+void SurvivorsCorpseComponent::OnUpdate(float dt) {
+    if (!m_owner) return;
+    age += dt;
+    if (fade) {
+        if (auto* sprite = m_owner->GetComponent<SpriteRendererComponent>()) {
+            const float t = Clamp01(age / (life > 1e-4f ? life : 1e-4f));
+            const float fadeFactor = 1.0f - Clamp01((t - 0.55f) / 0.45f);
+            sprite->color.w = startAlpha * fadeFactor;
+        }
+    }
+    if (age >= life) {
+        if (World* world = GetWorld()) world->DestroyObject(m_owner);
     }
 }
 
@@ -2254,18 +2339,16 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
     spawn.x = Clamp(spawn.x, -kSurvivorsSpawnHalfX, kSurvivorsSpawnHalfX);
     spawn.y = Clamp(spawn.y, -kSurvivorsSpawnHalfY, kSurvivorsSpawnHalfY);
 
-    GameObject* enemy = SpawnSprite(world, archetype.name,
-                                    archetype.animator ? "sprites/orc_walk.png" : "sprites/kenney_tilemap.png",
-                                    spawn, Vec2(archetype.scale, archetype.scale), 1);
+    // 从素材包序列帧烘焙的横向精灵表：帧为正方形，SpriteAnimator 自动推算列数。
+    GameObject* enemy = SpawnSprite(world, archetype.name, archetype.runTexture, spawn,
+                                    Vec2(archetype.spriteWidth, archetype.spriteWidth), 1);
     if (auto* sprite = enemy->GetComponent<SpriteRendererComponent>()) {
-        if (!archetype.animator) ApplyTileSprite(sprite, archetype.tileRow, archetype.tileCol);
         sprite->color = archetype.color;
+        sprite->offset = Vec2(0.0f, archetype.spriteWidth * 0.5f);
     }
-    if (archetype.animator) {
-        auto* animator = enemy->AddComponent<SpriteAnimatorComponent>();
+    if (auto* animator = enemy->AddComponent<SpriteAnimatorComponent>()) {
         animator->fps = 10.0f;
-        animator->frameMin = Vec2(0.440f, 0.410f);
-        animator->frameMax = Vec2(0.660f, 0.580f);
+        animator->OnUpdate(0.0f);
     }
 
     auto* component = enemy->AddComponent<SurvivorsEnemyComponent>();
@@ -2278,6 +2361,7 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
     component->xpValue = archetype.xp;
     component->contactRadius = archetype.contactRadius;
     component->baseColor = archetype.color;
+    component->visualHeight = archetype.spriteWidth;
     component->bobPhase = Random01() * kTwoPi;
     component->dropCount = index == static_cast<int>(SurvivorsEnemyType::Elite)
                                ? 3
@@ -2394,12 +2478,8 @@ void SurvivorsDirector::SpawnBuffChest(World& world) {
 
     const float roll = Random01();
     const int   rarity = roll < 0.10f ? 2 : (roll < 0.40f ? 1 : 0);
-    // 地图上用 Kenney Tiny Dungeon 的宝箱图标（第 7 行第 7 列），抽奖时再切到开启序列帧。
-    GameObject* chest = SpawnSprite(world, "增益宝箱", "sprites/kenney_tilemap.png", spawn, Vec2(1.15f, 1.15f), 4);
-    if (auto* sprite = chest->GetComponent<SpriteRendererComponent>()) {
-        ApplyTileSprite(sprite, 7, 7);
-        sprite->color = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
-    }
+    // 地图上用素材包宝箱图标，抽奖时再切到开启图。
+    GameObject* chest = SpawnSprite(world, "增益宝箱", "inkwash/chest.png", spawn, Vec2(1.55f, 1.4f), 4);
     if (auto* component = chest->AddComponent<SurvivorsBuffComponent>()) component->rarity = rarity;
     g_buffChests.push_back(chest);
 }
@@ -3119,8 +3199,8 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 SpawnBuffChest(world);
                 SpawnBuffChest(world);
                 // 近身宝箱：验证拾取/抽奖 toast；远处宝箱留在地图上给小地图标记。
-                GameObject* nearChest = SpawnSprite(world, "增益宝箱", "pickup_proc", center + Vec2(0.6f, 0.0f),
-                                                    Vec2(1.35f, 1.35f), 4);
+                GameObject* nearChest = SpawnSprite(world, "增益宝箱", "inkwash/chest.png", center + Vec2(0.6f, 0.0f),
+                                                    Vec2(1.55f, 1.4f), 4);
                 if (auto* buff = nearChest->AddComponent<SurvivorsBuffComponent>()) buff->rarity = 1;
                 g_buffChests.push_back(nearChest);
             }
@@ -3128,9 +3208,8 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
     } else if (screen == "chest") {
         seed(false);
         // 走查截图：固定放一个史诗宝箱，不进入拾取半径，方便和旧版图标做同场景对比。
-        GameObject* chest = SpawnSprite(world, "增益宝箱", "sprites/kenney_tilemap.png", Vec2(2.4f, 0.6f),
-                                        Vec2(1.15f, 1.15f), 4);
-        if (auto* sprite = chest->GetComponent<SpriteRendererComponent>()) ApplyTileSprite(sprite, 7, 7);
+        GameObject* chest = SpawnSprite(world, "增益宝箱", "inkwash/chest.png", Vec2(2.4f, 0.6f),
+                                        Vec2(1.55f, 1.4f), 4);
         if (auto* buff = chest->AddComponent<SurvivorsBuffComponent>()) buff->rarity = 2;
         g_buffChests.push_back(chest);
     } else if (screen == "gacha" || screen == "gacha-burst") {
@@ -3292,43 +3371,56 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
     draw->PushClipRect(ImVec2(viewportX, viewportY),
                        ImVec2(viewportX + viewportWidth, viewportY + viewportHeight), true);
 
+    // 水墨暗角：只压世界，不压 UI，让战场边缘像宣纸上的淡墨。
+    {
+        const float edge = (std::min)(viewportWidth, viewportHeight) * 0.16f;
+        draw->AddRectFilledMultiColor(ImVec2(viewportX, viewportY), ImVec2(viewportX + viewportWidth, viewportY + edge),
+                                      IM_COL32(22, 26, 18, 95), IM_COL32(22, 26, 18, 95), IM_COL32(22, 26, 18, 0),
+                                      IM_COL32(22, 26, 18, 0));
+        draw->AddRectFilledMultiColor(ImVec2(viewportX, viewportY + viewportHeight - edge),
+                                      ImVec2(viewportX + viewportWidth, viewportY + viewportHeight),
+                                      IM_COL32(22, 26, 18, 0), IM_COL32(22, 26, 18, 0), IM_COL32(22, 26, 18, 95),
+                                      IM_COL32(22, 26, 18, 95));
+    }
+
     GameObject* player = FindPlayer(world);
     auto*       playerComponent = player ? player->GetComponent<SurvivorsPlayerComponent>() : nullptr;
     if (player && playerComponent) {
         const Vec2 center(player->Position().x, player->Position().y);
         const ImVec2 centerScreen = project(center);
 
-        // 毒雾光环（未携带毒雾时不绘制）
+        // 毒雾光环：素材包毒地 + 墨烟，未携带毒雾时不绘制。
         if (playerComponent->HasSkill(4)) {
             const float auraRadius = playerComponent->PoisonRadius() * pixelsPerUnit;
-            // 柔和的多层雾圈 + 透明烟雾贴图，避免只有一个硬边绿圆。
-            for (int i = 0; i < 3; ++i) {
-                const float radius = auraRadius * (1.0f - static_cast<float>(i) * 0.16f);
-                draw->AddCircleFilled(centerScreen, radius, IM_COL32(60, 190, 85, 10), 56);
-            }
-            draw->AddCircle(centerScreen, auraRadius, IM_COL32(95, 235, 115, 70), 56, 1.5f);
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
-            drawSheet(m_ui.fxPoison, 1, 1, 0, center, auraRadius / pixelsPerUnit, auraRadius / pixelsPerUnit,
-                      IM_COL32(90, 220, 110, 42), m_time * 0.15f);
+            drawSheet(m_ui.fxPoisonGround, 1, 1, 0, center, playerComponent->PoisonRadius(),
+                      playerComponent->PoisonRadius(), IM_COL32(120, 210, 95, 46), m_time * 0.08f);
+            for (int i = 0; i < 5; ++i) {
+                const float angle = m_time * 0.35f + static_cast<float>(i) * kTwoPi / 5.0f;
+                const Vec2  puffCenter = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->PoisonRadius() * 0.6f;
+                const int   frame = static_cast<int>(m_time * 6.0f + static_cast<float>(i) * 3.0f) % 16;
+                drawSheet(m_ui.fxPoison, 4, 4, frame, puffCenter, 1.0f + 0.2f * std::sin(m_time + i), 1.0f,
+                          IM_COL32(105, 220, 105, 30), angle);
+            }
+            draw->AddCircle(centerScreen, auraRadius, IM_COL32(120, 230, 120, 48), 56, 1.2f);
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
         }
 
-        // 回旋刃：先画一圈环绕轨道，让飞剑的作用范围一眼可见。
+        // 回旋刃：环绕轨道 + 素材包飞剑/月牙剑气。
         const int bladeCount = playerComponent->BladeCount();
         if (bladeCount > 0) {
             const float orbitRadius = playerComponent->BladeRadius() * pixelsPerUnit;
-            draw->AddCircle(centerScreen, orbitRadius, IM_COL32(196, 214, 255, 46), 72, 2.0f);
-            draw->AddCircle(centerScreen, orbitRadius - 2.0f, IM_COL32(196, 214, 255, 22), 72, 2.0f);
-            const float bladeLength = playerComponent->BladeSize();
+            draw->AddCircle(centerScreen, orbitRadius, IM_COL32(214, 186, 120, 40), 72, 1.5f);
             for (int i = 0; i < bladeCount; ++i) {
                 const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
                                                                           static_cast<float>(bladeCount);
                 const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
-                const Vec2 tangent(-std::sin(angle), std::cos(angle));
-                const ImVec2 p0 = project(tip - tangent * bladeLength);
-                const ImVec2 p1 = project(tip + tangent * bladeLength);
-                draw->AddLine(p0, p1, IM_COL32(225, 235, 255, 235), 4.0f);
-                draw->AddCircleFilled(project(tip), 4.0f, IM_COL32(255, 255, 255, 210));
+                draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
+                drawSheet(m_ui.fxSword, 1, 1, 0, tip, 0.30f, 0.62f, IM_COL32(245, 240, 220, 245), angle);
+                drawSheet(m_ui.fxBlade, 2, 2, static_cast<int>(m_time * 16.0f + i) % 4, tip,
+                          playerComponent->BladeSize() * 0.55f, playerComponent->BladeSize() * 0.55f,
+                          IM_COL32(150, 240, 255, 190), angle + kPi * 0.5f);
+                draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
             }
         }
     }
@@ -3396,7 +3488,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
     // 技能特效贴图（线性采样，避免序列帧被拉成硬边）
     draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
 
-    // 回旋刃：刃口带一点奥术拖影，让环绕轨迹更醒目
+    // 回旋刃：月牙剑气拖影（素材包 2×2 序列帧）。
     if (player && playerComponent && playerComponent->HasSkill(2)) {
         const Vec2 center(player->Position().x, player->Position().y);
         const int  bladeCount = playerComponent->BladeCount();
@@ -3404,13 +3496,13 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
             const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
                                                                       static_cast<float>((std::max)(1, bladeCount));
             const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
-            const float bladeSize = playerComponent->BladeSize() * 1.15f;
-            drawSheet(m_ui.fxArcane, 7, 1, static_cast<int>(m_time * 18.0f + i) % 7, tip, bladeSize, bladeSize,
-                      IM_COL32(220, 235, 255, 165), angle + kPi * 0.5f);
+            drawSheet(m_ui.fxBlade, 2, 2, static_cast<int>(m_time * 18.0f + i) % 4, tip,
+                      playerComponent->BladeSize() * 0.55f, playerComponent->BladeSize() * 0.55f,
+                      IM_COL32(190, 245, 255, 150), angle + kPi * 0.5f);
         }
     }
 
-    // 棱镜光束：旋转的发光长束
+    // 棱镜光束：素材包的晶龙光束沿旋转方向拉长，模拟穿透光柱。
     if (player && playerComponent && playerComponent->HasSkill(8)) {
         const Vec2  center(player->Position().x, player->Position().y);
         const int   beamCount = playerComponent->PrismBeamCount();
@@ -3419,124 +3511,114 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
             const float angle = playerComponent->PrismBeamAngle() +
                                 static_cast<float>(i) * kTwoPi / static_cast<float>((std::max)(1, beamCount));
             const Vec2 direction(std::cos(angle), std::sin(angle));
-            const ImVec2 from = project(center);
-            const ImVec2 to = project(center + direction * length);
-            draw->AddLine(from, to, IM_COL32(90, 220, 255, 55), 10.0f);
-            draw->AddLine(from, to, IM_COL32(160, 245, 255, 180), 4.0f);
-            draw->AddLine(from, to, IM_COL32(240, 255, 255, 230), 1.5f);
-            for (float step = 1.5f; step < length; step += 2.5f) {
-                drawSheet(m_ui.fxArcane, 7, 1, static_cast<int>(m_time * 20.0f + step) % 7,
-                          center + direction * step, 0.35f, 0.35f, IM_COL32(150, 240, 255, 150), angle);
-            }
+            const Vec2 beamCenter = center + direction * (length * 0.5f);
+            drawSheet(m_ui.fxPrism, 1, 1, 0, beamCenter, length * 0.5f, 0.48f,
+                      IM_COL32(150, 245, 255, 205), angle);
+            draw->AddLine(project(center), project(center + direction * length), IM_COL32(220, 255, 255, 65),
+                          2.0f);
         }
     }
 
-    // 闪电：折线 + 命中点的奥术爆发序列帧
+    // 闪电：素材包四帧闪电 + 雷环。
     for (const LightningFx& fx : g_lightningFx) {
         if (fx.points.size() < 2) continue;
         const float t = Clamp01(fx.age / fx.life);
-        std::vector<ImVec2> points;
-        points.reserve(fx.points.size());
-        for (const Vec2& point : fx.points) points.push_back(project(point));
-        draw->AddPolyline(points.data(), static_cast<int>(points.size()),
-                          IM_COL32(255, 240, 140, static_cast<int>(70 * (1 - t))), ImDrawFlags_None, fx.width + 4.0f);
-        draw->AddPolyline(points.data(), static_cast<int>(points.size()),
-                          IM_COL32(255, 250, 210, static_cast<int>(255 * (1 - t))), ImDrawFlags_None, fx.width);
+        if (fx.points.size() >= 2) {
+            std::vector<ImVec2> points;
+            points.reserve(fx.points.size());
+            for (const Vec2& point : fx.points) points.push_back(project(point));
+            draw->AddPolyline(points.data(), static_cast<int>(points.size()),
+                              IM_COL32(255, 236, 150, static_cast<int>(110 * (1 - t))), ImDrawFlags_None,
+                              fx.width + 6.0f);
+            draw->AddPolyline(points.data(), static_cast<int>(points.size()),
+                              IM_COL32(255, 250, 220, static_cast<int>(235 * (1 - t))), ImDrawFlags_None, fx.width);
+        }
         const Vec2   impact = fx.points.back();
-        const int    frame = static_cast<int>(t * 6.99f);
-        drawSheet(m_ui.fxArcane, 7, 1, frame, impact, 1.45f, 1.45f,
-                  IM_COL32(255, 244, 175, static_cast<int>(235 * (1 - t))), 0.0f);
-        draw->AddCircleFilled(project(impact), 26.0f * (1.0f - t) + 4.0f,
-                              IM_COL32(255, 250, 200, static_cast<int>(110 * (1 - t))), 20);
+        const int    frame = (std::min)(3, static_cast<int>(t * 4.0f));
+        drawSheet(m_ui.fxLightning, 1, 4, frame, impact + Vec2(0.0f, 1.6f), 1.9f, 0.55f,
+                  IM_COL32(255, 245, 180, static_cast<int>(225 * (1 - t))), kPi * 0.5f);
+        const float ringSize = 1.2f + 1.5f * t;
+        drawSheet(m_ui.fxLightningRing, 1, 1, 0, impact, ringSize, ringSize,
+                  IM_COL32(255, 240, 170, static_cast<int>(180 * (1 - t))), t * 1.4f);
+        draw->AddCircleFilled(project(impact), 20.0f * (1.0f - t) + 3.0f,
+                              IM_COL32(255, 248, 200, static_cast<int>(100 * (1 - t))), 20);
     }
 
-    // 霜环：扩散圆环 + 冰爆序列帧
+    // 霜环：墨环染冰蓝 + 雪花与冰晶。
     for (const FrostRingFx& fx : g_frostFx) {
         const float  t = Clamp01(fx.age / fx.life);
         const ImVec2 centerScreen = project(fx.center);
         const float  radius = fx.radius * pixelsPerUnit;
-        draw->AddCircleFilled(centerScreen, radius, IM_COL32(150, 220, 255, static_cast<int>(26 * (1 - t))), 56);
-        draw->AddCircle(centerScreen, radius, IM_COL32(180, 235, 255, static_cast<int>(210 * (1 - t))), 56, 2.0f);
-        draw->AddCircle(centerScreen, radius * 0.82f, IM_COL32(220, 245, 255, static_cast<int>(90 * (1 - t))), 56,
-                        1.0f);
-        const int   frame = static_cast<int>(t * 4.99f);
+        draw->AddCircle(centerScreen, radius, IM_COL32(180, 235, 255, static_cast<int>(130 * (1 - t))), 56, 1.5f);
+        drawSheet(m_ui.fxFrostRing, 1, 1, 0, fx.center, fx.radius, fx.radius,
+                  IM_COL32(190, 240, 255, static_cast<int>(185 * (1 - t))), t * 1.2f);
+        const int   frame = (std::min)(3, static_cast<int>(t * 4.0f));
         const float edge = fx.radius * 0.88f;
-        for (int i = 0; i < 4; ++i) {
-            const float angle = static_cast<float>(i) * kPi * 0.5f + t * 0.7f;
+        for (int i = 0; i < 5; ++i) {
+            const float angle = static_cast<float>(i) * kTwoPi / 5.0f + t * 0.5f;
             const Vec2  position = fx.center + Vec2(std::cos(angle), std::sin(angle)) * edge;
-            const float size = 0.55f + 0.55f * t;
-            drawSheet(m_ui.fxWater, 5, 1, frame, position, size, size,
-                      IM_COL32(205, 240, 255, static_cast<int>(200 * (1 - t))), angle + kPi * 0.5f);
+            const float size = 0.55f + 0.45f * t;
+            drawSheet(m_ui.fxFrost, 2, 2, frame, position, size, size,
+                      IM_COL32(220, 248, 255, static_cast<int>(210 * (1 - t))), angle);
         }
     }
 
-    // 爆炸：火焰冲击圆 + 64 帧爆炸序列
+    // 爆炸：素材包四帧火团 + 墨点。
     for (const ExplosionFx& fx : g_explosionFx) {
-        const float  t = Clamp01(fx.age / fx.life);
-        const ImVec2 centerScreen = project(fx.center);
-        const float  radius = fx.radius * pixelsPerUnit;
-        draw->AddCircleFilled(centerScreen, radius, ToImColor(fx.color, 0.28f * (1 - t)), 40);
-        draw->AddCircle(centerScreen, radius, ToImColor(fx.color, 0.95f * (1 - t)), 40, 2.0f);
-        // 只取前 40 帧（后面的烟雾帧太淡），并用暖橙色染色，和火球配色一致。
-        const int frame = static_cast<int>(t * 39.0f);
-        drawSheet(m_ui.fxExplosion, 8, 8, frame, fx.center, fx.radius * 1.15f, fx.radius * 1.15f,
-                  ToImColor(fx.color, 1.0f - t * 0.25f), 0.0f);
+        const float t = Clamp01(fx.age / fx.life);
+        const int   frame = (std::min)(15, static_cast<int>(t * 16.0f));
+        drawSheet(m_ui.fxExplosion, 4, 4, frame, fx.center, fx.radius * 1.25f, fx.radius * 1.25f,
+                  ToImColor(fx.color, 1.0f - t * 0.2f), 0.0f);
+        drawSheet(m_ui.fxInk, 1, 1, 0, fx.center, fx.radius * 0.9f, fx.radius * 0.9f,
+                  IM_COL32(30, 22, 16, static_cast<int>(110 * (1 - t))), t * 2.0f);
     }
 
-    // 火球：飞行弹体 + 拖尾
+    // 火球：素材包 4×4 火团序列 + 拖尾。
     for (const FireballFx& fireball : g_fireballs) {
         const ImVec2 screen = project(fireball.position);
-        const ImVec2 trail = project(fireball.position - fireball.velocity * 0.08f);
-        draw->AddLine(trail, screen, IM_COL32(255, 160, 60, 150), 7.0f);
-        draw->AddCircleFilled(screen, 11.0f, IM_COL32(255, 120, 40, 65), 24);
-        draw->AddCircleFilled(screen, 5.0f, IM_COL32(255, 225, 150, 245), 24);
-        const int   frame = static_cast<int>(fireball.age * 14.0f) % 4;
+        const ImVec2 trail = project(fireball.position - fireball.velocity * 0.09f);
+        draw->AddLine(trail, screen, IM_COL32(255, 150, 50, 130), 9.0f);
+        const int   frame = static_cast<int>(fireball.age * 16.0f) % 16;
         const float rotation = std::atan2(fireball.velocity.y, fireball.velocity.x) + kPi;
-        drawSheet(m_ui.fxFireball, 2, 2, frame, fireball.position, 0.75f, 0.6f, IM_COL32_WHITE, rotation);
+        drawSheet(m_ui.fxFireball, 4, 4, frame, fireball.position, 0.72f, 0.72f, IM_COL32_WHITE, rotation);
     }
 
-    // 毒雾：缓慢上飘的绿色烟团
+    // 毒雾：素材包墨烟染绿，缓慢上飘。
     for (const PoisonPuffFx& puff : g_poisonFx) {
         const float t = Clamp01(puff.age / puff.life);
-        const float size = puff.size * (0.9f + t * 1.2f);
-        drawSheet(m_ui.fxPoison, 1, 1, 0, puff.position, size, size,
-                  IM_COL32(115, 230, 115, static_cast<int>(125 * (1 - t))), puff.age * 1.5f);
+        const float size = puff.size * (0.9f + t * 1.3f);
+        const int   frame = static_cast<int>(puff.age * 9.0f + puff.position.x * 0.7f) % 16;
+        drawSheet(m_ui.fxPoison, 4, 4, frame, puff.position, size, size,
+                  IM_COL32(110, 225, 110, static_cast<int>(135 * (1 - t))), puff.age * 1.2f);
     }
 
-    // 陨石：下落火球 + 落点爆炸
+    // 陨石：素材包碎石下落 + 落点墨圈。
     for (const MeteorFx& meteor : g_meteors) {
         if (meteor.impacted) continue;
         const float p = Clamp01(meteor.age / meteor.delay);
         const Vec2  position = meteor.target + Vec2(0.0f, (1.0f - p) * 7.0f);
-        const ImVec2 a = project(position - Vec2(0.35f, 0.35f));
-        const ImVec2 b = project(position + Vec2(0.35f, 0.35f));
-        draw->AddLine(project(position + Vec2(0.0f, 5.0f)), a, IM_COL32(255, 120, 40, 80), 8.0f);
-        draw->AddImageQuad(textureId(m_ui.fxFireball), a, ImVec2(b.x, a.y), b, ImVec2(a.x, b.y),
-                           ImVec2(0.0f, 0.0f), ImVec2(0.5f, 0.0f), ImVec2(0.5f, 0.5f), ImVec2(0.0f, 0.5f),
-                           IM_COL32(255, 220, 160, 255));
+        draw->AddLine(project(position + Vec2(0.0f, 4.0f)), project(position), IM_COL32(255, 130, 45, 75), 12.0f);
+        const int frame = (p < 0.35f) ? 0 : ((p < 0.7f) ? 1 : 2);
+        drawSheet(m_ui.fxMeteor, 2, 2, frame, position, 1.15f, 1.15f, IM_COL32(255, 220, 180, 255),
+                  p * 3.0f);
         draw->AddCircle(project(meteor.target), meteor.radius * pixelsPerUnit * p,
                         IM_COL32(255, 150, 60, 180), 32, 2.0f);
     }
 
-    // 黑洞：暗色球体 + 旋转奥术吸积盘
+    // 黑洞：素材包墨色黑洞 + 吸积环。
     for (const SingularityFx& hole : g_singularities) {
         const float t = Clamp01(hole.age / hole.life);
-        const ImVec2 centerScreen = project(hole.center);
-        const float  radius = hole.radius * pixelsPerUnit;
-        draw->AddCircleFilled(centerScreen, radius, IM_COL32(18, 6, 32, 120), 48);
-        draw->AddCircle(centerScreen, radius, IM_COL32(170, 90, 255, 190), 48, 2.0f);
-        draw->AddCircleFilled(centerScreen, radius * 0.18f, IM_COL32(5, 2, 10, 245), 24);
-        for (int ring = 0; ring < 3; ++ring) {
-            const float ringRadius = radius * (0.45f + static_cast<float>(ring) * 0.2f);
-            const int   frame = static_cast<int>(m_time * 24.0f + ring * 2.0f) % 7;
-            drawSheet(m_ui.fxArcane, 7, 1, frame, hole.center + Vec2(0.0f, 0.0f),
-                      ringRadius / pixelsPerUnit, ringRadius / pixelsPerUnit,
-                      IM_COL32(170, 90, 255, static_cast<int>(150 * (1.0f - t * 0.4f))),
-                      m_time * (1.2f + 0.4f * ring));
+        const float radius = hole.radius * pixelsPerUnit;
+        drawSheet(m_ui.fxSingularity, 1, 1, 0, hole.center, hole.radius, hole.radius,
+                  IM_COL32(180, 140, 255, 235), m_time * 1.1f);
+        for (int ring = 0; ring < 2; ++ring) {
+            const float ringRadius = hole.radius * (0.8f + static_cast<float>(ring) * 0.22f);
+            drawSheet(m_ui.fxSingularityRing, 1, 1, 0, hole.center, ringRadius, ringRadius,
+                      IM_COL32(190, 150, 255, static_cast<int>(150 * (1.0f - t * 0.4f))),
+                      m_time * (1.4f + 0.5f * static_cast<float>(ring)));
         }
+        draw->AddCircle(project(hole.center), radius, IM_COL32(170, 110, 255, 120), 48, 1.2f);
     }
-
-    draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
 
     // 头顶血条：锚在世界坐标、跟随相机投影，看起来像"立"在角色头上的 3D 血条
     for (GameObject* enemy : g_enemies) {
@@ -3544,7 +3626,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
         auto* component = enemy->GetComponent<SurvivorsEnemyComponent>();
         if (!component || component->hp <= 0.0f) continue;
 
-        const ImVec2 screen = project(Vec2(enemy->Position().x, enemy->Position().y + 1.05f));
+        const ImVec2 screen = project(Vec2(enemy->Position().x, enemy->Position().y + component->visualHeight + 0.28f));
         constexpr float kBarWidth = 58.0f;
         constexpr float kBarHeight = 7.0f;
         const float ratio = Clamp01(component->hp / (component->maxHp > 0.0f ? component->maxHp : 1.0f));
@@ -3606,49 +3688,6 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
     g_lastSkillDropTime = 0.0f;
     LoadSurvivorsSettings();
 
-    // 程序化宝石贴图（12x12 菱形）
-    {
-        const int size = 12;
-        std::vector<u8> pixels(size * size * 4, 0);
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                const int cx = x - size / 2;
-                const int cy = y - size / 2;
-                const int d = std::abs(cx) + std::abs(cy);
-                u8* p = &pixels[(y * size + x) * 4];
-                if (d <= 4) {
-                    const bool highlight = (cx + cy < -1);
-                    p[0] = highlight ? 200 : 90;
-                    p[1] = highlight ? 245 : 210;
-                    p[2] = highlight ? 255 : 255;
-                    p[3] = 255;
-                }
-            }
-        }
-        assets.CreateTextureRGBA("gem_proc", size, size, pixels.data());
-    }
-
-    // 程序化强化道具贴图（16x16 白色菱形，精灵颜色按类型染色）
-    {
-        const int size = 16;
-        std::vector<u8> pixels(size * size * 4, 0);
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                const int cx = x - size / 2;
-                const int cy = y - size / 2;
-                const int d = std::abs(cx) + std::abs(cy);
-                u8* p = &pixels[(y * size + x) * 4];
-                if (d <= 6) {
-                    p[0] = 255;
-                    p[1] = 255;
-                    p[2] = 255;
-                    p[3] = d <= 3 ? 255 : 165;
-                }
-            }
-        }
-        assets.CreateTextureRGBA("pickup_proc", size, size, pixels.data());
-    }
-
     // 程序化地面装饰：小石子和草
     {
         const int size = 12;
@@ -3660,22 +3699,22 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
                 const int cy = y - size / 2;
                 u8* p = &pebbles[(y * size + x) * 4];
                 if (cx * cx + cy * cy * 2 <= 18) {
-                    p[0] = 130;
-                    p[1] = 132;
-                    p[2] = 138;
-                    p[3] = 220;
+                    p[0] = 112;
+                    p[1] = 108;
+                    p[2] = 96;
+                    p[3] = 200;
                 }
                 u8* g = &grass[(y * size + x) * 4];
                 if ((x == 3 || x == 6 || x == 9) && y >= 3 && y <= 10) {
-                    g[0] = 80;
-                    g[1] = 165;
-                    g[2] = 80;
-                    g[3] = 235;
+                    g[0] = 62;
+                    g[1] = 104;
+                    g[2] = 66;
+                    g[3] = 225;
                 } else if (y >= 7 && y <= 10 && (x == 4 || x == 7 || x == 8)) {
-                    g[0] = 55;
-                    g[1] = 125;
-                    g[2] = 55;
-                    g[3] = 210;
+                    g[0] = 42;
+                    g[1] = 76;
+                    g[2] = 48;
+                    g[3] = 205;
                 }
             }
         }
@@ -3683,99 +3722,94 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         assets.CreateTextureRGBA("grass_proc", size, size, grass.data());
     }
 
-    // 地面：16x16 程序化石砖，64x64 重复成大贴图，2×2 张铺满扩大后的地图
+    // 地面：素材包“桃花谷”无缝草地，8×5 张铺满扩大后的地图；逐块旋转/调色打散重复感。
     {
-        const int size = 16;
-        std::vector<u8> pixels(size * size * 4, 0);
-        unsigned seed = 1337u;
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
-                seed = seed * 1664525u + 1013904223u;
-                const int noise = static_cast<int>((seed >> 16) & 0x7) - 3;
-                int shade = 113 + noise;
-                const bool seam = (x == 0) || (y == 0) || (x == 8 && y == 8);
-                if (seam) shade = 88;
-                if (x == 8 && y < 8) shade -= 4;
-                if (y == 8 && x > 8) shade -= 3;
-                u8* p = &pixels[(y * size + x) * 4];
-                if ((seed >> 21) % 29 == 0) {
-                    // 少量青苔
-                    p[0] = 64;
-                    p[1] = 92;
-                    p[2] = 62;
-                } else if ((seed >> 18) % 31 == 0) {
-                    // 裂纹
-                    p[0] = 70;
-                    p[1] = 68;
-                    p[2] = 74;
-                } else {
-                    p[0] = static_cast<u8>(Clamp(shade + 5, 0, 255));
-                    p[1] = static_cast<u8>(Clamp(shade + 3, 0, 255));
-                    p[2] = static_cast<u8>(Clamp(shade + 6, 0, 255));
+        const float tileW = kSurvivorsMapWidth / 8.0f;
+        const float tileH = kSurvivorsMapHeight / 5.0f;
+        for (int gy = 0; gy < 5; ++gy) {
+            for (int gx = 0; gx < 8; ++gx) {
+                const Vec2 center(-kSurvivorsMapWidth * 0.5f + (static_cast<float>(gx) + 0.5f) * tileW,
+                                  -kSurvivorsMapHeight * 0.5f + (static_cast<float>(gy) + 0.5f) * tileH);
+                GameObject* floor =
+                    SpawnSprite(world, "地面", "inkwash/ground.png", center, Vec2(tileW + 0.08f, tileH + 0.08f), -10);
+                if (auto* sprite = floor->GetComponent<SpriteRendererComponent>()) {
+                    // 地面块不能旋转：非正方形旋转后会在接缝处露出背景色。
+                    sprite->flipX = ((gx * 5 + gy * 3) % 2) == 1;
+                    const float warm = ((gx * 7 + gy * 11) % 5) * 0.012f;
+                    sprite->color = Vec4(0.97f + warm, 0.98f, 0.90f, 1.0f);
                 }
-                p[3] = 255;
             }
         }
-        assets.CreateTextureRGBA("floor_proc", size, size, pixels.data());
+    }
 
-        const int repeat = 64;
-        const int bigSize = size * repeat;
-        std::vector<u8> big(static_cast<size_t>(bigSize) * bigSize * 4, 0);
-        for (int y = 0; y < bigSize; ++y) {
-            for (int x = 0; x < bigSize; ++x) {
-                const int sx = x % size;
-                const int sy = y % size;
-                std::memcpy(&big[(static_cast<size_t>(y) * bigSize + x) * 4],
-                            &pixels[(static_cast<size_t>(sy) * size + sx) * 4], 4);
-            }
-        }
-        assets.CreateTextureRGBA("floor_big", bigSize, bigSize, big.data());
-        // 2×2 张同样的石砖贴图铺满扩大后的地图，砖块世界尺寸与旧地图基本一致。
-        const float floorW = kSurvivorsMapWidth * 0.5f;
-        const float floorH = kSurvivorsMapHeight * 0.5f;
-        for (int gy = 0; gy < 2; ++gy) {
-            for (int gx = 0; gx < 2; ++gx) {
-                const Vec2 center((gx == 0 ? -0.5f : 0.5f) * floorW, (gy == 0 ? -0.5f : 0.5f) * floorH);
-                SpawnSprite(world, "地面", "floor_big", center, Vec2(floorW, floorH), -10);
-            }
+    // 地面墨痕：大块淡墨和笔触打散草地纹理，让场景更像水墨写意。
+    for (int i = 0; i < 54; ++i) {
+        const Vec2 position(RandomRange(-(kSurvivorsArenaHalfX - 1.0f), kSurvivorsArenaHalfX - 1.0f), RandomRange(-(kSurvivorsArenaHalfY - 1.0f), kSurvivorsArenaHalfY - 1.0f));
+        if (Length(position) < 2.0f || CircleHitsObstacle(position, 1.0f)) continue;
+        const bool stroke = (i % 4) == 0;
+        const char* texture = stroke ? "inkwash/ink_stroke.png" : "inkwash/ink_splash.png";
+        const float size = RandomRange(stroke ? 3.0f : 2.2f, stroke ? 7.5f : 5.0f);
+        GameObject* decal = SpawnSprite(world, "墨痕", texture, position, Vec2(size, size * 0.62f), -9);
+        if (auto* sprite = decal->GetComponent<SpriteRendererComponent>()) {
+            sprite->rotation = RandomRange(0.0f, kTwoPi);
+            sprite->color = Vec4(0.20f, 0.24f, 0.18f, RandomRange(0.06f, 0.13f));
         }
     }
 
     const float decorHalfX = kSurvivorsArenaHalfX - 1.0f;
     const float decorHalfY = kSurvivorsArenaHalfY - 1.0f;
 
-    // 地图装饰：草和石子（无碰撞）。面积扩大 5 倍，数量也按 5 倍补足，避免大块空地。
-    for (int i = 0; i < 400; ++i) {
-        const Vec2 position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
-        if (Length(position) < 2.5f) continue;
-        if (CircleHitsObstacle(position, 0.8f)) continue;
-        SpawnSprite(world, "草丛", "grass_proc", position, Vec2(0.85f, 0.85f), -9);
-    }
-    for (int i = 0; i < 300; ++i) {
+    // 地图装饰：碎石子（无碰撞）。草丛不再用程序化竖条，交给素材包地面与墨痕。
+    for (int i = 0; i < 140; ++i) {
         const Vec2 position(RandomRange(-decorHalfX, decorHalfX), RandomRange(-decorHalfY, decorHalfY));
         if (Length(position) < 2.5f) continue;
         if (CircleHitsObstacle(position, 0.6f)) continue;
-        SpawnSprite(world, "石子", "pebble_proc", position, Vec2(0.55f, 0.55f), -9);
+        GameObject* pebble = SpawnSprite(world, "石子", "pebble_proc", position, Vec2(0.55f, 0.55f), -8);
+        if (auto* sprite = pebble->GetComponent<SpriteRendererComponent>()) {
+            sprite->color = Vec4(0.88f, 0.86f, 0.78f, 0.72f);
+        }
     }
-
     // 中心区域再补一些装饰，避免开局画面光秃秃
     const Vec2 centralDecor[] = {{-6.0f, 2.0f}, {5.0f, -3.0f}, {-4.0f, -5.0f}, {7.0f, 4.0f},
                                  {-9.0f, 1.0f},  {9.0f, -1.0f}, {3.0f, 7.0f},   {-3.0f, -7.0f},
                                  {-7.5f, 5.0f},  {7.5f, -5.0f}};
     for (size_t i = 0; i < sizeof(centralDecor) / sizeof(centralDecor[0]); ++i) {
+        if (i % 2 == 0) continue;
         const Vec2 position = centralDecor[i];
-        if (i % 2 == 0) {
-            SpawnSprite(world, "草丛", "grass_proc", position, Vec2(1.0f, 1.0f), -9);
-        } else {
-            SpawnSprite(world, "石子", "pebble_proc", position, Vec2(0.65f, 0.65f), -9);
+        GameObject* pebble = SpawnSprite(world, "石子", "pebble_proc", position, Vec2(0.65f, 0.65f), -8);
+        if (auto* sprite = pebble->GetComponent<SpriteRendererComponent>()) {
+            sprite->color = Vec4(0.88f, 0.86f, 0.78f, 0.72f);
         }
     }
 
-    // 火把：纯装饰，但给暗色地图一点暖色光源；位置随地图同比例放大并补足外圈。
+    // 开局视野内的水墨小景：山石、酒坛、石案，无碰撞，只负责画面层次。
+    struct DecorSpec {
+        const char* texture;
+        float x, y, height;
+    };
+    const DecorSpec centralLandmarks[] = {
+        {"inkwash/prop_rock.png", -7.6f, 3.2f, 1.25f},  {"inkwash/prop_jar.png", 6.8f, -3.6f, 0.85f},
+        {"inkwash/prop_urn.png", 8.4f, 4.1f, 1.20f},    {"inkwash/prop_rock.png", -3.4f, -5.6f, 0.95f},
+        {"inkwash/prop_rock.png", 4.2f, 6.4f, 0.80f},   {"inkwash/prop_jar.png", -9.2f, -2.4f, 0.75f},
+    };
+    for (const DecorSpec& spec : centralLandmarks) {
+        Texture* texture = assets.GetTextureAsset(spec.texture);
+        const float width = texture && texture->Height() > 0
+                                ? spec.height * static_cast<float>(texture->Width()) / texture->Height()
+                                : spec.height;
+        GameObject* decor = SpawnSprite(world, "小景", spec.texture, Vec2(spec.x, spec.y), Vec2(width, spec.height), -3);
+        if (auto* sprite = decor->GetComponent<SpriteRendererComponent>()) {
+            sprite->offset = Vec2(0.0f, spec.height * 0.5f);
+        }
+    }
+
+    // 石灯：纯装饰，保留暖色光晕；位置随地图同比例放大并补足外圈。
     auto spawnTorch = [&](const Vec2& position) {
-        GameObject* torch =
-            SpawnSprite(world, "火把", "sprites/kenney_tilemap.png", position, Vec2(1.1f, 1.1f), -8);
-        if (auto* sprite = torch->GetComponent<SpriteRendererComponent>()) ApplyTileSprite(sprite, 10, 5);
+        GameObject* lantern =
+            SpawnSprite(world, "石灯", "inkwash/prop_lantern.png", position, Vec2(1.55f, 2.05f), -2);
+        if (auto* sprite = lantern->GetComponent<SpriteRendererComponent>()) {
+            sprite->offset = Vec2(0.0f, 1.0f);
+        }
         g_torches.push_back(position);
     };
     const Vec2 torchPositions[] = {{-10.0f, 6.0f},  {10.0f, 6.0f},  {-10.0f, -6.0f}, {10.0f, -6.0f},
@@ -3790,50 +3824,51 @@ void BuildSurvivorsLevel(World& world, AssetManager& assets) {
         spawnTorch(position);
     }
 
-    // 地图障碍：石柱、木箱、木桶、书架、围栏、桌子、大锅
+    // 地图障碍：古树、石灯、香炉、山石、酒坛、石案；碰撞体沿用旧布局，外观换成水墨素材。
+    const char* kPropTextures[] = {"inkwash/prop_tree.png", "inkwash/prop_censer.png", "inkwash/prop_rock.png",
+                                   "inkwash/prop_lantern.png", "inkwash/prop_jar.png", "inkwash/prop_urn.png"};
+    const float kPropHeights[] = {3.30f, 2.55f, 1.95f, 2.35f, 1.45f, 2.15f};
     struct ObstacleSpec {
         float x, y, hx, hy;
-        int   row, col;
     };
     const ObstacleSpec obstacles[] = {
-        {-18.0f, 8.0f, 1.0f, 0.85f, 6, 2},   {-16.6f, 8.6f, 0.8f, 0.7f, 5, 6},
-        {-6.0f, 18.0f, 1.1f, 0.9f, 5, 3},    {20.0f, 16.0f, 1.0f, 0.9f, 6, 6},
-        {26.0f, -6.0f, 1.1f, 0.9f, 5, 3},    {10.0f, -18.0f, 1.0f, 0.85f, 6, 3},
-        {-24.0f, -12.0f, 1.1f, 0.95f, 5, 3}, {-30.0f, 4.0f, 0.85f, 0.8f, 5, 6},
-        {32.0f, 10.0f, 1.0f, 0.9f, 5, 3},    {-12.0f, -18.0f, 0.95f, 0.9f, 6, 6},
-        {6.0f, 10.0f, 0.85f, 0.75f, 5, 3},   {-8.0f, 4.0f, 0.75f, 0.7f, 5, 6},
-        {14.0f, 4.0f, 0.75f, 0.7f, 5, 6},    {0.0f, 22.0f, 1.0f, 0.9f, 6, 2},
-        {-36.0f, 16.0f, 1.2f, 1.0f, 6, 2},   {36.0f, -18.0f, 1.2f, 1.0f, 5, 3},
-        {-38.0f, -8.0f, 1.0f, 1.0f, 5, 3},   {38.0f, 4.0f, 1.0f, 1.0f, 5, 6},
-        {24.0f, 22.0f, 1.0f, 1.0f, 6, 2},    {-28.0f, 22.0f, 1.0f, 1.0f, 6, 2},
-        {18.0f, -10.0f, 0.85f, 0.85f, 6, 6}, {-18.0f, -4.0f, 0.85f, 0.85f, 5, 3},
-        {-34.0f, -20.0f, 1.0f, 1.0f, 6, 2},  {34.0f, 20.0f, 1.0f, 1.0f, 6, 2},
-        {-6.0f, 3.0f, 0.65f, 0.55f, 5, 6},    {6.5f, -3.0f, 0.65f, 0.55f, 5, 6},
-        {-4.0f, -5.0f, 0.7f, 0.6f, 6, 3},     {7.0f, 5.0f, 0.7f, 0.6f, 6, 6},
-        {-10.0f, 1.0f, 0.6f, 0.55f, 5, 6},    {10.0f, -1.0f, 0.6f, 0.55f, 5, 6},
+        {-18.0f, 8.0f, 1.0f, 0.85f},   {-16.6f, 8.6f, 0.8f, 0.7f},   {-6.0f, 18.0f, 1.1f, 0.9f},
+        {20.0f, 16.0f, 1.0f, 0.9f},    {26.0f, -6.0f, 1.1f, 0.9f},   {10.0f, -18.0f, 1.0f, 0.85f},
+        {-24.0f, -12.0f, 1.1f, 0.95f}, {-30.0f, 4.0f, 0.85f, 0.8f},  {32.0f, 10.0f, 1.0f, 0.9f},
+        {-12.0f, -18.0f, 0.95f, 0.9f}, {6.0f, 10.0f, 0.85f, 0.75f},   {-8.0f, 4.0f, 0.75f, 0.7f},
+        {14.0f, 4.0f, 0.75f, 0.7f},    {0.0f, 22.0f, 1.0f, 0.9f},     {-36.0f, 16.0f, 1.2f, 1.0f},
+        {36.0f, -18.0f, 1.2f, 1.0f},   {-38.0f, -8.0f, 1.0f, 1.0f},  {38.0f, 4.0f, 1.0f, 1.0f},
+        {24.0f, 22.0f, 1.0f, 1.0f},    {-28.0f, 22.0f, 1.0f, 1.0f},  {18.0f, -10.0f, 0.85f, 0.85f},
+        {-18.0f, -4.0f, 0.85f, 0.85f}, {-34.0f, -20.0f, 1.0f, 1.0f}, {34.0f, 20.0f, 1.0f, 1.0f},
+        {-6.0f, 3.0f, 0.65f, 0.55f},   {6.5f, -3.0f, 0.65f, 0.55f},  {-4.0f, -5.0f, 0.7f, 0.6f},
+        {7.0f, 5.0f, 0.7f, 0.6f},      {-10.0f, 1.0f, 0.6f, 0.55f},  {10.0f, -1.0f, 0.6f, 0.55f},
     };
-    auto spawnObstacle = [&](float x, float y, float hx, float hy, int row, int col) {
-        GameObject* object = SpawnSprite(world, "障碍", "sprites/kenney_tilemap.png", Vec2(x, y),
-                                         Vec2(hx * 2.0f + 0.35f, hy * 2.0f + 0.35f), 0);
+    for (size_t i = 0; i < sizeof(obstacles) / sizeof(obstacles[0]); ++i) {
+        const ObstacleSpec& spec = obstacles[i];
+        const int     propIndex = static_cast<int>(i) % 6;
+        const char*   texture = kPropTextures[propIndex];
+        const float   height = kPropHeights[propIndex];
+        Texture*      propTexture = assets.GetTextureAsset(texture);
+        const float   width = propTexture && propTexture->Height() > 0
+                                  ? height * static_cast<float>(propTexture->Width()) / propTexture->Height()
+                                  : height;
+        const Vec2 position(spec.x * kSurvivorsMapScale, spec.y * kSurvivorsMapScale);
+        GameObject* object = SpawnSprite(world, "障碍", texture, position, Vec2(width, height), 0);
         if (auto* sprite = object->GetComponent<SpriteRendererComponent>()) {
-            ApplyTileSprite(sprite, row, col);
-            sprite->color = Vec4(0.95f, 0.95f, 0.95f, 1.0f);
+            sprite->offset = Vec2(0.0f, height * 0.5f);
+            sprite->flipX = (i % 3) == 0;
+            sprite->color = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
         }
-        g_obstacles.push_back({Vec2(x, y), Vec2(hx, hy)});
-    };
-    for (const ObstacleSpec& spec : obstacles) {
-        spawnObstacle(spec.x * kSurvivorsMapScale, spec.y * kSurvivorsMapScale, spec.hx, spec.hy, spec.row,
-                      spec.col);
+        g_obstacles.push_back({position, Vec2(spec.hx, spec.hy)});
     }
-    // 玩家
-    GameObject* player = SpawnSprite(world, "玩家", "sprites/soldier_idle.png", Vec2(0.0f, 0.0f), Vec2(1.8f, 1.8f), 5);
+    // 玩家：素材包的游侠/剑士/法师序列帧，职业决定外观与基础武学。
+    GameObject* player = SpawnSprite(world, "玩家", "inkwash/player_0_idle.png", Vec2(0.0f, 0.0f), Vec2(2.1f, 2.1f), 5);
+    if (auto* sprite = player->GetComponent<SpriteRendererComponent>()) {
+        sprite->offset = Vec2(0.0f, 1.05f);
+    }
     auto* animator = player->AddComponent<SpriteAnimatorComponent>();
     animator->fps = 6.0f;
-    animator->frameMin = Vec2(0.410f, 0.380f); // 裁掉 100x100 帧里的透明留白
-    animator->frameMax = Vec2(0.580f, 0.600f);
-    if (auto* sprite = player->GetComponent<SpriteRendererComponent>()) {
-        assets.GetTextureAsset(sprite->texture); // 先加载，OnUpdate 才能按宽高算列数
-    }
+    assets.GetTextureAsset("inkwash/player_0_idle.png"); // 先加载，OnUpdate 才能按宽高算列数
     animator->OnUpdate(0.0f);
     auto* playerComponent = player->AddComponent<SurvivorsPlayerComponent>();
     playerComponent->arenaHalf = Vec2(kSurvivorsArenaHalfX, kSurvivorsArenaHalfY);
@@ -3881,6 +3916,7 @@ void RegisterSurvivorsComponents() {
     Reflection::Register<SurvivorsEnemyComponent>("Survivors Enemy");
     Reflection::Register<SurvivorsProjectileComponent>("Survivors Projectile");
     Reflection::Register<SurvivorsGemComponent>("Survivors Gem");
+    Reflection::Register<SurvivorsCorpseComponent>("Survivors Corpse");
 }
 
 void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
@@ -3917,6 +3953,11 @@ void SurvivorsEnemyComponent::Describe(TypeInfo& t) {
     t.Field("xpValue", FieldType::Float, &SurvivorsEnemyComponent::xpValue, "经验值", 1.0f, 50.0f);
     t.Field("type", FieldType::Int, &SurvivorsEnemyComponent::type, "类型", 0.0f, 5.0f);
     t.Field("slowFactor", FieldType::Float, &SurvivorsEnemyComponent::slowFactor, "减速倍率", 0.1f, 1.0f);
+}
+
+void SurvivorsCorpseComponent::Describe(TypeInfo& t) {
+    t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SurvivorsCorpseComponent>(); };
+    t.Field("life", FieldType::Float, &SurvivorsCorpseComponent::life, "寿命", 0.05f, 10.0f);
 }
 
 void SurvivorsProjectileComponent::Describe(TypeInfo& t) {

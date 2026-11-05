@@ -26,8 +26,10 @@ struct SurvivorsUIAssets {
 
     bool Ready() const { return panel != nullptr && slot != nullptr && body != nullptr; }
 
+    // 水墨国风 UI 切图（engine/assets/inkwash，素材来源见 LICENSE-INKWASH.txt）
     Texture* panel = nullptr;
     Texture* slot = nullptr;
+    Texture* card = nullptr;
     Texture* buttonNormal = nullptr;
     Texture* buttonHover = nullptr;
     Texture* buttonPressed = nullptr;
@@ -42,15 +44,34 @@ struct SurvivorsUIAssets {
     Texture* icon[10]{}; // 箭矢 / 雷霆 / 回旋刃 / 霜环 / 毒雾 / 火球 / 陨石 / 黑洞 / 棱镜 / 毒爆
     Texture* titleBackground = nullptr;
     Texture* floor = nullptr;
-    Texture* chestSheet = nullptr; // 2×2 宝箱开启序列帧（16×16/帧，OpenGameArt CC0）
-    Texture* chestTiles = nullptr; // Kenney Tiny Dungeon 图集：地图上的宝箱图标（第 7 行第 7 列）
+    Texture* chestClosed = nullptr;
+    Texture* chestOpen = nullptr;
+    Texture* hero[3]{};     // 游侠 / 剑士 / 法师立绘
+    Texture* propTree = nullptr;
+    Texture* propCenser = nullptr;
+    Texture* propRock = nullptr;
+    Texture* propLantern = nullptr;
+    Texture* propJar = nullptr;
+    Texture* propUrn = nullptr;
 
-    // 技能特效贴图（CC0，见 engine/assets/vfx/LICENSE-VFX.txt）
-    Texture* fxArcane = nullptr;     // 雷霆命中
-    Texture* fxWater = nullptr;      // 霜环爆发
-    Texture* fxFireball = nullptr;   // 火球飞行
-    Texture* fxExplosion = nullptr;  // 火球爆炸
-    Texture* fxPoison = nullptr;     // 毒雾粒子
+    // 水墨技能特效贴图（序列帧网格在 Survivors.cpp 绘制时指定）
+    Texture* fxBlade = nullptr;           // 月牙剑气 2×2
+    Texture* fxSword = nullptr;           // 飞剑
+    Texture* fxLightning = nullptr;       // 闪电 1×4
+    Texture* fxLightningRing = nullptr;   // 雷环
+    Texture* fxFrost = nullptr;           // 雪花 2×2
+    Texture* fxFrostRing = nullptr;       // 墨环（染冰蓝）
+    Texture* fxPoison = nullptr;          // 毒烟 4×4
+    Texture* fxPoisonGround = nullptr;    // 毒地
+    Texture* fxFireball = nullptr;        // 火球 4×4
+    Texture* fxExplosion = nullptr;       // 爆炸 4×4
+    Texture* fxMeteor = nullptr;          // 陨石 2×2
+    Texture* fxSingularity = nullptr;     // 黑洞
+    Texture* fxSingularityRing = nullptr; // 吸积环
+    Texture* fxPrism = nullptr;           // 棱镜光束
+    Texture* fxPlague = nullptr;          // 毒爆 2×2
+    Texture* fxInk = nullptr;             // 墨点
+    Texture* fxSlash = nullptr;           // 金刃 2×4
 
     ImFont* body = nullptr;
     ImFont* large = nullptr;

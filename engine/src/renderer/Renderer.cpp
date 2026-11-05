@@ -473,8 +473,8 @@ void Renderer::SpritePass(ID3D11DeviceContext* ctx, const RenderScene& scene, fl
     RenderStates::SetCullNone(ctx);
     ctx->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
-    // 像素风：点采样
-    Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_POINT, D3D11_TEXTURE_ADDRESS_CLAMP);
+    // 2D 幸存者使用手绘水墨精灵，双线性采样比点采样更贴合画面。
+    Texture::BindSampler(ctx, 0, D3D11_FILTER_MIN_MAG_MIP_LINEAR, D3D11_TEXTURE_ADDRESS_CLAMP);
 
     UINT stride = sizeof(SpriteVertex);
     UINT offset = 0;

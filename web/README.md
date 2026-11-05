@@ -41,6 +41,10 @@ python3 -m http.server 8000 -d build-web
 # http://localhost:8000/index.html?play=1&frames=300
 # 手机视口（竖屏或 844×390 横屏会自动切换手机 HUD；触控由浏览器/微信提供）：
 # http://localhost:8000/index.html?play=1&frames=300&mobile=1
+# UI/特效走查页（与桌面 --ui-preview 共用状态构造）：
+# http://localhost:8000/index.html?ui-preview=prepare&frames=2
+# http://localhost:8000/index.html?ui-preview=newskills&frames=240
+# http://localhost:8000/index.html?ui-preview=gacha&frames=120&mobile=1
 ```
 
 ## 微信小游戏
@@ -59,7 +63,7 @@ WECHAT_MINI_GAME_APPID=wx你的AppID \
 「小游戏」类目的 AppID；本仓库不包含任何 AppID 或凭据。
 
 包体约束（微信官方）：代码包总大小 ≤30MB，主包 ≤4MB，`game.js` ≤2MB。
-当前 2D 资源约 5.1MB，转换工具支持 CDN/分包；主包超限时按转换工具文档调整
+当前 2D 资源约 8MB（主包约 1.6MB，data-package 约 6.1MB），转换工具支持 CDN/分包；主包超限时按转换工具文档调整
 `--cdn-url` / `--load-from-subpackage`。
 
 ## iOS 与安卓的差异 / 排错
