@@ -2655,6 +2655,9 @@ void SurvivorsDirector::Reset(World& world) {
 
     g_rng.seed(0x12345u);
     g_fxRng.seed(0x271828u);
+    // 微信 iOS 的运行时没有 crypto.getRandomValues，std::random_device 会直接 abort；
+    // 层数条件用单调时钟 + 固定盐播种即可，不需要密码学随机。
+    m_stageRng.seed(static_cast<unsigned int>(Timer::Now() * 1000000.0) ^ 0x9E3779B9u);
     m_state = State::Playing;
     m_kills = 0;
     m_time = 0.0f;

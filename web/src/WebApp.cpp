@@ -78,6 +78,24 @@ int InstallWeChatCompatShims() {
                 if (!window.innerHeight) { try { window.innerHeight = info.windowHeight || 720; changed |= 4; } catch (e) {} }
             }
 
+            // 微信 iOS 运行时没有 crypto.getRandomValues：Emscripten 的 std::random_device
+            // 会直接 abort（WXUncaughtException / no cryptographic support found）。
+            // 这里补一个仅用于游戏随机种子的非密码学实现；已有实现时不动。
+            try {
+                var needsCrypto = (typeof crypto === 'undefined') || !crypto || (typeof crypto.getRandomValues !== 'function');
+                if (needsCrypto) {
+                    var shim = {
+                        getRandomValues: function (array) {
+                            if (!array || !array.length) return array;
+                            for (var i = 0; i < array.length; ++i) array[i] = (Math.random() * 256) | 0;
+                            return array;
+                        }
+                    };
+                    try { globalThis.crypto = shim; changed |= 16; } catch (e) {}
+                    try { if (typeof window !== 'undefined') window.crypto = shim; } catch (e) {}
+                }
+            } catch (e) {}
+
             var cv = null;
             try { cv = (typeof Module !== 'undefined' && Module.canvas) ? Module.canvas : null; } catch (e) {}
             if (!cv) { try { cv = (typeof canvas !== 'undefined') ? canvas : null; } catch (e) {} }

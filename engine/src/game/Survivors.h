@@ -63,7 +63,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.5.0";
+constexpr const char* kSurvivorsVersion = "0.5.1";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -608,7 +608,7 @@ private:
     int                m_tutorialSkillBase = 0;
     int                m_tutorialSkillLevelBase = 1;
     bool               m_victory = false;
-    std::mt19937       m_stageRng{std::random_device{}()};
+    std::mt19937       m_stageRng{0x9E3779B9u}; // 微信 iOS 没有 crypto.getRandomValues，不能用 random_device；Reset 时用 Timer 播种
 
     SurvivorsUIAssets     m_ui;
     bool                  m_uiReady = false;

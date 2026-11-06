@@ -1,11 +1,11 @@
-# 2D 幸存者 0.5.0：仙侠 UI、分步教学与角色/技能居中
+# 2D 幸存者 0.5.1：仙侠 UI、分步教学与角色/技能居中
 
 参考：`D:\GameEngine\game\xianxia-design`（暖宣纸 + 青玉 + 朱砂的仙侠 UI 设计稿）。
 
 ## 对照口径
 
 - **Before**：`main @ 0cf36d8`（0.4.0 之前的暗色水墨 UI）。
-- **After**：本分支 0.5.0。
+- **After**：本分支 0.5.1。
 - 桌面 1600×900，手机竖屏 500×874。旧版截图使用 402×874；本机新版 Chrome 会强制 ≥500px 布局宽度，500×874 才是完整未裁切的竖屏视口，因此 Before/After 均用 500×874 重拍。
 - 截图由 Windows Chrome headless（SwiftShader WebGL1）直接抓取 H5 产物，未使用 mockup 或图片编辑。
 

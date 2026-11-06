@@ -5,6 +5,9 @@
 
 ## [Unreleased]
 
+### Fixed
+- 2D 幸存者 0.5.1：修复微信 iOS 启动崩溃——`std::random_device` 依赖 `crypto.getRandomValues`，微信运行时没有该接口导致 `WXUncaughtException` abort；关卡随机种子改用 `Timer::Now()`，并在 `InstallWeChatCompatShims` 补一个仅用于游戏随机种子的 `crypto.getRandomValues` 兜底
+
 ### Changed
 - 2D 幸存者 0.5.0：按 `D:\GameEngine\game\xianxia-design` 参考重做界面配色与质感——暖宣纸面板、青玉主色、朱砂强调、深绿正文，按钮/进度条/技能槽/雷达/设置滑条统一改版；主菜单改为宣纸留白 + 朱砂标题；网页加载页同步换成宣纸色
 - 2D 幸存者 0.5.0：教学关改为**分步操作门槛**，共四步（移动角色 → 拾取灵气 → 习得新法术 → 强化本命法术）；未完成当前操作时冻结刷怪、计时和掉落，完成后显示勾选/“步骤完成”再进入下一步；四步完成后进入 35 秒怪潮实战
