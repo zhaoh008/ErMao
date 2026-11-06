@@ -86,6 +86,7 @@ public:
     float degreesPerSecond = 45.0f;
 
     void OnUpdate(float dt) override;
+    bool IsCosmetic() const override { return true; }
 };
 
 // 触发全部内置组件的反射注册（读档前调用，保证按类型名能找到工厂）
@@ -122,6 +123,7 @@ public:
     Vec2  frameMax{1.0f, 1.0f};
 
     void OnUpdate(float dt) override;
+    bool IsCosmetic() const override { return true; }
     void Play(float newFps, bool newLoop = true) {
         fps = newFps;
         loop = newLoop;

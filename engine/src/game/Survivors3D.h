@@ -48,6 +48,21 @@ public:
     float hitFlash = 0.0f;
     Vec2  arenaHalf{30.0f, 30.0f};
 
+    // 联机：与 2D 版共用同一套“服务端权威 + 客户端预测”输入语义。
+    bool networkControlled = false;
+    Vec2 networkMove{0.0f, 0.0f};
+    float sessionTime = 0.0f;
+
+    void SetNetworkInput(const Vec2& move) {
+        networkControlled = true;
+        networkMove = move;
+    }
+    void ClearNetworkInput() {
+        networkControlled = false;
+        networkMove = Vec2(0.0f, 0.0f);
+    }
+    void ApplyNetworkMove(const Vec2& move, float dt);
+
     void OnUpdate(float dt) override;
     void AddXp(float amount);
     void ApplyKillCount(int kills);
@@ -61,6 +76,7 @@ private:
     float m_attackTimer = 0.0f;
     float m_levelIntervalScale = 1.0f;
     float m_killIntervalScale = 1.0f;
+    void  MoveByInput(const Vec2& move, float dt);
     void  FireAtNearestEnemy();
     void  RecomputeAttackInterval();
 };
@@ -128,6 +144,11 @@ public:
     int   Kills() const { return m_kills; }
     float Time() const { return m_time; }
 
+    // 联机客户端：世界由主机快照驱动，导演只推进 UI 计时。
+    void EnterNetworkReplica(World& world);
+    void UpdateNetworkReplica(World& world, float dt);
+    bool IsNetworkReplica() const { return m_networkReplica; }
+
 private:
     void SpawnWave(World& world);
     void SpawnEnemy(World& world, const Vec2& position, float hpScale, float speedScale);
@@ -137,10 +158,20 @@ private:
     float m_time = 0.0f;
     float m_spawnTimer = 1.2f;
     bool  m_wantsQuit = false;
+    bool  m_networkReplica = false;
 };
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
 void RegisterSurvivors3DComponents();
+
+// ---------------------------------------------------------------- 联机（引擎 net 层调用）
+GameObject* Survivors3DFindLocalPlayer(World& world);
+void        Survivors3DSetNetworkLocalPlayer(GameObject* player);
+GameObject* Survivors3DSpawnNetworkPeer(World& world);
+void        Survivors3DPrepareNetworkClient(World& world);
+void        Survivors3DRebuildNetworkGlobals(World& world);
+void        Survivors3DApplyNetworkInput(GameObject& player, const Vec2& move);
+void        Survivors3DPredictNetworkInput(GameObject& player, const Vec2& move, float dt);
 
 void BuildSurvivors3DLevel(World& world, AssetManager& assets);
 

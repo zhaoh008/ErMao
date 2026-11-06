@@ -362,7 +362,38 @@ void ClearSkillEffects() {
 }
 
 // ---------------------------------------------------------------- 场景工具
-GameObject* FindPlayer(World& world) { return world.FindByName("玩家"); }
+// 联机客户端：本地玩家对象由网络层按 netId 指定，不能靠名字找（场景里可能同时有
+// 主机玩家和本地玩家）。服务端/单机仍然回退到“玩家”。
+u64 g_networkLocalPlayerId = 0;
+
+GameObject* FindPlayer(World& world) {
+    if (g_networkLocalPlayerId != 0) {
+        if (GameObject* local = world.FindById(g_networkLocalPlayerId)) return local;
+    }
+    return world.FindByName("玩家");
+}
+
+// 服务端联机：敌人/掉落物应追最近的一个玩家，而不是永远只追主机。
+GameObject* FindNearestPlayer(World& world, const Vec2& position) {
+    GameObject* best = nullptr;
+    float       bestDistance = 1e30f;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object || !object->Active()) return;
+            auto* player = object->GetComponent<SurvivorsPlayerComponent>();
+            if (!player || !player->alive) return;
+            const Vec2  p(object->Position().x, object->Position().y);
+            const float distance = Length(p - position);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = object;
+            }
+        });
+    }
+    if (!best) best = FindPlayer(world);
+    return best;
+}
 
 GameObject* SpawnSprite(World& world, const std::string& name, const std::string& texture, const Vec2& position,
                         const Vec2& size, int layer) {
@@ -1572,52 +1603,8 @@ void SurvivorsPlayerComponent::CompleteLevelUp() {
 }
 
 // ================================================================ 玩家：更新
-void SurvivorsPlayerComponent::OnUpdate(float dt) {
-    if (!alive || !m_owner) return;
-
-    invulnerable = (std::max)(0.0f, invulnerable - dt);
-    hitFlash = (std::max)(0.0f, hitFlash - dt * 3.0f);
-    pickupToastTimer = (std::max)(0.0f, pickupToastTimer - dt);
-
-    Vec2 move(0.0f, 0.0f);
-    if (g_autopilot) {
-        World* world = GetWorld();
-        Vec2   target;
-        bool   hasTarget = false;
-        if (world) {
-            const Vec2 origin(m_owner->Position().x, m_owner->Position().y);
-            float      best = 1e9f;
-            for (GameObject* chest : g_buffChests) {
-                if (!chest || !chest->Active()) continue;
-                const Vec2  p(chest->Position().x, chest->Position().y);
-                const float d = Length(p - origin);
-                if (d < best) { best = d; target = p; hasTarget = true; }
-            }
-            if (!hasTarget) {
-                for (GameObject* pickup : g_pickups) {
-                    if (!pickup || !pickup->Active()) continue;
-                    auto* pickupComponent = pickup->GetComponent<SurvivorsPickupComponent>();
-                    if (!pickupComponent || !IsSkillUnlockType(pickupComponent->type)) continue;
-                    const Vec2  p(pickup->Position().x, pickup->Position().y);
-                    const float d = Length(p - origin);
-                    if (d < best) { best = d; target = p; hasTarget = true; }
-                }
-            }
-            if (hasTarget) {
-                move = target - origin;
-            } else {
-                // 没有目标时绕圈，避免完全站桩。
-                const float angle = g_gameTime * 0.7f;
-                move = Vec2(std::cos(angle), std::sin(angle));
-            }
-        }
-    } else if (g_inputEnabled) {
-        if (Input::IsKeyDown('A')) move.x -= 1.0f;
-        if (Input::IsKeyDown('D')) move.x += 1.0f;
-        if (Input::IsKeyDown('W')) move.y += 1.0f;
-        if (Input::IsKeyDown('S')) move.y -= 1.0f;
-    }
-
+void SurvivorsPlayerComponent::MoveByInput(const Vec2& move, float dt) {
+    if (!m_owner) return;
     auto* sprite = m_owner->GetComponent<SpriteRendererComponent>();
     auto* animator = m_owner->GetComponent<SpriteAnimatorComponent>();
     const bool moving = (move.x * move.x + move.y * move.y) > 0.01f;
@@ -1658,6 +1645,60 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
         sprite->offset = Vec2(0.0f, 1.05f + bob);
         sprite->rotation = moving ? std::sin(g_gameTime * 24.0f) * 0.02f : 0.0f;
     }
+}
+
+void SurvivorsPlayerComponent::ApplyNetworkMove(const Vec2& move, float dt) { MoveByInput(move, dt); }
+
+void SurvivorsPlayerComponent::OnUpdate(float dt) {
+    if (!alive || !m_owner) return;
+
+    invulnerable = (std::max)(0.0f, invulnerable - dt);
+    hitFlash = (std::max)(0.0f, hitFlash - dt * 3.0f);
+    pickupToastTimer = (std::max)(0.0f, pickupToastTimer - dt);
+
+    Vec2 move(0.0f, 0.0f);
+    if (networkControlled) {
+        move = networkMove;
+    } else if (g_autopilot) {
+        World* world = GetWorld();
+        Vec2   target;
+        bool   hasTarget = false;
+        if (world) {
+            const Vec2 origin(m_owner->Position().x, m_owner->Position().y);
+            float      best = 1e9f;
+            for (GameObject* chest : g_buffChests) {
+                if (!chest || !chest->Active()) continue;
+                const Vec2  p(chest->Position().x, chest->Position().y);
+                const float d = Length(p - origin);
+                if (d < best) { best = d; target = p; hasTarget = true; }
+            }
+            if (!hasTarget) {
+                for (GameObject* pickup : g_pickups) {
+                    if (!pickup || !pickup->Active()) continue;
+                    auto* pickupComponent = pickup->GetComponent<SurvivorsPickupComponent>();
+                    if (!pickupComponent || !IsSkillUnlockType(pickupComponent->type)) continue;
+                    const Vec2  p(pickup->Position().x, pickup->Position().y);
+                    const float d = Length(p - origin);
+                    if (d < best) { best = d; target = p; hasTarget = true; }
+                }
+            }
+            if (hasTarget) {
+                move = target - origin;
+            } else {
+                // 没有目标时绕圈，避免完全站桩。
+                const float angle = g_gameTime * 0.7f;
+                move = Vec2(std::cos(angle), std::sin(angle));
+            }
+        }
+    } else if (g_inputEnabled) {
+        if (Input::IsKeyDown('A')) move.x -= 1.0f;
+        if (Input::IsKeyDown('D')) move.x += 1.0f;
+        if (Input::IsKeyDown('W')) move.y += 1.0f;
+        if (Input::IsKeyDown('S')) move.y -= 1.0f;
+    }
+
+    MoveByInput(move, dt);
+    auto* sprite = m_owner->GetComponent<SpriteRendererComponent>();
 
     // 自动攻击：有敌人时锁定最近目标；没有目标时朝面朝方向射击
     if (HasSkill(0)) {
@@ -2084,12 +2125,12 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
         return;
     }
 
-    GameObject* player = FindPlayer(*world);
+    const Vec2  position(m_owner->Position().x, m_owner->Position().y);
+    GameObject* player = FindNearestPlayer(*world, position);
     if (!player) return;
     auto* playerComponent = player->GetComponent<SurvivorsPlayerComponent>();
     if (!playerComponent || !playerComponent->alive) return;
 
-    const Vec2 position(m_owner->Position().x, m_owner->Position().y);
     const Vec2 target(player->Position().x, player->Position().y);
     const Vec2 toTarget = target - position;
     const float distance = Length(toTarget);
@@ -2219,10 +2260,10 @@ void SurvivorsGemComponent::OnUpdate(float dt) {
     if (!world) return;
 
     age += dt;
-    GameObject* player = FindPlayer(*world);
+    const Vec2  position(m_owner->Position().x, m_owner->Position().y);
+    GameObject* player = FindNearestPlayer(*world, position);
     if (!player) return;
 
-    const Vec2 position(m_owner->Position().x, m_owner->Position().y);
     const Vec2 target(player->Position().x, player->Position().y);
     const Vec2 toTarget = target - position;
     const float distance = Length(toTarget);
@@ -2270,12 +2311,12 @@ void SurvivorsPickupComponent::OnUpdate(float dt) {
         return;
     }
 
-    GameObject* player = FindPlayer(*world);
+    const Vec2  position(m_owner->Position().x, m_owner->Position().y);
+    GameObject* player = FindNearestPlayer(*world, position);
     if (!player) return;
     auto* playerComponent = player->GetComponent<SurvivorsPlayerComponent>();
     if (!playerComponent) return;
 
-    const Vec2  position(m_owner->Position().x, m_owner->Position().y);
     const Vec2  target(player->Position().x, player->Position().y);
     const Vec2  toTarget = target - position;
     const float distance = Length(toTarget);
@@ -2323,9 +2364,9 @@ void SurvivorsBuffComponent::OnUpdate(float dt) {
         return;
     }
 
-    GameObject* player = FindPlayer(*world);
-    if (!player) return;
     const Vec2  position(m_owner->Position().x, m_owner->Position().y);
+    GameObject* player = FindNearestPlayer(*world, position);
+    if (!player) return;
     const Vec2  target(player->Position().x, player->Position().y);
     if (Length(target - position) < 1.3f) {
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) {
@@ -2653,7 +2694,41 @@ void SurvivorsDirector::ClearChestGacha() {
     if (m_state == State::Gacha) m_state = State::Playing;
 }
 
+void SurvivorsDirector::EnterNetworkReplica(World& world) {
+    m_state = State::Playing;
+    m_networkReplica = true;
+    m_time = 0.0f;
+    m_kills = 0;
+    g_gameTime = 0.0f;
+    m_showSettings = false;
+    m_selectedSkill = -1;
+    m_pauseNotice.clear();
+    m_confirmExit = false;
+    ClearChestGacha();
+    LogInfo("[网络] 2D 幸存者进入联机副本模式（世界由主机快照驱动）");
+    (void)world;
+}
+
+void SurvivorsDirector::UpdateNetworkReplica(World& world, float dt) {
+    if (!m_networkReplica) return;
+    const SurvivorsPlayerComponent* local = nullptr;
+    if (GameObject* playerObject = FindPlayer(world)) {
+        local = playerObject->GetComponent<SurvivorsPlayerComponent>();
+    }
+    if (local && local->sessionTime > 0.0f) {
+        m_time = local->sessionTime;
+    } else {
+        m_time += dt;
+    }
+    if (local) m_kills = local->killCount;
+    g_gameTime = m_time;
+    m_toastTimer = (std::max)(0.0f, m_toastTimer - dt);
+    UpdateDamageNumbers(dt);
+}
+
 void SurvivorsDirector::Update(World& world, float dt) {
+    // 联机客户端的世界由网络快照驱动，导演只负责 UI 计时；绝不在这里刷怪/结算。
+    if (m_networkReplica) return;
     if (m_state == State::Gacha) {
         UpdateChestGacha(world, dt);
         return;
@@ -2690,8 +2765,15 @@ void SurvivorsDirector::Update(World& world, float dt) {
     UpdateSkillEffects(dt);
     m_toastTimer = (std::max)(0.0f, m_toastTimer - dt);
 
-    if (GameObject* player = FindPlayer(world)) {
-        if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) component->ApplyKillCount(m_kills);
+    // 联机：全队共享击杀数与开局时间；两者都会随玩家快照复制到客户端。
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (auto* player = object->GetComponent<SurvivorsPlayerComponent>()) {
+                player->ApplyKillCount(m_kills);
+                player->sessionTime = m_time;
+            }
+        });
     }
 
     // 新手期兜底：2:30 后如果还没集齐技能，每 2 秒在玩家附近补掉一个缺失技能（仍需手动拾取）。
@@ -3929,6 +4011,90 @@ SurvivorsMinimapSnapshot BuildSurvivorsMinimapSnapshot(World& world) {
     return snapshot;
 }
 
+// ================================================================ 联机（引擎 net 层调用）
+GameObject* SurvivorsFindLocalPlayer(World& world) { return FindPlayer(world); }
+
+void SurvivorsSetNetworkLocalPlayer(GameObject* player) {
+    g_networkLocalPlayerId = player ? player->Id() : 0;
+}
+
+GameObject* SurvivorsSpawnNetworkPeer(World& world) {
+    Vec2 spawn(2.2f, 1.4f);
+    if (GameObject* host = FindPlayer(world)) {
+        spawn = Vec2(host->Position().x + 2.4f, host->Position().y + 1.6f);
+    }
+    GameObject* object = SpawnSprite(world, "队友", "inkwash/player_1_idle.png", spawn, Vec2(2.1f, 2.1f), 5);
+    if (!object) return nullptr;
+    if (auto* animator = object->AddComponent<SpriteAnimatorComponent>()) {
+        animator->fps = 6.0f;
+        animator->OnUpdate(0.0f);
+    }
+    auto* player = object->AddComponent<SurvivorsPlayerComponent>();
+    player->playerClass = 1;
+    // ResetCombatStats 会重置全局 g_playerDamageMultiplier；联机中途加入不能把主机的
+    // 抽奖攻击力 buff 清掉，这里保存/恢复。
+    const float savedDamageMultiplier = g_playerDamageMultiplier;
+    player->ResetCombatStats();
+    g_playerDamageMultiplier = savedDamageMultiplier;
+    player->arenaHalf = Vec2(kSurvivorsArenaHalfX, kSurvivorsArenaHalfY);
+    LogInfo("[网络] 生成联机队友玩家: %s", object->Name().c_str());
+    return object;
+}
+
+void SurvivorsPrepareNetworkClient(World& world) {
+    std::vector<GameObject*> toDestroy;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object) return;
+            if (object->GetComponent<SurvivorsPlayerComponent>() ||
+                object->GetComponent<SurvivorsEnemyComponent>() ||
+                object->GetComponent<SurvivorsProjectileComponent>() ||
+                object->GetComponent<SurvivorsGemComponent>() ||
+                object->GetComponent<SurvivorsPickupComponent>() ||
+                object->GetComponent<SurvivorsBuffComponent>() ||
+                object->GetComponent<SurvivorsCorpseComponent>()) {
+                toDestroy.push_back(object);
+            }
+        });
+    }
+    for (GameObject* object : toDestroy) world.DestroyObject(object);
+    world.ProcessPendingDestruction();
+    g_enemies.clear();
+    g_pickups.clear();
+    g_buffChests.clear();
+    g_networkLocalPlayerId = 0;
+    LogInfo("[网络] 客户端已清空本地预生成玩法对象，等待主机快照");
+}
+
+void SurvivorsRebuildNetworkGlobals(World& world) {
+    g_enemies.clear();
+    g_pickups.clear();
+    g_buffChests.clear();
+    int kills = 0;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object || !object->Active()) return;
+            if (object->GetComponent<SurvivorsEnemyComponent>()) g_enemies.push_back(object);
+            if (object->GetComponent<SurvivorsPickupComponent>()) g_pickups.push_back(object);
+            if (object->GetComponent<SurvivorsBuffComponent>()) g_buffChests.push_back(object);
+            if (auto* player = object->GetComponent<SurvivorsPlayerComponent>()) {
+                kills = (std::max)(kills, player->killCount);
+            }
+        });
+    }
+    g_kills = kills;
+}
+
+void SurvivorsApplyNetworkInput(GameObject& player, const Vec2& move) {
+    if (auto* component = player.GetComponent<SurvivorsPlayerComponent>()) component->SetNetworkInput(move);
+}
+
+void SurvivorsPredictNetworkInput(GameObject& player, const Vec2& move, float dt) {
+    if (auto* component = player.GetComponent<SurvivorsPlayerComponent>()) component->ApplyNetworkMove(move, dt);
+}
+
 // ================================================================ 反射
 void RegisterSurvivorsComponents() {
     Reflection::Register<SurvivorsPlayerComponent>("Survivors Player");
@@ -3936,12 +4102,25 @@ void RegisterSurvivorsComponents() {
     Reflection::Register<SurvivorsProjectileComponent>("Survivors Projectile");
     Reflection::Register<SurvivorsGemComponent>("Survivors Gem");
     Reflection::Register<SurvivorsCorpseComponent>("Survivors Corpse");
+    // 联机快照需要这两个类型；提前注册，避免第一次生成掉落物前类型表里没有它们。
+    Reflection::Register<SurvivorsPickupComponent>("Survivors Pickup");
+    Reflection::Register<SurvivorsBuffComponent>("Survivors Buff");
 }
 
 void SurvivorsPlayerComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<SurvivorsPlayerComponent>(); };
     t.Field("speed", FieldType::Float, &SurvivorsPlayerComponent::speed, "移动速度", 0.5f, 15.0f);
-    t.Field("maxHp", FieldType::Float, &SurvivorsPlayerComponent::maxHp, "最大生命", 1.0f, 999.0f);
+    // 联机快照字段：生命/等级/经验/技能位/击杀/开局时间必须复制，客户端 HUD 才能正确显示。
+    t.Field("hp", FieldType::Float, &SurvivorsPlayerComponent::hp, "生命", 0.0f, 9999.0f);
+    t.Field("maxHp", FieldType::Float, &SurvivorsPlayerComponent::maxHp, "最大生命", 1.0f, 9999.0f);
+    t.Field("level", FieldType::Int, &SurvivorsPlayerComponent::level, "等级", 0.0f, 999.0f);
+    t.Field("xp", FieldType::Float, &SurvivorsPlayerComponent::xp, "经验", 0.0f, 99999.0f);
+    t.Field("xpNext", FieldType::Float, &SurvivorsPlayerComponent::xpNext, "升级经验", 1.0f, 99999.0f);
+    t.Field("loadoutMask", FieldType::Int, &SurvivorsPlayerComponent::loadoutMask, "技能位掩码", 0.0f, 1023.0f);
+    t.Field("killCount", FieldType::Int, &SurvivorsPlayerComponent::killCount, "击杀数", 0.0f, 999999.0f);
+    t.Field("alive", FieldType::Bool, &SurvivorsPlayerComponent::alive, "存活");
+    t.Field("sessionTime", FieldType::Float, &SurvivorsPlayerComponent::sessionTime, "联机开局时间", 0.0f, 99999.0f);
+    t.Field("buffMoveMultiplier", FieldType::Float, &SurvivorsPlayerComponent::buffMoveMultiplier, "移速倍率", 0.1f, 5.0f);
     t.Field("attackDamage", FieldType::Float, &SurvivorsPlayerComponent::attackDamage, "攻击力", 1.0f, 200.0f);
     t.Field("attackInterval", FieldType::Float, &SurvivorsPlayerComponent::attackInterval, "攻击间隔", 0.05f, 3.0f);
     t.Field("attackRange", FieldType::Float, &SurvivorsPlayerComponent::attackRange, "攻击范围", 1.0f, 30.0f);
