@@ -76,7 +76,38 @@ void UpdateDamageNumbers(float dt) {
         g3dDamageNumbers.end());
 }
 
-GameObject* FindPlayer(World& world) { return world.FindByName("玩家"); }
+// 联机客户端：本地玩家对象由网络层指定；单机/服务端回退到“玩家”。
+u64 g3dNetworkLocalPlayerId = 0;
+
+GameObject* FindPlayer(World& world) {
+    if (g3dNetworkLocalPlayerId != 0) {
+        if (GameObject* local = world.FindById(g3dNetworkLocalPlayerId)) return local;
+    }
+    return world.FindByName("玩家");
+}
+
+GameObject* FindNearestPlayer(World& world, const Vec3& position) {
+    GameObject* best = nullptr;
+    float       bestDistance = 1e30f;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object || !object->Active()) return;
+            auto* player = object->GetComponent<Survivors3DPlayerComponent>();
+            if (!player || !player->alive) return;
+            const Vec3  p = object->Position();
+            const float dx = p.x - position.x;
+            const float dz = p.z - position.z;
+            const float distance = std::sqrt(dx * dx + dz * dz);
+            if (distance < bestDistance) {
+                bestDistance = distance;
+                best = object;
+            }
+        });
+    }
+    if (!best) best = FindPlayer(world);
+    return best;
+}
 
 GameObject* SpawnModel(World& world, const std::string& name, const std::string& mesh, const Vec3& position,
                        const Vec3& scale, const Vec4& albedo, bool useColormap) {
@@ -180,20 +211,8 @@ void Survivors3DPlayerComponent::ResetCombatStats() {
     RecomputeAttackInterval();
 }
 
-void Survivors3DPlayerComponent::OnUpdate(float dt) {
-    if (!alive || !m_owner) return;
-
-    invulnerable = (std::max)(0.0f, invulnerable - dt);
-    hitFlash = (std::max)(0.0f, hitFlash - dt * 3.0f);
-
-    Vec2 move(0.0f, 0.0f);
-    if (g3dInputEnabled) {
-        if (Input::IsKeyDown('A')) move.x -= 1.0f;
-        if (Input::IsKeyDown('D')) move.x += 1.0f;
-        if (Input::IsKeyDown('W')) move.y -= 1.0f; // W 朝 -Z
-        if (Input::IsKeyDown('S')) move.y += 1.0f;
-    }
-
+void Survivors3DPlayerComponent::MoveByInput(const Vec2& move, float dt) {
+    if (!m_owner) return;
     const bool moving = (move.x * move.x + move.y * move.y) > 0.01f;
     if (moving) {
         const Vec2 direction = SafeDir2(move);
@@ -208,6 +227,27 @@ void Survivors3DPlayerComponent::OnUpdate(float dt) {
         const float yaw = std::atan2(direction.x, direction.y);
         m_owner->SetRotation(Quat::FromAxisAngle(Vec3(0, 1, 0), yaw));
     }
+}
+
+void Survivors3DPlayerComponent::ApplyNetworkMove(const Vec2& move, float dt) { MoveByInput(move, dt); }
+
+void Survivors3DPlayerComponent::OnUpdate(float dt) {
+    if (!alive || !m_owner) return;
+
+    invulnerable = (std::max)(0.0f, invulnerable - dt);
+    hitFlash = (std::max)(0.0f, hitFlash - dt * 3.0f);
+
+    Vec2 move(0.0f, 0.0f);
+    if (networkControlled) {
+        move = networkMove;
+    } else if (g3dInputEnabled) {
+        if (Input::IsKeyDown('A')) move.x -= 1.0f;
+        if (Input::IsKeyDown('D')) move.x += 1.0f;
+        if (Input::IsKeyDown('W')) move.y -= 1.0f; // W 朝 -Z
+        if (Input::IsKeyDown('S')) move.y += 1.0f;
+    }
+
+    MoveByInput(move, dt);
 
     if (auto* renderer = m_owner->GetComponent<MeshRenderer>()) {
         renderer->albedo = hitFlash > 0.0f ? Vec4(1.0f, 0.35f, 0.35f, 1.0f) : Vec4(0.55f, 0.72f, 1.0f, 1.0f);
@@ -297,10 +337,10 @@ void Survivors3DEnemyComponent::OnUpdate(float dt) {
         return;
     }
 
-    GameObject* player = FindPlayer(*world);
+    const Vec3  position = m_owner->Position();
+    GameObject* player = FindNearestPlayer(*world, position);
     if (!player) return;
 
-    const Vec3  position = m_owner->Position();
     const Vec3  target = player->Position();
     const float dx = target.x - position.x;
     const float dz = target.z - position.z;
@@ -375,10 +415,10 @@ void Survivors3DGemComponent::OnUpdate(float dt) {
     const Vec3 position = m_owner->Position();
     m_owner->SetPosition(Vec3(position.x, position.y + std::sin(age * 4.0f) * dt * 0.6f, position.z));
 
-    GameObject* player = FindPlayer(*world);
+    const Vec3  p = m_owner->Position();
+    GameObject* player = FindNearestPlayer(*world, p);
     if (!player) return;
 
-    const Vec3  p = m_owner->Position();
     const Vec3  t = player->Position();
     const float dx = t.x - p.x;
     const float dz = t.z - p.z;
@@ -463,14 +503,46 @@ void Survivors3DDirector::Reset(World& world) {
     LogInfo("[3D] 开始游戏");
 }
 
+void Survivors3DDirector::EnterNetworkReplica(World& world) {
+    m_state = State::Playing;
+    m_networkReplica = true;
+    m_time = 0.0f;
+    m_kills = 0;
+    m_spawnTimer = 1e9f;
+    LogInfo("[网络] 3D 幸存者进入联机副本模式（世界由主机快照驱动）");
+    (void)world;
+}
+
+void Survivors3DDirector::UpdateNetworkReplica(World& world, float dt) {
+    if (!m_networkReplica) return;
+    const Survivors3DPlayerComponent* local = nullptr;
+    if (GameObject* playerObject = FindPlayer(world)) {
+        local = playerObject->GetComponent<Survivors3DPlayerComponent>();
+    }
+    if (local && local->sessionTime > 0.0f) {
+        m_time = local->sessionTime;
+    } else {
+        m_time += dt;
+    }
+    if (local) m_kills = local->killCount;
+    // 客户端只更新漂浮伤害数字的存活时间；敌人/掉落全部来自快照。
+}
+
 void Survivors3DDirector::Update(World& world, float dt) {
+    if (m_networkReplica) return;
     if (m_state != State::Playing) return;
 
     m_time += dt;
     m_kills = g3dKills;
     UpdateDamageNumbers(dt);
-    if (GameObject* player = FindPlayer(world)) {
-        if (auto* component = player->GetComponent<Survivors3DPlayerComponent>()) component->ApplyKillCount(m_kills);
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (auto* player = object->GetComponent<Survivors3DPlayerComponent>()) {
+                player->ApplyKillCount(m_kills);
+                player->sessionTime = m_time;
+            }
+        });
     }
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
@@ -769,6 +841,74 @@ void BuildSurvivors3DLevel(World& world, AssetManager& assets) {
     LogInfo("3D 幸存者关卡：%zu 个对象（外部模型 + 粒子特效）", world.ObjectCount());
 }
 
+// ================================================================ 联机（引擎 net 层调用）
+GameObject* Survivors3DFindLocalPlayer(World& world) { return FindPlayer(world); }
+
+void Survivors3DSetNetworkLocalPlayer(GameObject* player) {
+    g3dNetworkLocalPlayerId = player ? player->Id() : 0;
+}
+
+GameObject* Survivors3DSpawnNetworkPeer(World& world) {
+    Vec3 spawn(2.6f, 0.0f, 1.8f);
+    if (GameObject* host = FindPlayer(world)) {
+        spawn = host->Position() + Vec3(2.6f, 0.0f, 1.8f);
+    }
+    GameObject* object = SpawnModel(world, "队友", "models/kenney/character-b.obj", spawn, Vec3(0.72f, 0.72f, 0.72f),
+                                    Vec4(0.95f, 0.55f, 0.35f, 1.0f), false);
+    if (!object) return nullptr;
+    auto* player = object->AddComponent<Survivors3DPlayerComponent>();
+    player->arenaHalf = Vec2(30.0f, 30.0f);
+    LogInfo("[网络] 生成 3D 联机队友玩家: %s", object->Name().c_str());
+    return object;
+}
+
+void Survivors3DPrepareNetworkClient(World& world) {
+    std::vector<GameObject*> toDestroy;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object) return;
+            if (object->GetComponent<Survivors3DPlayerComponent>() ||
+                object->GetComponent<Survivors3DEnemyComponent>() ||
+                object->GetComponent<Survivors3DProjectileComponent>() ||
+                object->GetComponent<Survivors3DGemComponent>() ||
+                object->GetComponent<Survivors3DEffectComponent>()) {
+                toDestroy.push_back(object);
+            }
+        });
+    }
+    for (GameObject* object : toDestroy) world.DestroyObject(object);
+    world.ProcessPendingDestruction();
+    g3dEnemies.clear();
+    g3dDamageNumbers.clear();
+    g3dNetworkLocalPlayerId = 0;
+    LogInfo("[网络] 3D 客户端已清空本地预生成玩法对象，等待主机快照");
+}
+
+void Survivors3DRebuildNetworkGlobals(World& world) {
+    g3dEnemies.clear();
+    int kills = 0;
+    for (GameObject* root : world.RootObjects()) {
+        if (!root) continue;
+        root->ForEach([&](GameObject* object) {
+            if (!object || !object->Active()) return;
+            if (object->GetComponent<Survivors3DEnemyComponent>()) g3dEnemies.push_back(object);
+            if (auto* player = object->GetComponent<Survivors3DPlayerComponent>()) {
+                kills = (std::max)(kills, player->killCount);
+            }
+        });
+    }
+    g3dKills = kills;
+}
+
+void Survivors3DApplyNetworkInput(GameObject& player, const Vec2& move) {
+    if (auto* component = player.GetComponent<Survivors3DPlayerComponent>()) component->SetNetworkInput(move);
+}
+
+void Survivors3DPredictNetworkInput(GameObject& player, const Vec2& move, float dt) {
+    if (auto* component = player.GetComponent<Survivors3DPlayerComponent>()) component->ApplyNetworkMove(move, dt);
+}
+
 void RegisterSurvivors3DComponents() {
     Reflection::Register<Survivors3DPlayerComponent>("Survivors3D Player");
     Reflection::Register<Survivors3DEnemyComponent>("Survivors3D Enemy");
@@ -786,7 +926,15 @@ namespace erm {
 void Survivors3DPlayerComponent::Describe(TypeInfo& t) {
     t.factory = [](GameObject* go) -> Component* { return go->AddComponent<Survivors3DPlayerComponent>(); };
     t.Field("speed", FieldType::Float, &Survivors3DPlayerComponent::speed, "移动速度", 0.5f, 15.0f);
-    t.Field("maxHp", FieldType::Float, &Survivors3DPlayerComponent::maxHp, "最大生命", 1.0f, 999.0f);
+    // 联机快照字段（客户端 HUD 需要）
+    t.Field("hp", FieldType::Float, &Survivors3DPlayerComponent::hp, "生命", 0.0f, 9999.0f);
+    t.Field("maxHp", FieldType::Float, &Survivors3DPlayerComponent::maxHp, "最大生命", 1.0f, 9999.0f);
+    t.Field("level", FieldType::Int, &Survivors3DPlayerComponent::level, "等级", 0.0f, 999.0f);
+    t.Field("xp", FieldType::Float, &Survivors3DPlayerComponent::xp, "经验", 0.0f, 99999.0f);
+    t.Field("xpNext", FieldType::Float, &Survivors3DPlayerComponent::xpNext, "升级经验", 1.0f, 99999.0f);
+    t.Field("killCount", FieldType::Int, &Survivors3DPlayerComponent::killCount, "击杀数", 0.0f, 999999.0f);
+    t.Field("alive", FieldType::Bool, &Survivors3DPlayerComponent::alive, "存活");
+    t.Field("sessionTime", FieldType::Float, &Survivors3DPlayerComponent::sessionTime, "联机开局时间", 0.0f, 99999.0f);
     t.Field("attackDamage", FieldType::Float, &Survivors3DPlayerComponent::attackDamage, "攻击力", 1.0f, 200.0f);
     t.Field("attackInterval", FieldType::Float, &Survivors3DPlayerComponent::attackInterval, "攻击间隔", 0.05f, 3.0f);
     t.Field("attackRange", FieldType::Float, &Survivors3DPlayerComponent::attackRange, "攻击范围", 1.0f, 30.0f);

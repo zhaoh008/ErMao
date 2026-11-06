@@ -71,6 +71,8 @@ public:
     virtual ~Component() = default;
 
     virtual const TypeInfo& GetTypeInfo() const = 0;
+    // 纯表现组件：联机客户端不跑完整世界模拟，但动画/粒子/旋转仍要在本地推进。
+    virtual bool IsCosmetic() const { return false; }
     virtual void             OnStart() {}
     virtual void             OnUpdate(float /*dt*/) {}
     virtual void             OnFixedUpdate(float /*dt*/) {}

@@ -10,6 +10,7 @@
 #include "game/Survivors.h"
 #include "game/Survivors3D.h"
 #include "game/WaveGame.h"
+#include "net/NetRuntime.h"
 #include "platform/Window.h"
 #include "renderer/Camera.h"
 #include "renderer/RenderScene.h"
@@ -46,6 +47,13 @@ private:
     void RenderViewportScene(const Camera& camera, u32 width, u32 height);
     bool CaptureScreenshot(const std::string& path);
 
+    // ---- 网络同步（引擎级） ----
+    void          SetupNetworkHooks();
+    bool          StartConfiguredNetwork();
+    void          DrawNetworkOverlay();
+    net::NetInput BuildNetInput() const;
+    bool          RunNetSelfTest();
+
     Window       m_window;
     Device       m_device;
     Renderer     m_renderer;
@@ -60,6 +68,8 @@ private:
     SurvivorsDirector m_survivors; // 2D 幸存者（survivors 关卡）
     bool        m_survivorsLevel = false;
     Survivors3DDirector m_survivors3d; // 3D 幸存者（survivors3d 关卡）
+    net::NetRuntime     m_net;
+    net::NetGameHooks   m_netHooks;
     bool        m_survivors3dLevel = false;
     bool        m_is2D = false;
     bool        m_waveLevel = false;
@@ -109,6 +119,11 @@ private:
     bool        m_editorSettings = false; // --editor-settings（自动截图用）
     std::string m_uiPreview;              // --ui-preview <page>（2D UI 截图/走查）
     bool        m_uiPreviewApplied = false;
+    // 网络参数：--net-host [port] / --net-join host[:port] / --net-test
+    bool        m_netHostMode = false;
+    u16         m_netHostPort = net::kDefaultPort;
+    std::string m_netJoinAddress;
+    bool        m_netTestMode = false;
     int         m_windowWidth = 1600;
     int         m_windowHeight = 900;
 };

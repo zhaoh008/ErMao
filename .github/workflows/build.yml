@@ -55,6 +55,20 @@ jobs:
           $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--demo2d", "--frames", "600", "--noeditor" -Wait -PassThru
           if ($p.ExitCode -ne 0) { throw "2D survivors smoke failed: exit $($p.ExitCode)" }
 
+      # 3D 幸存者：2D/3D 共用网络层，3D 玩法本身也要跑一遍，避免只测 2D
+      - name: Smoke (3D survivors, 300 frames)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--demo3d", "--frames", "300", "--noeditor" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "3D survivors smoke failed: exit $($p.ExitCode)" }
+
+      # 引擎级网络同步自检：同进程回环主机 + 客户端，验证握手/输入/快照/预测/重建
+      - name: Network sync self-test
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath "build/bin/ErMao.exe" -ArgumentList "--net-test", "--noeditor" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "network sync self-test failed: exit $($p.ExitCode)" }
+
       # 视觉回归/网页版对比需要同一版本的 Windows 可执行文件；
       # 产物只包含 exe + assets + shaders，约 10MB。
       - name: Upload Windows build for visual verification

@@ -159,6 +159,9 @@ public:
     int prismLevel = 0;
     int plagueLevel = 0;
 
+    // 联机 UI 同步：服务端开局时间；客户端 HUD 直接读这个值，避免计时器各跑各的。
+    float sessionTime = 0.0f;
+
     // 最近拾取提示
     std::string pickupToast;
     float       pickupToastTimer = 0.0f;
@@ -175,6 +178,21 @@ public:
     float invulnerable = 0.0f;
     float hitFlash = 0.0f;
     Vec2  arenaHalf{kSurvivorsArenaHalfX, kSurvivorsArenaHalfY};
+
+    // 联机：服务端把客户端输入写进 networkMove，OnUpdate 用同一套移动/碰撞逻辑模拟；
+    // 客户端预测直接调用 ApplyNetworkMove，不读取本地键盘（避免双份输入）。
+    bool networkControlled = false;
+    Vec2 networkMove{0.0f, 0.0f};
+
+    void SetNetworkInput(const Vec2& move) {
+        networkControlled = true;
+        networkMove = move;
+    }
+    void ClearNetworkInput() {
+        networkControlled = false;
+        networkMove = Vec2(0.0f, 0.0f);
+    }
+    void ApplyNetworkMove(const Vec2& move, float dt);
 
     void OnUpdate(float dt) override;
     void AddXp(float amount);
@@ -266,6 +284,7 @@ private:
     float m_bladeAngle = 0.0f;
     float m_auraSfxTimer = 0.0f;
 
+    void MoveByInput(const Vec2& move, float dt);
     void FireAtNearestEnemy(const Vec2& origin);
     void FireArrow(const Vec2& origin, const Vec2& direction, float damageScale);
     void UpdateSkills(float dt);
@@ -435,6 +454,11 @@ public:
     void  TogglePause();
     bool  WantsQuit() const { return m_wantsQuit; }
 
+    // 联机客户端：世界由服务端快照驱动，只推进 UI 计时，不刷怪/不结算战斗。
+    void EnterNetworkReplica(World& world);
+    void UpdateNetworkReplica(World& world, float dt);
+    bool IsNetworkReplica() const { return m_networkReplica; }
+
     int   Kills() const { return m_kills; }
     float Time() const { return m_time; }
     void  AddKill() { ++m_kills; }
@@ -500,6 +524,7 @@ private:
     float       m_difficulty = 0.0f;
     std::string m_gemTexture = "gem_proc";
     bool        m_wantsQuit = false;
+    bool        m_networkReplica = false;
 
     bool        m_showSettings = false;
     State       m_settingsReturn = State::Menu;
@@ -530,6 +555,20 @@ private:
 
 // 反射：在 World 初始化后调用，保证新进程读档/脚本能找到全部玩法组件
 void RegisterSurvivorsComponents();
+
+// ---------------------------------------------------------------- 联机（引擎 net 层调用）
+// 客户端本地玩家：优先返回网络层指定的实体，否则返回场景里的“玩家”。
+GameObject* SurvivorsFindLocalPlayer(World& world);
+void        SurvivorsSetNetworkLocalPlayer(GameObject* player);
+// 服务端为加入的 peer 生成第二个玩家（“队友”），返回新对象；网络标记由引擎补。
+GameObject* SurvivorsSpawnNetworkPeer(World& world);
+// 客户端连接前清掉本地预生成玩家/动态对象，避免和快照实体重复。
+void SurvivorsPrepareNetworkClient(World& world);
+// 快照落地后重建玩法侧缓存（g_enemies / g_pickups / 小地图 / 血条）。
+void SurvivorsRebuildNetworkGlobals(World& world);
+// 服务端应用客户端输入；客户端本地预测。
+void SurvivorsApplyNetworkInput(GameObject& player, const Vec2& move);
+void SurvivorsPredictNetworkInput(GameObject& player, const Vec2& move, float dt);
 
 // 关卡
 void BuildSurvivorsLevel(World& world, AssetManager& assets);

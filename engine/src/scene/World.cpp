@@ -211,6 +211,22 @@ void World::Update(float dt) {
     ProcessPendingDestruction();
 }
 
+void World::UpdateVisuals(float dt) {
+    if (dt <= 0.0f) return;
+    const std::vector<GameObject*> roots = m_roots;
+    for (GameObject* root : roots) {
+        if (!root) continue;
+        root->ForEach([dt](GameObject* object) {
+            if (!object || !object->Active()) return;
+            object->Start();
+            for (const auto& component : object->Components()) {
+                if (component && component->enabled && component->IsCosmetic()) component->OnUpdate(dt);
+            }
+        });
+    }
+    ProcessPendingDestruction();
+}
+
 void World::FixedUpdate(float dt) {
     if (dt <= 0.0f) return;
     if (m_physics) m_physics->Step(*this, dt);

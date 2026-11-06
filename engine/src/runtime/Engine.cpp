@@ -16,6 +16,7 @@
 #include "platform/Input.h"
 #include "rhi/Screenshot.h"
 #include "runtime/Packager.h"
+#include "net/NetSelfTest.h"
 #include "scene/Components.h"
 
 #include <windows.h>
@@ -61,7 +62,7 @@ bool EnsureDevConsole() {
 
 // 3D 幸存者：第三人称俯视跟随。视口渲染和头顶血条投影必须用同一台相机。
 void AimSurvivors3DCamera(World& world, Camera& camera) {
-    if (GameObject* player = world.FindByName("玩家")) {
+    if (GameObject* player = Survivors3DFindLocalPlayer(world)) {
         const Vec3 p = player->Position();
         camera.position = p + Vec3(0.0f, 6.4f, 8.8f);
         const Vec3 dir = Normalize((p + Vec3(0.0f, 1.0f, 0.0f)) - camera.position);
@@ -191,13 +192,36 @@ int Engine::Run(int argc, char** argv) {
         } else if (arg == "--nolog") {
             m_logFile = false;
             m_logExplicit = true;
+        } else if (arg == "--net-host") {
+            m_netHostMode = true;
+            if (i + 1 < argc && argv[i + 1][0] != '-') {
+                const int parsed = std::atoi(argv[++i]);
+                if (parsed > 0 && parsed < 65536) m_netHostPort = static_cast<u16>(parsed);
+            }
+        } else if (arg == "--net-join" && i + 1 < argc) {
+            m_netJoinAddress = argv[++i];
+        } else if (arg == "--net-port" && i + 1 < argc) {
+            const int parsed = std::atoi(argv[++i]);
+            if (parsed > 0 && parsed < 65536) m_netHostPort = static_cast<u16>(parsed);
+        } else if (arg == "--net-test") {
+            m_netTestMode = true;
+            m_showEditor = false;
         }
+    }
+
+    // 联机演示默认用 2D 幸存者；显式 --level survivors3d / --demo3d 时保留 3D。
+    if (m_netHostMode || !m_netJoinAddress.empty()) {
+        if (m_levelName != "survivors" && m_levelName != "survivors3d") m_levelName = "survivors";
+        m_showEditor = false;
+        m_startPlay = true;
+        if (m_netHostMode) m_demoMode = true; // 主机自动开局；客户端收到快照后进入副本模式
     }
 
     // 发布版默认静默；开发版和自动化任务按需写日志。
     const bool automation = m_autoFrames > 0 || !m_screenshotPath.empty() || m_testSerialize || m_testUndo || m_smoke ||
                             !m_importPath.empty() || !m_packageTarget.empty() || !m_packageGame.empty() ||
-                            m_audioTest || m_vulkanTest || !m_scriptPath.empty() || m_validateOnly;
+                            m_audioTest || m_vulkanTest || !m_scriptPath.empty() || m_validateOnly || m_netTestMode ||
+                            m_netHostMode || !m_netJoinAddress.empty();
     if (!m_logExplicit) m_logFile = m_devMode || automation;
 
     if (!Init()) {
@@ -255,6 +279,7 @@ bool Engine::Init() {
     // 场景/脚本可能在任意进程启动时读档：先把游戏模块的组件注册进反射表
     RegisterSurvivorsComponents();
     RegisterSurvivors3DComponents();
+    net::RegisterNetComponents();
     LogInfo("组件注册完成（共 %zu 种）", Reflection::All().size());
 
     // 资源导入自检：把外部 OBJ 复制进 assets/models 再加载
@@ -456,11 +481,23 @@ bool Engine::Init() {
         }
         m_running = false;
     }
+    // 网络：先装玩法钩子，再按命令行启动主机/客户端；--net-test 走进程内回环自检。
+    SetupNetworkHooks();
+    if (m_netTestMode) {
+        if (!RunNetSelfTest()) m_headlessFailed = true;
+        m_running = false;
+    } else if (!StartConfiguredNetwork()) {
+        m_headlessFailed = true;
+        m_running = false;
+    }
+
     LogInfo("初始化完成：%zu 个对象，JobSystem %u 线程", m_world.ObjectCount(), JobSystem::ThreadCount());
     return true;
 }
 
 void Engine::LoadLevel(const std::string& kind) {
+    // 切关卡前先断开网络：客户端会销毁快照实体，避免 World::Clear 后留下悬垂映射。
+    m_net.Stop(&m_world);
     // 2D 幸存者的背景音乐只属于 survivors 关卡，切到别的关卡时停掉
     if (kind != "survivors") AudioSystem::Get().StopMusic();
     // World::Clear 会释放所有 GameObject；先断开编辑器的裸指针选中项，
@@ -530,6 +567,7 @@ void Engine::SetupEditorViewForLevel() {
     }
 }
 void Engine::Shutdown() {
+    m_net.Stop(&m_world);
     AudioSystem::Get().Shutdown();
     m_editor.Shutdown();
     m_imgui.Shutdown();
@@ -544,12 +582,154 @@ void Engine::Shutdown() {
     Log::Shutdown();
 }
 
+
+void Engine::SetupNetworkHooks() {
+    m_netHooks.isReplicated = [this](GameObject& object) {
+        if (m_survivorsLevel) {
+            return object.GetComponent<SurvivorsPlayerComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsEnemyComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsProjectileComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsGemComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsPickupComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsBuffComponent>() != nullptr ||
+                   object.GetComponent<SurvivorsCorpseComponent>() != nullptr;
+        }
+        if (m_survivors3dLevel) {
+            return object.GetComponent<Survivors3DPlayerComponent>() != nullptr ||
+                   object.GetComponent<Survivors3DEnemyComponent>() != nullptr ||
+                   object.GetComponent<Survivors3DProjectileComponent>() != nullptr ||
+                   object.GetComponent<Survivors3DGemComponent>() != nullptr;
+        }
+        return false;
+    };
+
+    m_netHooks.onPeerConnected = [this](net::PeerId peer) {
+        GameObject* spawned = nullptr;
+        if (m_survivorsLevel) spawned = SurvivorsSpawnNetworkPeer(m_world);
+        else if (m_survivors3dLevel) spawned = Survivors3DSpawnNetworkPeer(m_world);
+        if (spawned) {
+            if (auto* identity = spawned->AddComponent<net::NetworkIdentityComponent>()) identity->ownerPeer = peer;
+            LogInfo("[网络] peer %u 加入，已生成联机玩家", peer);
+        }
+    };
+
+    m_netHooks.onPeerDisconnected = [this](net::PeerId peer) {
+        std::vector<GameObject*> toDestroy;
+        for (GameObject* root : m_world.RootObjects()) {
+            if (!root) continue;
+            root->ForEach([&](GameObject* object) {
+                auto* identity = object ? object->GetComponent<net::NetworkIdentityComponent>() : nullptr;
+                if (identity && identity->ownerPeer == peer) toDestroy.push_back(object);
+            });
+        }
+        for (GameObject* object : toDestroy) m_world.DestroyObject(object);
+        m_world.ProcessPendingDestruction();
+        LogInfo("[网络] peer %u 断开，已移除其角色", peer);
+    };
+
+    m_netHooks.prepareClientWorld = [this](World& world) {
+        if (m_survivorsLevel) {
+            SurvivorsPrepareNetworkClient(world);
+            m_survivors.EnterNetworkReplica(world);
+        } else if (m_survivors3dLevel) {
+            Survivors3DPrepareNetworkClient(world);
+            m_survivors3d.EnterNetworkReplica(world);
+        }
+    };
+
+    m_netHooks.onSnapshotApplied = [this](World& world) {
+        if (m_survivorsLevel) SurvivorsRebuildNetworkGlobals(world);
+        else if (m_survivors3dLevel) Survivors3DRebuildNetworkGlobals(world);
+    };
+
+    m_netHooks.applyServerInput = [this](GameObject& object, const net::NetInput& input, float dt) {
+        (void)dt;
+        const Vec2 move(input.moveX, input.moveY);
+        if (m_survivorsLevel) SurvivorsApplyNetworkInput(object, move);
+        else if (m_survivors3dLevel) Survivors3DApplyNetworkInput(object, move);
+    };
+
+    m_netHooks.predictLocal = [this](GameObject& object, const net::NetInput& input, float dt) {
+        const Vec2 move(input.moveX, input.moveY);
+        if (m_survivorsLevel) SurvivorsPredictNetworkInput(object, move, dt);
+        else if (m_survivors3dLevel) Survivors3DPredictNetworkInput(object, move, dt);
+    };
+
+    m_netHooks.onLocalEntity = [this](GameObject* object) {
+        if (m_survivorsLevel) SurvivorsSetNetworkLocalPlayer(object);
+        else if (m_survivors3dLevel) Survivors3DSetNetworkLocalPlayer(object);
+    };
+}
+
+bool Engine::StartConfiguredNetwork() {
+    if (m_netTestMode) return true;
+    if (m_netHostMode) {
+        if (!m_net.StartServer(m_world, m_netHostPort, m_netHooks)) {
+            LogError("[网络] 主机启动失败：%s", m_net.LastError());
+            return false;
+        }
+        LogInfo("[网络] 主机模式就绪：%s", m_net.StatusText().c_str());
+    } else if (!m_netJoinAddress.empty()) {
+        if (!m_net.StartClient(m_world, m_netJoinAddress, m_netHooks)) {
+            LogError("[网络] 连接失败：%s", m_net.LastError());
+            return false;
+        }
+        LogInfo("[网络] 客户端模式：%s", m_net.StatusText().c_str());
+    }
+    return true;
+}
+
+net::NetInput Engine::BuildNetInput() const {
+    net::NetInput input;
+    float         x = 0.0f;
+    float         y = 0.0f;
+    if (Input::IsKeyDown('A')) x -= 1.0f;
+    if (Input::IsKeyDown('D')) x += 1.0f;
+    if (m_survivors3dLevel) {
+        // 3D 的 W 朝 -Z（与 Survivors3DPlayerComponent 的键盘映射一致）。
+        if (Input::IsKeyDown('W')) y -= 1.0f;
+        if (Input::IsKeyDown('S')) y += 1.0f;
+    } else {
+        if (Input::IsKeyDown('W')) y += 1.0f;
+        if (Input::IsKeyDown('S')) y -= 1.0f;
+    }
+    input.moveX = x;
+    input.moveY = y;
+    return input;
+}
+
+void Engine::DrawNetworkOverlay() {
+    if (m_net.GetMode() == net::NetRuntime::Mode::Off) return;
+    const std::string status = m_net.StatusText();
+    if (status.empty()) return;
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const ImVec2 textSize = ImGui::CalcTextSize(status.c_str());
+    const float  width = static_cast<float>(m_window.Width());
+    const float  height = static_cast<float>(m_window.Height());
+    const ImVec2 min(12.0f, height - textSize.y - 22.0f);
+    const ImVec2 max(min.x + textSize.x + 18.0f, height - 8.0f);
+    draw->AddRectFilled(min, max, IM_COL32(8, 12, 16, 190), 5.0f);
+    draw->AddRect(min, max, IM_COL32(120, 180, 210, 110), 5.0f);
+    draw->AddText(ImVec2(min.x + 9.0f, min.y + 6.0f), IM_COL32(210, 235, 245, 235), status.c_str());
+    (void)width;
+}
+
+bool Engine::RunNetSelfTest() { return net::RunSelfTest(&m_assets); }
+
 void Engine::UpdateGameplay(float dt) {
     // 播放会话只由 Editor 的 Play/Stop 决定，与编辑器 UI 是否可见无关；
     // m_startPlay 在 Init 时已转成 m_editor.Play()（ERMAO-AUDIT-002）。
     const bool playing = m_editor.IsPlaying();
     const bool paused = m_editor.IsPaused();
     if (!playing || paused) return;
+
+    // 联机客户端：玩法世界不再本地推进，只跑 UI 计时 + 纯表现组件（序列帧/粒子）。
+    if (m_net.IsClientReplica()) {
+        if (m_survivorsLevel) m_survivors.UpdateNetworkReplica(m_world, dt);
+        if (m_survivors3dLevel) m_survivors3d.UpdateNetworkReplica(m_world, dt);
+        m_world.UpdateVisuals(dt);
+        return;
+    }
 
     // 2D 幸存者的菜单/暂停/三选一/结算/图鉴都要求冻结世界，
     // 否则敌人和接触伤害会在暂停或选卡时继续结算。
@@ -583,7 +763,7 @@ void Engine::RenderViewportScene(const Camera& camera, u32 width, u32 height) {
         Camera2D   camera2D;
         if (playing) {
             camera2D.halfHeight = 7.2f;
-            if (GameObject* player = m_world.FindByName("玩家")) {
+            if (GameObject* player = SurvivorsFindLocalPlayer(m_world)) {
                 const Vec3 position = player->Position();
                 Vec2 half(20.0f, 8.0f);
                 if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
@@ -726,6 +906,9 @@ void Engine::MainLoop() {
         const float dt = (std::min)(Timer::Delta(), 0.1f);
         m_time += dt;
 
+        // 网络：先收包/应用输入（服务端）或预测（客户端），世界更新后再广播快照。
+        m_net.PreFrame(m_world, dt, BuildNetInput());
+
         // 2) 玩法更新（编辑器模式下不 tick AI/物理）
         GameObject* smokePlayer = m_smoke ? m_world.FindByName("玩家") : nullptr; // 每次重查，避免 PIE 重建后悬垂
         if (smokePlayer) {
@@ -748,7 +931,9 @@ void Engine::MainLoop() {
             if (sessionPlaying && !m_playSessionStarted) {
                 m_playSessionStarted = true;
                 m_accumulator = 0.0f;
-                if (m_survivorsLevel) {
+                if (m_net.IsClientReplica()) {
+                    // 客户端不本地开局：等主机快照落地后由 prepareClientWorld 进入副本模式。
+                } else if (m_survivorsLevel) {
                     // --demo2d 直接开局；普通启动先显示开始界面，由玩家点“开始游戏”。
                     if (m_demoMode) {
                         m_survivors.Reset(m_world);
@@ -770,6 +955,7 @@ void Engine::MainLoop() {
         }
 
         UpdateGameplay(dt);
+        m_net.PostFrame(m_world, dt);
 
         // 3) 热键：文本输入时不要抢键盘（审核 P2-17/P2-19）
         const bool wantKeyboard = m_showEditor && ImGui::GetIO().WantCaptureKeyboard;
@@ -880,6 +1066,7 @@ void Engine::MainLoop() {
 
             float clear[4] = {0.055f, 0.06f, 0.07f, 1.0f};
             m_device.BeginFrame(clear);
+            DrawNetworkOverlay();
             m_imgui.EndFrame();
         } else {
             m_renderer.Debug().Begin();
@@ -891,7 +1078,7 @@ void Engine::MainLoop() {
             if (m_is2D) {
                 Camera2D camera2D;
                 camera2D.halfHeight = 7.2f;
-                if (GameObject* player = m_world.FindByName("玩家")) {
+                if (GameObject* player = SurvivorsFindLocalPlayer(m_world)) {
                     const Vec3 position = player->Position();
                     Vec2 half(20.0f, 8.0f);
                     if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
@@ -910,7 +1097,8 @@ void Engine::MainLoop() {
                 m_waveGame.DrawHealthBars(m_world, *barCamera, 0.0f, 0.0f, static_cast<float>(m_window.Width()),
                                           static_cast<float>(m_window.Height()));
                 if (m_waveGame.WantsQuit()) m_running = false;
-                m_imgui.EndFrame();
+                DrawNetworkOverlay();
+            m_imgui.EndFrame();
             }
             if (m_survivorsLevel && playing) {
                 m_imgui.BeginFrame();
@@ -920,7 +1108,8 @@ void Engine::MainLoop() {
                                                static_cast<float>(m_window.Width()),
                                                static_cast<float>(m_window.Height()));
                 if (m_survivors.WantsQuit()) m_running = false;
-                m_imgui.EndFrame();
+                DrawNetworkOverlay();
+            m_imgui.EndFrame();
             }
             if (m_survivors3dLevel && playing) {
                 m_imgui.BeginFrame();
@@ -930,7 +1119,8 @@ void Engine::MainLoop() {
                                                  static_cast<float>(m_window.Width()),
                                                  static_cast<float>(m_window.Height()));
                 if (m_survivors3d.WantsQuit()) m_running = false;
-                m_imgui.EndFrame();
+                DrawNetworkOverlay();
+            m_imgui.EndFrame();
             }
         }
 

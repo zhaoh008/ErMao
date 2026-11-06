@@ -39,6 +39,7 @@ public:
 
     void OnStart() override;
     void OnUpdate(float dt) override;
+    bool IsCosmetic() const override { return true; }
     void Collect(std::vector<ParticleRender>& out, const class Texture* texture) const;
 
     u32 AliveCount() const { return static_cast<u32>(m_positions.size()); }
