@@ -14,6 +14,7 @@
 #include "game/SurvivorsUI.h"
 #include "scene/Component.h"
 
+#include <random>
 #include <string>
 #include <vector>
 
@@ -62,7 +63,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.3.1";
+constexpr const char* kSurvivorsVersion = "0.6.1";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -75,19 +76,56 @@ constexpr float kSurvivorsSkillDamageGrowth = 1.22f;
 constexpr int kSurvivorsClassCount = 3;
 
 // 职业决定初始基础技能；其余技能只能靠击杀掉落、手动拾取。
+// 玩家角色直接用「角色立绘」静态图，不做行走动画，只按朝向翻转；
+// 贴图在导入时统一成面朝右，运行期只调用 SpriteRendererComponent::FaceMovementX。
 struct SurvivorsClassDef {
     const char* name;
-    const char* desc;
+    const char* desc;   // 卡片副标题：基础武学
+    const char* style;  // 一句话玩法定位
+    const char* growth; // 教学/选人页展示的成长方向示例
     int         baseSkill;
 };
 
+// 贴图约定：所有角色/怪物立绘与序列帧在导入时统一镜像成“面朝右”，
+// 运行期只需要 FaceMovementX(facing.x)，不再为每个职业/怪物维护 artFacesRight。
 constexpr SurvivorsClassDef kSurvivorsClasses[kSurvivorsClassCount] = {
-    {"游侠", "基础技能：箭矢", 0},
-    {"剑士", "基础技能：回旋刃", 2},
-    {"法师", "基础技能：火球", 5},
+    {"游侠", "基础武学：箭矢", "远程射手，箭矢自动索敌；散射越高越接近满屏箭雨",
+     "箭矢：散射 Lv.1→2 向，Lv.3→6 向，Lv.5→12 向；攻速/攻击/范围继续强化", 0},
+    {"剑士", "基础武学：回旋刃", "近身飞刃环绕，越贴近怪群越致命",
+     "回旋刃：Lv.4→3 刃，Lv.10→5 刃，Lv.20→8 刃；环绕半径随等级扩大", 2},
+    {"法师", "基础武学：火球", "追踪火球炸开怪群，爆炸范围随等级膨胀",
+     "火球：Lv.5→2 发，Lv.9→3 发，Lv.17→5 发；爆炸范围随等级扩大", 5},
 };
 constexpr int kSurvivorsDefaultClass = 0;
+// -1 = 尚未选择职业：小程序启动先选职业，选完才能开始。
+constexpr int kSurvivorsNoClass = -1;
 constexpr int kSurvivorsDefaultLoadout = (1 << 0);
+
+// ---------------------------------------------------------------- 20 层关卡
+// 第 1 层固定为教学关，通关后进入 2..20 层；每层进入时随机抽取一种通关条件。
+constexpr int   kSurvivorsFloorCount = 20;
+constexpr float kSurvivorsTutorialDuration = 35.0f; // 完成动作步骤后的实战教学时长
+constexpr int   kSurvivorsTutorialStepCount = 4;
+
+enum class SurvivorsGoalType : int {
+    Tutorial = 0,
+    SurviveTime,   // 存活指定秒数
+    KillCount,     // 击杀指定数量的怪物
+    EliteHunt,     // 击杀精英
+    GemCollect,    // 拾取经验
+    SkillLevelSum, // 武学总等级达到目标
+    Count
+};
+
+struct SurvivorsStageGoal {
+    int   type = static_cast<int>(SurvivorsGoalType::Tutorial);
+    float target = 0.0f;
+};
+
+const char* SurvivorsGoalName(int type);
+
+// 玩家角色贴图：职业立绘（静态图）+ 朝向翻转；没有行走动画。
+void SurvivorsApplyPlayerVisual(GameObject& player, int playerClass);
 
 // ---------------------------------------------------------------- 敌人类型
 enum class SurvivorsEnemyType : int {
@@ -402,6 +440,7 @@ public:
     float value = 3.0f;
     float magnetRange = 6.0f;
     float age = 0.0f;
+    bool  locked = false; // 教学步骤用：不吸附、不自动飞向玩家，必须走过去拾取
 
     void OnUpdate(float dt) override;
 };
@@ -414,6 +453,7 @@ public:
     int   type = 0; // SurvivorsPickupType
     float age = 0.0f;
     float magnetRange = 7.0f;
+    bool  locked = false; // 教学步骤用：不吸附、不超时消失
 
     void OnUpdate(float dt) override;
     void OnDestroy() override;
@@ -425,13 +465,23 @@ struct SurvivorsLevelUpChoice {
     int sub = 0;   // 箭矢专用：0=散射 1=攻速 2=攻击 3=范围
 };
 
+// 每层通关后的翻牌奖励：unlock=true 表示解锁新武学，否则强化已有武学。
+struct SurvivorsStageReward {
+    SurvivorsLevelUpChoice choice;
+    bool                   unlock = false;
+};
+
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
-    enum class State { Menu, Prepare, Playing, Paused, LevelUp, Gacha, GameOver, Codex };
+    enum class State { Menu, Prepare, Playing, Paused, StageClear, LevelUp, Gacha, GameOver, Codex };
 
     void Reset(World& world);
     void Update(World& world, float dt);
+    // 小程序启动/主菜单“开始游戏”：先进入职业选择（不默认预选游侠）。
+    void ShowClassSelect(World& world);
+    // 直接指定职业（H5 演示/自动化参数用；正常流程由玩家在 Prepare 页选择）。
+    void SelectPlayerClass(World& world, int classIndex);
     // safeInsets：左/上/右/下的系统安全区内边距（CSS 像素）。Web/微信宿主传入，
     // 桌面端保持 0；手机 HUD 据此避开刘海、状态栏与微信胶囊。
     void DrawUI(World& world, float viewportX, float viewportY, float viewportWidth, float viewportHeight,
@@ -461,7 +511,21 @@ public:
 
     int   Kills() const { return m_kills; }
     float Time() const { return m_time; }
+    int   Floor() const { return m_floor; }
+    bool  Victory() const { return m_victory; }
+    int   PlayerClass() const { return m_playerClass; }
     void  AddKill() { ++m_kills; }
+
+    // 跨局进度：第一次进入教学；之后按历史最高层选择起始层。
+    bool TutorialCompleted() const;
+    int  MaxFloorCleared() const;
+    int  MaxUnlockedFloor() const;
+    int  StartFloor() const { return m_startFloor; }
+    void SetStartFloor(int floor);
+    void SkipTutorial(World& world);
+    bool HitTutorialSkipButton(float screenX, float screenY) const;
+    // 微信触屏在 Prepare 页不经过 ImGui 的鼠标状态，直接按屏幕矩形命中，避免“选完职业点开始没反应”。
+    bool HandlePrepareTap(World& world, float screenX, float screenY);
 
     // 存档
     bool HasSave() const;
@@ -490,6 +554,18 @@ private:
     void EnsureMusic();
     void ApplyAudioSettings();
 
+    // ------------------------------------------------------------ 20 层关卡
+    void BeginStage(World& world, int floor, const SurvivorsStageGoal& goal);
+    void CompleteStage(World& world);
+    void AdvanceStage(World& world);
+    void UpdateTutorial(World& world, SurvivorsPlayerComponent& player, float dt);
+    void StartTutorialStep(World& world, SurvivorsPlayerComponent& player);
+    void CompleteTutorialStep(World& world, SurvivorsPlayerComponent& player);
+    bool StageGoalReached(const SurvivorsPlayerComponent& player) const;
+    float StagePressureTime() const; // 刷怪/强度按“层数 + 本层时间”推进
+    SurvivorsStageGoal RollStageGoal(int floor, int avoidType);
+    std::string StageGoalProgressText(World& world) const;
+
     // 增益宝箱抽奖：拾取后冻结世界，播完动画再继续
     bool BeginChestGacha(World& world, int rarity, const std::string& effect);
     void UpdateChestGacha(World& world, float dt);
@@ -499,7 +575,9 @@ private:
     // UI 各页（实现见 SurvivorsUI.cpp）
     void DrawMenuScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
+    void DrawStageClearScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
+    void DrawTutorialHint(World& world, float vx, float vy, float vw, float vh, bool mobile);
     void DrawMobileHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
@@ -512,6 +590,8 @@ private:
     void OpenLevelUp(const SurvivorsPlayerComponent& player);
     void GenerateLevelUpChoices(const SurvivorsPlayerComponent& player);
     void ApplyLevelUpChoice(World& world, int index);
+    void GenerateStageRewards(const SurvivorsPlayerComponent& player);
+    void ApplyStageReward(World& world, int index);
 
     State       m_state = State::Menu;
     int         m_kills = 0;
@@ -528,13 +608,43 @@ private:
 
     bool        m_showSettings = false;
     State       m_settingsReturn = State::Menu;
-    int         m_playerClass = kSurvivorsDefaultClass;
+    int         m_playerClass = kSurvivorsNoClass;
     float       m_toastTimer = 0.0f;
     std::string m_toastText;
+
+    // 20 层进度：第 1 层教学关，2..20 层每层随机通关条件。
+    int                m_floor = 1;
+    SurvivorsStageGoal m_stageGoal;
+    SurvivorsStageGoal m_nextStageGoal;
+    float              m_stageTime = 0.0f;
+    int                m_stageKillBase = 0;
+    int                m_stageEliteBase = 0;
+    int                m_stageGemBase = 0;
+    int                m_tutorialStep = 0; // 0=移动 1=拾取经验 2=新法术 3=强化 4=实战
+    bool               m_tutorialGate = false; // 当前步骤未完成，暂停刷怪/计时
+    float              m_tutorialFlash = 0.0f; // 步骤完成提示
+    bool               m_tutorialFinaleStarted = false;
+    bool               m_tutorialPending = false; // 本局从第 1 层教学开始
+    Vec2               m_tutorialStartPos{0.0f, 0.0f};
+    int                m_tutorialGemBase = 0;
+    int                m_tutorialSkillBase = 0;
+    int                m_tutorialSkillLevelBase = 1;
+    int                m_startFloor = 1;
+    Vec4               m_tutorialSkipHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareClassHit[kSurvivorsClassCount] = {};
+    Vec4               m_prepareStartHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareBackHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareFloorPrevHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareFloorNextHit{0.0f, 0.0f, 0.0f, 0.0f};
+    bool               m_victory = false;
+    std::mt19937       m_stageRng{0x9E3779B9u}; // 微信 iOS 没有 crypto.getRandomValues，不能用 random_device；Reset 时用 Timer 播种
 
     SurvivorsUIAssets     m_ui;
     bool                  m_uiReady = false;
     SurvivorsLevelUpChoice m_levelChoices[3];
+    SurvivorsStageReward   m_stageRewards[3];
+    int                    m_rewardChosen = -1;
+    float                  m_rewardFlipTime = 0.0f;
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;

@@ -42,9 +42,17 @@ python3 -m http.server 8000 -d build-web
 # 手机视口（竖屏或 844×390 横屏会自动切换手机 HUD；触控由浏览器/微信提供）：
 # http://localhost:8000/index.html?play=1&frames=300&mobile=1
 # UI/特效走查页（与桌面 --ui-preview 共用状态构造）：
-# http://localhost:8000/index.html?ui-preview=prepare&frames=2
+# http://localhost:8000/index.html?ui-preview=class&frames=2
+# http://localhost:8000/index.html?ui-preview=tutorial&frames=2
+# http://localhost:8000/index.html?ui-preview=tutorial-done&frames=2
+# http://localhost:8000/index.html?ui-preview=tutorial-finale&frames=4
+# http://localhost:8000/index.html?ui-preview=stage&frames=4
+# http://localhost:8000/index.html?ui-preview=stageclear&frames=2
+# http://localhost:8000/index.html?ui-preview=victory&frames=2
 # http://localhost:8000/index.html?ui-preview=newskills&frames=240
 # http://localhost:8000/index.html?ui-preview=gacha&frames=120&mobile=1
+# H5 截图入口可用 class=0|1|2 指定职业：
+# http://localhost:8000/index.html?play=1&frames=300&class=2
 ```
 
 ## 微信小游戏

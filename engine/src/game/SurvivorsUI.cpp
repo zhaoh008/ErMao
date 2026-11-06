@@ -8,6 +8,7 @@
 #include "core/FileSystem.h"
 #include "core/Log.h"
 #include "platform/Audio.h"
+#include "platform/Input.h"
 #include "rhi/Texture.h"
 #include "scene/GameObject.h"
 #include "scene/World.h"
@@ -26,22 +27,31 @@ namespace erm {
 
 namespace {
 
-// ---------------------------------------------------------------- 调色板（取 index.html）
-const ImU32 kText = IM_COL32(244, 229, 207, 255);
-const ImU32 kTextDim = IM_COL32(194, 175, 189, 255);
-const ImU32 kTextMuted = IM_COL32(154, 140, 157, 255);
-const ImU32 kGold = IM_COL32(239, 182, 112, 255);
-const ImU32 kGoldBright = IM_COL32(255, 210, 154, 255);
-const ImU32 kTag = IM_COL32(228, 171, 106, 255);
-const ImU32 kMint = IM_COL32(125, 214, 194, 255);
-const ImU32 kRed = IM_COL32(255, 141, 144, 255);
-const ImU32 kCard = IM_COL32(40, 32, 46, 255);
-const ImU32 kCardHover = IM_COL32(55, 39, 51, 255);
-const ImU32 kCardBorder = IM_COL32(134, 96, 68, 255);
-const ImU32 kCardBorderHover = IM_COL32(246, 188, 116, 255);
-const ImU32 kRule = IM_COL32(105, 71, 53, 255);
-const ImU32 kPanelInner = IM_COL32(26, 24, 34, 255);
-const ImU32 kSlotText = IM_COL32(236, 214, 188, 255);
+// ---------------------------------------------------------------- 调色板（xianxia-design：暖宣纸 + 青玉 + 朱砂）
+const ImU32 kText = IM_COL32(44, 58, 50, 255);        // 墨绿正文
+const ImU32 kTextDim = IM_COL32(82, 97, 79, 255);
+const ImU32 kTextMuted = IM_COL32(120, 131, 107, 255);
+const ImU32 kGold = IM_COL32(158, 57, 49, 255);       // 朱砂强调
+const ImU32 kGoldBright = IM_COL32(176, 70, 60, 255);
+const ImU32 kTag = IM_COL32(46, 107, 87, 255);        // 青玉
+const ImU32 kMint = IM_COL32(47, 122, 107, 255);
+const ImU32 kRed = IM_COL32(178, 59, 59, 255);
+const ImU32 kCard = IM_COL32(244, 236, 217, 255);
+const ImU32 kCardHover = IM_COL32(232, 238, 218, 255);
+const ImU32 kCardBorder = IM_COL32(178, 169, 141, 255);
+const ImU32 kCardBorderHover = IM_COL32(46, 107, 87, 255);
+const ImU32 kRule = IM_COL32(188, 178, 151, 255);
+const ImU32 kPanelInner = IM_COL32(250, 244, 230, 255);
+const ImU32 kSlotText = IM_COL32(55, 74, 62, 255);
+
+// 仙侠宣纸主题的公共色
+const ImU32 kPaper = IM_COL32(246, 238, 220, 255);
+const ImU32 kPaperDeep = IM_COL32(239, 229, 206, 255);
+const ImU32 kPaperBorder = IM_COL32(118, 126, 103, 255);
+const ImU32 kPaperBorderSoft = IM_COL32(207, 197, 172, 255);
+const ImU32 kInkGreen = IM_COL32(31, 92, 74, 255);
+const ImU32 kInkGreenDark = IM_COL32(24, 66, 53, 255);
+const ImU32 kTrack = IM_COL32(218, 208, 185, 255);
 
 // ---------------------------------------------------------------- 技能元数据
 struct SkillMeta {
@@ -263,20 +273,29 @@ void DrawNineSlice(ImDrawList* draw, const Canvas& c, Texture* texture, float x,
 }
 
 void DrawPanel(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float x, float y, float w, float h) {
-    draw->AddRectFilled(c.P(x + 7.0f, y + 9.0f), c.P(x + w + 7.0f, y + h + 9.0f), IM_COL32(0, 0, 0, 110), c.V(8.0f));
-    DrawNineSlice(draw, c, ui.panel, x, y, w, h, 24.0f);
+    (void)ui;
+    draw->AddRectFilled(c.P(x + 6.0f, y + 8.0f), c.P(x + w + 6.0f, y + h + 8.0f), IM_COL32(40, 38, 30, 70),
+                        c.V(9.0f));
+    draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), kPaper, c.V(7.0f));
+    draw->AddRect(c.P(x, y), c.P(x + w, y + h), kPaperBorder, c.V(7.0f), ImDrawFlags_None, c.V(2.0f));
+    draw->AddRect(c.P(x + 5.0f, y + 5.0f), c.P(x + w - 5.0f, y + h - 5.0f), kPaperBorderSoft, c.V(5.0f),
+                  ImDrawFlags_None, c.V(1.0f));
 }
 
 void DrawCard(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float x, float y, float w, float h,
               bool hovered) {
-    if (ui.card) {
-        DrawNineSlice(draw, c, ui.card, x, y, w, h, 22.0f,
-                      hovered ? IM_COL32(255, 246, 226, 255) : IM_COL32(235, 226, 210, 255));
-    } else {
-        draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), hovered ? kCardHover : kCard, c.V(2.0f));
+    (void)ui;
+    draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), hovered ? kCardHover : kCard, c.V(5.0f));
+    draw->AddRect(c.P(x, y), c.P(x + w, y + h), hovered ? kCardBorderHover : kCardBorder, c.V(5.0f),
+                  ImDrawFlags_None, c.V(hovered ? 2.0f : 1.0f));
+}
+
+void DrawSlot(ImDrawList* draw, const Canvas& c, float x, float y, float w, float h, ImU32 tint = IM_COL32_WHITE) {
+    draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), kPaperDeep, c.V(5.0f));
+    draw->AddRect(c.P(x, y), c.P(x + w, y + h), kCardBorder, c.V(5.0f), ImDrawFlags_None, c.V(1.0f));
+    if ((tint & IM_COL32_A_MASK) < IM_COL32_A_MASK) {
+        draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), tint, c.V(5.0f));
     }
-    draw->AddRect(c.P(x, y), c.P(x + w, y + h), hovered ? kCardBorderHover : kCardBorder, c.V(2.0f),
-                  hovered ? c.V(2.0f) : c.V(1.0f));
 }
 
 void DrawRule(ImDrawList* draw, const Canvas& c, float x, float y, float w) {
@@ -285,11 +304,13 @@ void DrawRule(ImDrawList* draw, const Canvas& c, float x, float y, float w) {
 
 void DrawBar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, float x, float y, float w, float h,
              float ratio, Texture* fillTexture) {
-    DrawNineSlice(draw, c, ui.barTrack, x, y, w, h, 10.0f);
+    (void)ui;
+    draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), kTrack, c.V(h * 0.5f));
+    draw->AddRect(c.P(x, y), c.P(x + w, y + h), kPaperBorderSoft, c.V(h * 0.5f), ImDrawFlags_None, c.V(1.0f));
     ratio = Clamp01(ratio);
     if (ratio <= 0.0f || !fillTexture) return;
-    const float insetX = 5.0f;
-    const float insetY = 4.0f;
+    const float insetX = 4.0f;
+    const float insetY = 3.0f;
     const float innerW = (std::max)(0.0f, w - insetX * 2.0f);
     const float innerH = (std::max)(0.0f, h - insetY * 2.0f);
     const float fillW = innerW * ratio;
@@ -301,17 +322,21 @@ void DrawBar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, flo
 
 bool DrawButton(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, const char* id, const char* label,
                 float x, float y, float w, float h, bool primary, bool disabled, float fontSize = 20.0f) {
+    (void)ui;
     ImGui::SetCursorScreenPos(c.P(x, y));
     const bool pressed = ImGui::InvisibleButton(id, c.S(w, h));
     const bool hovered = ImGui::IsItemHovered() && !disabled;
     const bool active = ImGui::IsItemActive() && !disabled;
 
-    Texture* texture = disabled ? ui.buttonDisabled : (active ? ui.buttonPressed : (hovered ? ui.buttonHover : (primary ? ui.buttonPrimary : ui.buttonNormal)));
-    if (!texture) texture = primary ? ui.buttonPrimary : ui.buttonNormal;
-    DrawNineSlice(draw, c, texture, x, y, w, h, 12.0f);
+    const ImU32 fill = disabled ? IM_COL32(220, 212, 195, 255)
+                                : (primary ? (active ? kInkGreenDark : (hovered ? IM_COL32(52, 132, 108, 255) : kInkGreen))
+                                           : (active ? IM_COL32(226, 231, 210, 255)
+                                                     : (hovered ? IM_COL32(238, 242, 224, 255) : kPaper)));
+    const ImU32 border = disabled ? IM_COL32(184, 176, 157, 255) : (primary ? kInkGreenDark : kPaperBorder);
+    const ImU32 color = disabled ? IM_COL32(140, 134, 118, 255) : (primary ? kPaper : kInkGreenDark);
 
-    // 水墨按钮是浅色漆面，文字用深墨色；禁用态保留暗金灰。
-    const ImU32 color = disabled ? IM_COL32(150, 134, 112, 255) : IM_COL32(42, 32, 24, 255);
+    draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), fill, c.V(7.0f));
+    draw->AddRect(c.P(x, y), c.P(x + w, y + h), border, c.V(7.0f), ImDrawFlags_None, c.V(1.6f));
     const float textY = y + (h - fontSize) * 0.5f - 1.0f;
     DrawTextCentered(draw, ui, c, fontSize, x + w * 0.5f, textY, color, label);
     return pressed && !disabled;
@@ -585,7 +610,7 @@ void DrawCoverImage(ImDrawList* draw, const Canvas& c, Texture* texture) {
 }
 
 void DrawDim(ImDrawList* draw, const Canvas& c, int alpha) {
-    draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(11, 8, 19, alpha));
+    draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(18, 26, 21, alpha));
 }
 
 bool DrawSlider(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, const char* id, float x, float y,
@@ -596,15 +621,14 @@ bool DrawSlider(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas& c, 
     const bool active = ImGui::IsItemActive();
     const float trackY = y + h * 0.5f;
     const float trackH = 8.0f;
-    draw->AddRectFilled(c.P(x, trackY - trackH * 0.5f), c.P(x + w, trackY + trackH * 0.5f),
-                        IM_COL32(13, 11, 18, 255), c.V(4.0f));
-    draw->AddRect(c.P(x, trackY - trackH * 0.5f), c.P(x + w, trackY + trackH * 0.5f), kCardBorder, c.V(4.0f),
+    draw->AddRectFilled(c.P(x, trackY - trackH * 0.5f), c.P(x + w, trackY + trackH * 0.5f), kTrack, c.V(4.0f));
+    draw->AddRect(c.P(x, trackY - trackH * 0.5f), c.P(x + w, trackY + trackH * 0.5f), kPaperBorderSoft, c.V(4.0f),
                   c.V(1.0f));
     const float knobX = x + w * Clamp01(value);
-    draw->AddRectFilled(c.P(x, trackY - trackH * 0.5f), c.P(knobX, trackY + trackH * 0.5f), kGold, c.V(4.0f));
+    draw->AddRectFilled(c.P(x, trackY - trackH * 0.5f), c.P(knobX, trackY + trackH * 0.5f), kInkGreen, c.V(4.0f));
     draw->AddCircleFilled(c.P(knobX, trackY), c.V(active ? 9.0f : 7.0f),
-                          active ? kGoldBright : (hovered ? kGold : IM_COL32(222, 156, 91, 255)), 18);
-    draw->AddCircle(c.P(knobX, trackY), c.V(active ? 9.0f : 7.0f), IM_COL32(24, 16, 26, 180), 18, c.V(1.0f));
+                          active ? kInkGreenDark : (hovered ? kInkGreen : kTag), 18);
+    draw->AddCircle(c.P(knobX, trackY), c.V(active ? 9.0f : 7.0f), kPaper, 18, c.V(1.0f));
 
     bool changed = false;
     if (active) {
@@ -790,6 +814,12 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
                 DrawPauseScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
                 break;
             }
+            case State::StageClear: {
+                DrawHudScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight, false);
+                DrawDim(draw, c, 180);
+                DrawStageClearScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight);
+                break;
+            }
             case State::LevelUp: {
                 DrawHudScreen(world, c.origin.x, c.origin.y, viewportWidth, viewportHeight, false);
                 DrawDim(draw, c, 180);
@@ -826,7 +856,8 @@ void SurvivorsDirector::DrawUI(World& world, float viewportX, float viewportY, f
             if (player->pickupToastTimer > 0.0f) toast = player->pickupToast;
         }
     }
-    if (!toast.empty() && m_state != State::LevelUp && m_state != State::Gacha) {
+    if (!toast.empty() && m_state != State::LevelUp && m_state != State::Gacha && m_state != State::StageClear &&
+        m_state != State::GameOver) {
         const float timer = m_toastTimer > 0.0f ? m_toastTimer : 2.0f;
         DrawToast(viewportX, viewportY, viewportWidth, viewportHeight, toast, timer);
     }
@@ -846,13 +877,15 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
 
     DrawCoverImage(draw, c, m_ui.titleBackground);
     if (portrait) {
-        // 手机竖屏：上方压暗保证标题/按钮可读，下方留亮给职业立绘。
-        draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h), IM_COL32(12, 9, 8, 244), IM_COL32(12, 9, 8, 232),
-                                      IM_COL32(14, 10, 8, 40), IM_COL32(14, 10, 8, 40));
+        // 手机竖屏：暖宣纸压亮背景，标题和按钮用墨绿/朱砂，下方留亮给职业立绘。
+        draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h), IM_COL32(248, 240, 222, 238),
+                                      IM_COL32(248, 240, 222, 220), IM_COL32(248, 240, 222, 118),
+                                      IM_COL32(248, 240, 222, 118));
     } else {
-        draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(14, 10, 8, 40));
-        draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h), IM_COL32(12, 9, 8, 236), IM_COL32(14, 10, 8, 200),
-                                      IM_COL32(14, 10, 8, 20), IM_COL32(14, 10, 8, 20));
+        draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(248, 240, 222, 150));
+        draw->AddRectFilledMultiColor(c.P(0, 0), c.P(c.w, c.h), IM_COL32(248, 240, 222, 232),
+                                      IM_COL32(248, 240, 222, 196), IM_COL32(248, 240, 222, 46),
+                                      IM_COL32(248, 240, 222, 46));
     }
 
     const float brandX = portrait ? Clamp(c.w * 0.08f, 28.0f, 80.0f) : Clamp(c.w * 0.07f, 40.0f, 110.0f);
@@ -868,8 +901,8 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
     y += 88.0f;
     DrawText(draw, m_ui, c, portrait ? 16.0f : 14.0f, brandX + 2.0f, y, kTag, "水墨江湖 · 自动战斗");
     y += 26.0f;
-    DrawTextShadow(draw, m_ui, c, 96.0f, brandX, y, kGoldBright, IM_COL32(87, 46, 50, 255),
-                   IM_COL32(24, 16, 26, 255), "二毛幸存者");
+    DrawTextShadow(draw, m_ui, c, 96.0f, brandX, y, IM_COL32(156, 57, 49, 255),
+                   IM_COL32(255, 248, 232, 210), IM_COL32(255, 248, 232, 150), "二毛幸存者");
     y += 122.0f;
     DrawText(draw, m_ui, c, portrait ? 20.0f : 18.0f, brandX + 2.0f, y, kText,
              "踏入水墨江湖，拾取武学，在怪潮中活下去。");
@@ -878,9 +911,7 @@ void SurvivorsDirector::DrawMenuScreen(World& world, float vx, float vy, float v
     const bool hasSave = HasSave();
     if (DrawButton(draw, m_ui, c, "##menu_start", "开始游戏", brandX, y, stackW, buttonH, true, false, buttonFont)) {
         PlaySfx("click", 0.6f);
-        m_playerClass = kSurvivorsDefaultClass;
-        m_state = State::Prepare;
-        m_pauseNotice.clear();
+        ShowClassSelect(world);
         return;
     }
     y += buttonGap;
@@ -991,13 +1022,13 @@ void DrawMobileRadar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas
     const float innerY = rect.y + 15.0f * px;
     const float innerW = rect.w - inset * 2.0f;
     const float innerH = rect.h - 21.0f * px;
-    draw->AddRectFilled(c.P(innerX, innerY), c.P(innerX + innerW, innerY + innerH), IM_COL32(28, 23, 18, 228),
+    draw->AddRectFilled(c.P(innerX, innerY), c.P(innerX + innerW, innerY + innerH), IM_COL32(238, 231, 212, 245),
                         c.V(2.0f * px));
     // 三层同心方框，沿用原型雷达的刻度感。
     for (int i = 0; i < 3; ++i) {
         const float step = static_cast<float>(i) * 6.0f * px;
         draw->AddRect(c.P(innerX + step, innerY + step), c.P(innerX + innerW - step, innerY + innerH - step),
-                      IM_COL32(96, 76, 48, 255), 0.0f, 0, c.V(px));
+                      IM_COL32(177, 168, 140, 255), 0.0f, 0, c.V(px));
     }
 
     const float cx = innerX + innerW * 0.5f;
@@ -1015,11 +1046,11 @@ void DrawMobileRadar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas
     Vec2  nearestChestDir(1.0f, 0.0f);
     for (const SurvivorsMinimapMarker& marker : snapshot.markers) {
         if (marker.kind == 2) {
-            plot(marker.position, 1.6f, IM_COL32(235, 92, 82, 220));
+            plot(marker.position, 1.6f, IM_COL32(178, 59, 59, 220));
         } else if (marker.kind == 1) {
-            plot(marker.position, 1.4f, IM_COL32(95, 230, 140, 220));
+            plot(marker.position, 1.4f, IM_COL32(46, 122, 87, 235));
         } else {
-            plot(marker.position, 2.0f, IM_COL32(255, 220, 90, 255));
+            plot(marker.position, 2.0f, IM_COL32(190, 120, 52, 255));
             const Vec2  offset = marker.position - snapshot.player;
             const float distance = Length(offset);
             if (distance < nearestChestDistance) {
@@ -1030,7 +1061,7 @@ void DrawMobileRadar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas
     }
     // 玩家：原型中的青绿小方块。
     draw->AddRectFilled(c.P(cx - 2.5f * px, cy - 2.5f * px), c.P(cx + 2.5f * px, cy + 2.5f * px),
-                        IM_COL32(103, 228, 192, 255), c.V(px));
+                        kInkGreen, c.V(px));
     // 雷达范围外的最近宝箱：在边缘画一个金色箭头。
     if (nearestChestDistance > kRadarRange && nearestChestDistance < 1e8f) {
         const float sx = nearestChestDir.x;
@@ -1040,7 +1071,7 @@ void DrawMobileRadar(ImDrawList* draw, const SurvivorsUIAssets& ui, const Canvas
         const ImVec2 tip = c.P(ax + sx * 5.0f * px, ay + sy * 5.0f * px);
         const ImVec2 left = c.P(ax - sy * 3.5f * px, ay + sx * 3.5f * px);
         const ImVec2 right = c.P(ax + sy * 3.5f * px, ay - sx * 3.5f * px);
-        draw->AddTriangleFilled(tip, left, right, IM_COL32(255, 215, 80, 240));
+        draw->AddTriangleFilled(tip, left, right, IM_COL32(190, 120, 52, 240));
     }
 }
 
@@ -1054,7 +1085,7 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
     const float panelX = c.w - panelW - (mobile ? 16.0f : 24.0f);
     const float panelY = mobile ? 88.0f : 72.0f;
     DrawPanel(draw, ui, c, panelX, panelY, panelW, panelH);
-    DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 9.0f, kGold, "地图");
+    DrawText(draw, ui, c, 14.0f, panelX + 14.0f, panelY + 9.0f, kTag, "地图");
 
     const float headerH = 32.0f;
     const float legendH = 46.0f;
@@ -1062,8 +1093,8 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
     const float mapY = panelY + headerH;
     const float mapW = panelW - 24.0f;
     const float mapH = panelH - headerH - 12.0f - legendH;
-    draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(28, 23, 18, 232), c.V(4.0f));
-    draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(74, 70, 58, 255), c.V(4.0f),
+    draw->AddRectFilled(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), IM_COL32(238, 231, 212, 245), c.V(4.0f));
+    draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), kCardBorder, c.V(4.0f),
                   c.V(1.0f));
 
     const Vec2 half = snapshot.arenaHalf;
@@ -1115,9 +1146,9 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
             draw->AddCircleFilled(c.P(x, dotY), c.V(3.0f), color, 8);
             DrawText(draw, ui, c, 11.0f, x + 8.0f, legendY, kTextMuted, label);
         };
-        legend(panelX + 16.0f, IM_COL32(235, 92, 82, 220), "怪");
-        legend(panelX + 72.0f, IM_COL32(255, 220, 90, 255), "宝箱");
-        legend(panelX + 140.0f, IM_COL32(95, 230, 140, 220), "掉落");
+        legend(panelX + 16.0f, IM_COL32(178, 59, 59, 220), "怪");
+        legend(panelX + 72.0f, IM_COL32(190, 120, 52, 255), "宝箱");
+        legend(panelX + 140.0f, IM_COL32(46, 122, 87, 220), "掉落");
     }
 
     for (const SurvivorsMinimapRect& obstacle : snapshot.obstacles) {
@@ -1125,7 +1156,7 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
         const ImVec2 max = toMap(obstacle.center + obstacle.half);
         draw->AddRectFilled(ImVec2((std::min)(min.x, max.x), (std::min)(min.y, max.y)),
                             ImVec2((std::max)(min.x, max.x), (std::max)(min.y, max.y)),
-                            IM_COL32(73, 79, 88, 210), c.V(1.0f));
+                            IM_COL32(142, 151, 128, 200), c.V(1.0f));
     }
 
     // 最近宝箱的方向/距离，用于屏幕上方罗盘。
@@ -1134,19 +1165,19 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
     for (const SurvivorsMinimapMarker& marker : snapshot.markers) {
         if (marker.kind == 2) {
             const ImVec2 p = toMap(marker.position);
-            draw->AddCircleFilled(p, c.V(1.7f), IM_COL32(235, 92, 82, 170), 8);
+            draw->AddCircleFilled(p, c.V(1.7f), IM_COL32(178, 59, 59, 190), 8);
             continue;
         }
         if (marker.kind == 1) {
-            draw->AddCircleFilled(toMap(marker.position), c.V(2.2f), IM_COL32(95, 230, 140, 210), 8);
+            draw->AddCircleFilled(toMap(marker.position), c.V(2.2f), IM_COL32(46, 122, 87, 220), 8);
             continue;
         }
         const ImVec2 p = toMap(marker.position);
         const float pulse = 0.5f + 0.5f * std::sin(time * 5.0f + marker.position.x);
-        draw->AddCircleFilled(p, c.V(5.5f + pulse * 2.0f), IM_COL32(255, 210, 70, 55), 12);
-        draw->AddCircleFilled(p, c.V(3.4f), IM_COL32(255, 220, 90, 255), 12);
-        draw->AddLine(ImVec2(p.x - 5.0f, p.y), ImVec2(p.x + 5.0f, p.y), IM_COL32(255, 240, 170, 220), 1.0f);
-        draw->AddLine(ImVec2(p.x, p.y - 5.0f), ImVec2(p.x, p.y + 5.0f), IM_COL32(255, 240, 170, 220), 1.0f);
+        draw->AddCircleFilled(p, c.V(5.5f + pulse * 2.0f), IM_COL32(190, 120, 52, 55), 12);
+        draw->AddCircleFilled(p, c.V(3.4f), IM_COL32(190, 120, 52, 255), 12);
+        draw->AddLine(ImVec2(p.x - 5.0f, p.y), ImVec2(p.x + 5.0f, p.y), IM_COL32(238, 231, 212, 240), 1.0f);
+        draw->AddLine(ImVec2(p.x, p.y - 5.0f), ImVec2(p.x, p.y + 5.0f), IM_COL32(238, 231, 212, 240), 1.0f);
 
         const Vec2 toBuff = marker.position - snapshot.player;
         const float distance = Length(toBuff);
@@ -1159,8 +1190,8 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
 
     // 玩家：金色三角 + 朝向线
     const ImVec2 playerPoint = toMap(snapshot.player);
-    draw->AddCircleFilled(playerPoint, c.V(4.0f), IM_COL32(255, 255, 255, 245), 12);
-    draw->AddCircle(playerPoint, c.V(6.0f), IM_COL32(120, 220, 255, 230), 12, c.V(1.0f));
+    draw->AddCircleFilled(playerPoint, c.V(4.0f), kInkGreen, 12);
+    draw->AddCircle(playerPoint, c.V(6.0f), kPaper, 12, c.V(1.5f));
 
     // 顶部罗盘：指出最近抽奖宝箱的方向与距离
     if (nearestDistance < 1e8f) {
@@ -1171,14 +1202,165 @@ void DrawSurvivorsMinimap(ImDrawList* draw, const SurvivorsUIAssets& ui, const C
         const ImVec2 tip(cx + sx * 13.0f, cy + sy * 13.0f);
         const ImVec2 left(cx - sx * 3.0f - sy * 6.0f, cy - sy * 3.0f + sx * 6.0f);
         const ImVec2 right(cx - sx * 3.0f + sy * 6.0f, cy - sy * 3.0f - sx * 6.0f);
-        draw->AddTriangleFilled(tip, left, right, IM_COL32(255, 215, 80, 240));
+        draw->AddTriangleFilled(tip, left, right, IM_COL32(190, 120, 52, 240));
         char text[64];
         std::snprintf(text, sizeof(text), "最近增益 %.1fm", nearestDistance);
-        DrawText(draw, ui, c, 12.0f, cx + 22.0f, cy - 8.0f, kGold, text);
+        DrawText(draw, ui, c, 12.0f, cx + 22.0f, cy - 8.0f, kTag, text);
     }
 }
 
 } // namespace
+
+// ================================================================ 教学提示
+namespace {
+const char* TutorialStepTitle(int step) {
+    switch (step) {
+        case 0: return "第一步 · 移动角色";
+        case 1: return "第二步 · 拾取灵气";
+        case 2: return "第三步 · 习得新法术";
+        case 3: return "第四步 · 强化本命法术";
+        default: return "训练完成";
+    }
+}
+
+const char* TutorialStepHint(int step) {
+    switch (step) {
+        case 0: return "WASD / 拖动屏幕，移动一小段距离";
+        case 1: return "走到灵气光点旁，拾取经验";
+        case 2: return "走到绿色光点旁，拾取新法术";
+        case 3: return "走到强化光点旁，提升本命法术";
+        default: return "怪潮来了：满屏法术清场";
+    }
+}
+
+const char* TutorialCheckLabel(int step) {
+    switch (step) {
+        case 0: return "移动";
+        case 1: return "拾取灵气";
+        case 2: return "新法术";
+        case 3: return "强化";
+        default: return "实战";
+    }
+}
+
+void DrawCheckMark(ImDrawList* draw, const Canvas& c, float x, float y, float size, ImU32 color) {
+    const float w = c.V((std::max)(1.5f, size * 0.20f));
+    draw->AddLine(c.P(x - size * 0.42f, y), c.P(x, y + size * 0.40f), color, w);
+    draw->AddLine(c.P(x, y + size * 0.40f), c.P(x + size * 0.52f, y - size * 0.42f), color, w);
+}
+} // namespace
+
+void SurvivorsDirector::DrawTutorialHint(World& world, float vx, float vy, float vw, float vh, bool mobile) {
+    Canvas      c = MakeCanvas(vx, vy, vw, vh);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const int   cls = Clamp(m_playerClass, 0, kSurvivorsClassCount - 1);
+
+    const bool gate = (m_tutorialGate || m_tutorialFlash > 0.0f) &&
+                      m_tutorialStep < kSurvivorsTutorialStepCount;
+
+    if (!gate) {
+        m_tutorialSkipHit = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+        // 实战阶段：小面板展示成长方向，不遮挡操作。
+        float panelW = mobile ? (std::min)(c.w - 24.0f, 680.0f) : 500.0f;
+        float panelX = mobile ? c.w * 0.5f - panelW * 0.5f : 24.0f;
+        float panelH = mobile ? 188.0f : 196.0f;
+        float panelY = 158.0f;
+        if (mobile) {
+            const float px = 1.0f / c.scale;
+            const float bottom = c.h - (m_safeInsets.w + 12.0f) * px;
+            panelY = bottom - 78.0f - 14.0f - panelH;
+        }
+        DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
+        DrawText(draw, m_ui, c, mobile ? 20.0f : 18.0f, panelX + 16.0f, panelY + 12.0f, kTag,
+                 "训练完成 · 怪潮来了");
+        DrawWrapped(draw, m_ui, c, mobile ? 17.0f : 15.0f, panelX + 16.0f, panelY + 50.0f, panelW - 32.0f,
+                    kText, "满屏小怪 + 满屏法术，这就是本作的爽点。", 1.40f);
+        DrawWrapped(draw, m_ui, c, mobile ? 15.0f : 13.0f, panelX + 16.0f, panelY + 92.0f, panelW - 32.0f,
+                    kMint, kSurvivorsClasses[cls].growth, 1.35f);
+        DrawWrapped(draw, m_ui, c, mobile ? 14.0f : 12.5f, panelX + 16.0f, panelY + 142.0f, panelW - 32.0f,
+                    kTextDim, "雷霆：Lv.3 双雷 · Lv.7 四雷 · Lv.17 九雷；范围随等级扩大", 1.35f);
+        return;
+    }
+
+    // 分步操作：压暗战场，中央宣纸法册；未完成操作不恢复刷怪与计时。
+    draw->AddRectFilled(c.P(0, 0), c.P(c.w, c.h), IM_COL32(32, 42, 34, 66));
+    const float panelW = mobile ? (std::min)(c.w - 24.0f, 720.0f) : 680.0f;
+    const float panelX = mobile ? c.w * 0.5f - panelW * 0.5f : 24.0f;
+    const float panelH = mobile ? 392.0f : 318.0f;
+    float       panelY = 158.0f;
+    if (mobile) {
+        const float px = 1.0f / c.scale;
+        const float bottom = c.h - (m_safeInsets.w + 12.0f) * px;
+        panelY = bottom - 78.0f - 14.0f - panelH;
+    }
+    DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
+
+    char stepLabel[64];
+    std::snprintf(stepLabel, sizeof(stepLabel), "%d / %d", (std::min)(m_tutorialStep + 1, kSurvivorsTutorialStepCount),
+                  kSurvivorsTutorialStepCount);
+    DrawText(draw, m_ui, c, mobile ? 16.0f : 15.0f, panelX + 24.0f, panelY + 16.0f, kTag, "初入江湖 · 教学");
+    DrawTextRight(draw, m_ui, c, mobile ? 16.0f : 15.0f, panelX + panelW - 24.0f, panelY + 16.0f, kTextMuted,
+                  stepLabel);
+
+    if (m_tutorialFlash > 0.0f) {
+        DrawTextCentered(draw, m_ui, c, mobile ? 34.0f : 32.0f, panelX + panelW * 0.5f, panelY + 46.0f, kInkGreen,
+                         "步骤完成");
+        const float doneW = MeasureText(m_ui, c, mobile ? 34.0f : 32.0f, "步骤完成").x / c.scale;
+        DrawCheckMark(draw, c, panelX + panelW * 0.5f - doneW * 0.5f - (mobile ? 26.0f : 22.0f),
+                      panelY + 62.0f, mobile ? 16.0f : 14.0f, kInkGreen);
+        DrawTextCentered(draw, m_ui, c, mobile ? 18.0f : 16.0f, panelX + panelW * 0.5f, panelY + 110.0f, kTextDim,
+                         "很好，继续下一步");
+    } else {
+        DrawTextCentered(draw, m_ui, c, mobile ? 31.0f : 29.0f, panelX + panelW * 0.5f, panelY + 44.0f, kInkGreenDark,
+                         TutorialStepTitle(m_tutorialStep));
+        DrawTextCentered(draw, m_ui, c, mobile ? 19.0f : 17.0f, panelX + panelW * 0.5f, panelY + 88.0f, kText,
+                         TutorialStepHint(m_tutorialStep));
+    }
+
+    // 四步清单：已完成打勾，当前步高亮。
+    const float listY = panelY + (mobile ? 160.0f : 138.0f);
+    const float rowH = mobile ? 44.0f : 34.0f;
+    for (int step = 0; step < kSurvivorsTutorialStepCount; ++step) {
+        const float rowY = listY + rowH * static_cast<float>(step);
+        const bool  done = step < m_tutorialStep;
+        const bool  current = step == m_tutorialStep && m_tutorialFlash <= 0.0f;
+        if (current) {
+            draw->AddRectFilled(c.P(panelX + 20.0f, rowY - 6.0f), c.P(panelX + panelW - 20.0f, rowY + rowH - 10.0f),
+                                IM_COL32(222, 234, 212, 255), c.V(4.0f));
+        }
+        const float circleX = panelX + 38.0f;
+        const float circleY = rowY + rowH * 0.35f;
+        if (done) {
+            draw->AddCircleFilled(c.P(circleX, circleY), c.V(12.0f), kInkGreen, 16);
+            DrawCheckMark(draw, c, circleX, circleY, 12.0f, kPaper);
+        } else {
+            draw->AddCircleFilled(c.P(circleX, circleY), c.V(12.0f), current ? kTag : kPaperDeep, 16);
+            draw->AddCircle(c.P(circleX, circleY), c.V(12.0f), current ? kInkGreen : kPaperBorder, 16, c.V(1.0f));
+            char number[8];
+            std::snprintf(number, sizeof(number), "%d", step + 1);
+            DrawTextCentered(draw, m_ui, c, 14.0f, circleX, circleY - 8.0f, current ? kPaper : kTextMuted, number);
+        }
+        DrawText(draw, m_ui, c, mobile ? 19.0f : 17.0f, panelX + 62.0f, rowY, current ? kInkGreenDark : kText,
+                 TutorialCheckLabel(step));
+        if (done) {
+            DrawTextRight(draw, m_ui, c, mobile ? 15.0f : 14.0f, panelX + panelW - 28.0f, rowY + 2.0f, kInkGreen,
+                          "完成");
+        }
+    }
+
+    const float skipW = mobile ? 132.0f : 118.0f;
+    const float skipH = mobile ? 40.0f : 36.0f;
+    const float skipX = panelX + panelW - skipW - 20.0f;
+    const float skipY = panelY + panelH - skipH - 12.0f;
+    DrawText(draw, m_ui, c, mobile ? 15.0f : 13.5f, panelX + 24.0f, skipY + 8.0f, kTextMuted,
+             "完成当前操作后自动继续");
+    if (DrawButton(draw, m_ui, c, "##tutorial_skip", "跳过教学", skipX, skipY, skipW, skipH, false, false,
+                   mobile ? 15.0f : 14.0f)) {
+        SkipTutorial(world);
+        return;
+    }
+    m_tutorialSkipHit = Vec4(c.P(skipX, skipY).x, c.P(skipX, skipY).y, c.V(skipW), c.V(skipH));
+}
 
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
@@ -1226,6 +1408,19 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     std::snprintf(value, sizeof(value), "击杀 %d", m_kills);
     DrawTextRight(draw, m_ui, c, 15.0f, timerX + timerW - 20.0f, timerY + 18.0f, kTextDim, value);
 
+    // 20 层关卡：层数 + 本层通关条件/进度（联机副本的层数由主机决定，客户端不显示本地位面）
+    if (!m_networkReplica) {
+        const float stageW = 430.0f;
+        const float stageX = c.w * 0.5f - stageW * 0.5f;
+        const float stageY = timerY + 64.0f;
+        DrawPanel(draw, m_ui, c, stageX, stageY, stageW, 42.0f);
+        char floorText[48];
+        std::snprintf(floorText, sizeof(floorText), "第 %d / %d 层", m_floor, kSurvivorsFloorCount);
+        DrawText(draw, m_ui, c, 15.0f, stageX + 16.0f, stageY + 12.0f, kTag, floorText);
+        DrawTextRight(draw, m_ui, c, 14.0f, stageX + stageW - 16.0f, stageY + 13.0f, kText,
+                      StageGoalProgressText(world).c_str());
+    }
+
     // 右上暂停
     const float pauseW = 136.0f;
     const float pauseX = c.w - 24.0f - pauseW;
@@ -1236,8 +1431,8 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
             return;
         }
     } else {
-        DrawNineSlice(draw, c, m_ui.buttonNormal, pauseX, 20.0f, pauseW, 44.0f, 12.0f);
-        DrawTextCentered(draw, m_ui, c, 17.0f, pauseX + pauseW * 0.5f, 33.0f, kText, "Esc 暂停");
+        DrawSlot(draw, c, pauseX, 20.0f, pauseW, 44.0f);
+        DrawTextCentered(draw, m_ui, c, 17.0f, pauseX + pauseW * 0.5f, 33.0f, kInkGreenDark, "Esc 暂停");
     }
 
     // 底部技能槽：只显示本局已拥有的技能（职业基础 1 个 + 最多 4 个掉落）
@@ -1264,7 +1459,7 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
             if (ImGui::IsItemHovered()) hoveredSkill = skill;
             if (pressed) m_selectedSkill = (m_selectedSkill == skill) ? -1 : skill;
         }
-        DrawNineSlice(draw, c, m_ui.slot, x, slotY, slotSize, slotSize, 12.0f);
+        DrawSlot(draw, c, x, slotY, slotSize, slotSize);
         if (m_ui.icon[skill]) DrawImage(draw, c, m_ui.icon[skill], x + 14.0f, slotY + 7.0f, 42.0f, 42.0f);
         const int skillLevel = player ? SkillLevel(*player, skill) : 0;
         char      slotLabel[32];
@@ -1292,6 +1487,7 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     }
 
     DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
+    if (m_tutorialPending && !m_networkReplica) DrawTutorialHint(world, vx, vy, vw, vh, false);
 }
 
 // mobile-hud 原型的战斗 HUD：一块顶栏（等级/计时/击杀 + 生命/经验）、44px 暂停键、
@@ -1328,8 +1524,8 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
     const float barX = s.x + 26.0f * px;
     const float barW = (std::max)(0.0f, s.w - 94.0f * px);
     auto compactBar = [&](float y, float ratio, Texture* fillTexture, ImU32 color) {
-        draw->AddRectFilled(c.P(barX, y), c.P(barX + barW, y + 8.0f * px), IM_COL32(8, 11, 18, 255), c.V(px));
-        draw->AddLine(c.P(barX, y + 7.5f * px), c.P(barX + barW, y + 7.5f * px), IM_COL32(69, 80, 93, 255),
+        draw->AddRectFilled(c.P(barX, y), c.P(barX + barW, y + 8.0f * px), kTrack, c.V(px));
+        draw->AddLine(c.P(barX, y + 7.5f * px), c.P(barX + barW, y + 7.5f * px), kPaperBorderSoft,
                       c.V(px));
         const float clamped = Clamp01(ratio);
         const float fill = barW * clamped;
@@ -1356,6 +1552,19 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
     std::snprintf(value, sizeof(value), "%.0f/%.0f", xp, xpNext);
     DrawTextRight(draw, m_ui, c, 10.0f * hud.font, s.x + s.w - 10.0f * px, s.y + 49.0f * px, kMint, value);
 
+    // ------------------------------------------------------------ 20 层：层数 + 本层条件
+    if (!m_networkReplica) {
+        const float pillY = s.y + s.h + 5.0f * px;
+        const float pillH = 23.0f * px;
+        const float pillW = hud.portrait ? (std::max)(100.0f * px, s.w - hud.map.w - 8.0f * px) : s.w;
+        DrawPanel(draw, m_ui, c, s.x, pillY, pillW, pillH);
+        char floorText[48];
+        std::snprintf(floorText, sizeof(floorText), "第 %d/%d 层", m_floor, kSurvivorsFloorCount);
+        DrawText(draw, m_ui, c, 12.5f * hud.font, s.x + 8.0f * px, pillY + 3.0f * px, kTag, floorText);
+        DrawTextRight(draw, m_ui, c, 12.5f * hud.font, s.x + pillW - 8.0f * px, pillY + 3.0f * px, kText,
+                      StageGoalProgressText(world).c_str());
+    }
+
     // ------------------------------------------------------------ 暂停键
     const HudRect& p = hud.pause;
     m_pauseHit = Vec4(c.P(p.x, p.y).x, c.P(p.x, p.y).y, c.V(p.w), c.V(p.h));
@@ -1368,9 +1577,9 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
     }
     DrawPanel(draw, m_ui, c, p.x, p.y, p.w, p.h);
     draw->AddRectFilled(c.P(p.x + 16.0f * px, p.y + 14.0f * px), c.P(p.x + 20.0f * px, p.y + 30.0f * px),
-                        kGold);
+                        kInkGreenDark);
     draw->AddRectFilled(c.P(p.x + 24.0f * px, p.y + 14.0f * px), c.P(p.x + 28.0f * px, p.y + 30.0f * px),
-                        kGold);
+                        kInkGreenDark);
 
     // ------------------------------------------------------------ 技能槽（固定 5 个）
     int slotSkills[kSurvivorsMaxLoadout];
@@ -1388,8 +1597,8 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
         const float y = hud.dock.y;
         const float size = hud.slot;
         if (skill < 0) {
-            draw->AddRectFilled(c.P(x, y), c.P(x + size, y + size), IM_COL32(12, 15, 22, 180), c.V(4.0f * px));
-            DrawNineSlice(draw, c, m_ui.slot, x, y, size, size, 12.0f, IM_COL32(255, 255, 255, 90));
+            DrawSlot(draw, c, x, y, size, size, IM_COL32(255, 255, 255, 0));
+            DrawSlot(draw, c, x, y, size, size, IM_COL32(255, 255, 255, 0));
             DrawTextCentered(draw, m_ui, c, 14.0f * hud.font, x + size * 0.5f, y + size * 0.5f - 7.0f * px,
                              kTextMuted, "·");
             continue;
@@ -1402,7 +1611,7 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
             }
             if (ImGui::IsItemHovered()) hoveredSkill = skill;
         }
-        DrawNineSlice(draw, c, m_ui.slot, x, y, size, size, 12.0f);
+        DrawSlot(draw, c, x, y, size, size);
         const float iconSize = size - 8.0f * px;
         if (m_ui.icon[skill]) {
             DrawImage(draw, c, m_ui.icon[skill], x + 4.0f * px, y + 3.0f * px, iconSize, iconSize);
@@ -1413,10 +1622,10 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
         const float badgeW = 13.0f * px;
         const float badgeH = 10.0f * px;
         draw->AddRectFilled(c.P(x + size - badgeW - 2.0f * px, y + size - badgeH - 2.0f * px),
-                            c.P(x + size - 2.0f * px, y + size - 2.0f * px), IM_COL32(16, 21, 30, 220),
+                            c.P(x + size - 2.0f * px, y + size - 2.0f * px), kPaperDeep,
                             c.V(2.0f * px));
         DrawTextCentered(draw, m_ui, c, 9.0f * hud.font, x + size - badgeW * 0.5f - 2.0f * px,
-                         y + size - badgeH - 1.0f * px, kGold, levelText);
+                         y + size - badgeH - 1.0f * px, kInkGreenDark, levelText);
     }
     if (interactive && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !ImGui::IsAnyItemHovered()) {
         m_selectedSkill = -1;
@@ -1441,6 +1650,7 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
     }
 
     DrawMobileRadar(draw, m_ui, c, world, hud);
+    if (m_tutorialPending && !m_networkReplica) DrawTutorialHint(world, vx, vy, vw, vh, true);
 }
 
 // ================================================================ 升级三选一
@@ -1719,7 +1929,7 @@ void SurvivorsDirector::DrawGachaScreen(World& world, float vx, float vy, float 
 
     // 顶部标题：开箱期间提示，翻牌后让位给卡面。
     if (t < reveal) {
-        DrawTextCentered(draw, m_ui, c, 30.0f, cx, cy - 245.0f, kGoldBright, "增益宝箱开启");
+        DrawTextCentered(draw, m_ui, c, 30.0f, cx, cy - 245.0f, kPaper, "增益宝箱开启");
         char subtitle[64];
         std::snprintf(subtitle, sizeof(subtitle), "%s增益 · 正在抽取", SurvivorsBuffRarityName(rarity));
         DrawTextCentered(draw, m_ui, c, 15.0f, cx, cy - 198.0f, ToImColor(rarityColor, 1.0f), subtitle);
@@ -1745,9 +1955,9 @@ void SurvivorsDirector::DrawGachaScreen(World& world, float vx, float vy, float 
         draw->AddRectFilled(c.P(PX(baseX) - 8.0f, PY(baseY) - 8.0f),
                             c.P(PX(baseX + baseW) + 8.0f, PY(baseY + baseH) + 8.0f), ToImColor(rarityColor, 0.18f),
                             c.V(14.0f));
-        draw->AddRectFilled(cardMin, cardMax, IM_COL32(27, 21, 33, 248), c.V(10.0f * scale));
-        draw->AddRectFilledMultiColor(cardMin, cardMax, ToImColor(rarityColor, 0.20f), ToImColor(rarityColor, 0.10f),
-                                      IM_COL32(10, 8, 15, 0), IM_COL32(10, 8, 15, 0));
+        draw->AddRectFilled(cardMin, cardMax, IM_COL32(246, 238, 220, 250), c.V(10.0f * scale));
+        draw->AddRectFilledMultiColor(cardMin, cardMax, ToImColor(rarityColor, 0.16f), ToImColor(rarityColor, 0.06f),
+                                      IM_COL32(246, 238, 220, 0), IM_COL32(246, 238, 220, 0));
         draw->AddRect(cardMin, cardMax, rarityU32, c.V(10.0f * scale), 0, c.V(2.2f * scale));
 
         // 四角装饰线
@@ -1802,7 +2012,7 @@ void SurvivorsDirector::DrawGachaScreen(World& world, float vx, float vy, float 
         for (int i = 0; i < 3; ++i) {
             const ImVec2 center = c.P(PX(baseX + baseW - 42.0f - static_cast<float>(i) * 22.0f), PY(baseY + 26.0f));
             const float  r = c.V(5.0f * scale);
-            const ImU32  color = i < rarity + 1 ? rarityU32 : IM_COL32(80, 70, 88, 150);
+            const ImU32  color = i < rarity + 1 ? rarityU32 : IM_COL32(203, 194, 170, 220);
             draw->AddQuadFilled(ImVec2(center.x, center.y - r), ImVec2(center.x + r, center.y),
                                 ImVec2(center.x, center.y + r), ImVec2(center.x - r, center.y), color);
         }
@@ -1928,6 +2138,176 @@ void SurvivorsDirector::DrawSettingsScreen(float vx, float vy, float vw, float v
                      "Esc 返回上一页");
 }
 
+// ================================================================ 层间结算
+void SurvivorsDirector::DrawStageClearScreen(World& world, float vx, float vy, float vw, float vh) {
+    Canvas      c = MakeCanvas(vx, vy, vw, vh);
+    ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const bool  portrait = c.h > c.w * 1.15f;
+
+    const float panelW = FitPanelWidth(c, portrait ? 760.0f : 960.0f);
+    const float panelH = portrait ? 820.0f : 760.0f;
+    const float panelX = c.w * 0.5f - panelW * 0.5f;
+    const float panelY = c.h * 0.5f - panelH * 0.5f;
+    DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
+
+    char tag[64];
+    std::snprintf(tag, sizeof(tag), "第 %d / %d 层", m_floor, kSurvivorsFloorCount);
+    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 24.0f, panelW - 60.0f, "层数突破", "通关成功",
+                     tag, true);
+
+    char goalLine[160];
+    if (m_stageGoal.type == static_cast<int>(SurvivorsGoalType::Tutorial)) {
+        std::snprintf(goalLine, sizeof(goalLine), "本层条件：完成教学");
+    } else {
+        std::snprintf(goalLine, sizeof(goalLine), "本层条件：%s", StageGoalProgressText(world).c_str());
+    }
+    DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, panelY + 112.0f, kText, goalLine);
+
+    char stats[128];
+    std::snprintf(stats, sizeof(stats), "本局总击杀 %d · 总用时 %s", m_kills, FormatClock(m_time).c_str());
+    DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, panelY + 138.0f, kTextDim, stats);
+
+    const int nextFloor = (std::min)(m_floor + 1, kSurvivorsFloorCount);
+    char      nextTitle[96];
+    std::snprintf(nextTitle, sizeof(nextTitle), "下一层 · 第 %d 层", nextFloor);
+    DrawTextCentered(draw, m_ui, c, 16.0f, c.w * 0.5f, panelY + 162.0f, kInkGreenDark, nextTitle);
+    char nextGoal[160];
+    switch (static_cast<SurvivorsGoalType>(m_nextStageGoal.type)) {
+        case SurvivorsGoalType::SurviveTime:
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：存活 %d 秒", static_cast<int>(m_nextStageGoal.target));
+            break;
+        case SurvivorsGoalType::KillCount:
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：击杀 %d 只怪物",
+                          static_cast<int>(m_nextStageGoal.target));
+            break;
+        case SurvivorsGoalType::EliteHunt:
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：击杀 %d 名精英",
+                          static_cast<int>(m_nextStageGoal.target));
+            break;
+        case SurvivorsGoalType::GemCollect:
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：拾取 %d 枚经验",
+                          static_cast<int>(m_nextStageGoal.target));
+            break;
+        case SurvivorsGoalType::SkillLevelSum:
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：武学总等级达到 %d",
+                          static_cast<int>(m_nextStageGoal.target));
+            break;
+        default: std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：通关"); break;
+    }
+    DrawTextCentered(draw, m_ui, c, 14.0f, c.w * 0.5f, panelY + 186.0f, kGoldBright, nextGoal);
+
+    DrawRule(draw, c, panelX + 30.0f, panelY + 214.0f, panelW - 60.0f);
+    DrawTextCentered(draw, m_ui, c, 20.0f, c.w * 0.5f, panelY + 230.0f, kInkGreenDark,
+                     "翻牌奖励 · 任选一张");
+    DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, panelY + 260.0f, kTextMuted,
+                     "每次通关都有一次强化；点击背面卡牌翻开");
+
+    auto* player = PlayerOf(world);
+    const float gap = portrait ? 10.0f : 16.0f;
+    const float cardW = (panelW - 60.0f - gap * 2.0f) / 3.0f;
+    const float cardH = portrait ? 214.0f : 236.0f;
+    const float cardY = panelY + 286.0f;
+    const float cardX0 = panelX + 30.0f;
+    if (m_rewardChosen == 0 || m_rewardChosen == 1 || m_rewardChosen == 2) {
+        m_rewardFlipTime = (std::min)(0.45f, m_rewardFlipTime + ImGui::GetIO().DeltaTime);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        const float x = cardX0 + (cardW + gap) * static_cast<float>(i);
+        const SurvivorsStageReward& reward = m_stageRewards[i];
+        const bool chosen = (m_rewardChosen == i);
+        const bool locked = (m_rewardChosen >= 0 && !chosen);
+        const float alpha = locked ? 0.42f : 1.0f;
+        const float angle = chosen ? (m_rewardFlipTime / 0.45f) * 3.14159265f : 0.0f;
+        const bool  front = chosen && angle >= 1.5707963f;
+        const float scaleX = chosen ? (std::max)(0.06f, std::abs(std::cos(angle))) : 1.0f;
+        const float cx = x + cardW * 0.5f;
+        const float drawW = cardW * scaleX;
+        const float dx = cx - drawW * 0.5f;
+
+        if (m_rewardChosen < 0) {
+            ImGui::SetCursorScreenPos(c.P(x, cardY));
+            if (ImGui::InvisibleButton((std::string("##stage_reward") + std::to_string(i)).c_str(),
+                                       c.S(cardW, cardH))) {
+                ApplyStageReward(world, i);
+            }
+            if (ImGui::IsItemHovered()) {
+                draw->AddRect(c.P(x - 3.0f, cardY - 3.0f), c.P(x + cardW + 3.0f, cardY + cardH + 3.0f), kGoldBright,
+                              c.V(9.0f), 0, c.V(2.0f));
+            }
+        }
+
+        if (!front) {
+            const ImU32 border = chosen ? kGoldBright : kPaperBorder;
+            draw->AddRectFilled(c.P(dx + 2.0f, cardY + 4.0f), c.P(dx + drawW + 2.0f, cardY + cardH + 4.0f),
+                                IM_COL32(20, 28, 22, 60), c.V(9.0f));
+            draw->AddRectFilled(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), kInkGreen, c.V(9.0f));
+            draw->AddRect(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), border, c.V(9.0f), 0, c.V(2.0f));
+            if (drawW > cardW * 0.35f) {
+                const float sealR = (portrait ? 30.0f : 38.0f) * scaleX;
+                draw->AddCircleFilled(c.P(cx, cardY + cardH * 0.42f), c.V(sealR), IM_COL32(156, 57, 49, alpha));
+                DrawTextCentered(draw, m_ui, c, portrait ? 30.0f : 36.0f, cx, cardY + cardH * 0.42f - 18.0f,
+                                 IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)), "翻");
+                DrawTextCentered(draw, m_ui, c, 14.0f, cx, cardY + cardH - 52.0f, IM_COL32(230, 224, 208, static_cast<int>(255 * alpha)),
+                                 "点击翻开");
+            }
+        } else if (player) {
+            LevelCardInfo info;
+            if (reward.unlock) {
+                info.tag = "新武学";
+                info.name = kSkills[Clamp(reward.choice.skill, 0, 9)].name;
+                info.level = "解锁 · Lv.1";
+                info.desc = kSkills[Clamp(reward.choice.skill, 0, 9)].desc;
+                info.effect = "永久加入本局武学";
+            } else {
+                info = MakeLevelCardInfo(*player, reward.choice);
+            }
+            const ImU32 accent = reward.unlock ? kGoldBright : (reward.choice.skill == 100 ? IM_COL32(156, 57, 49, 255) : kInkGreen);
+            draw->AddRectFilled(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), kPaper, c.V(9.0f));
+            draw->AddRect(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), accent, c.V(9.0f), 0, c.V(2.0f));
+            DrawTextCentered(draw, m_ui, c, portrait ? 12.0f : 13.0f, cx, cardY + 12.0f, accent, info.tag.c_str());
+            Texture* icon = nullptr;
+            if (reward.choice.skill >= 0 && reward.choice.skill < 10) icon = m_ui.icon[reward.choice.skill];
+            if (!icon) icon = m_ui.icon[0];
+            if (icon) {
+                const float iconSize = portrait ? 38.0f : 46.0f;
+                DrawImage(draw, c, icon, cx - iconSize * 0.5f, cardY + 34.0f, iconSize, iconSize);
+            }
+            DrawTextCentered(draw, m_ui, c, portrait ? 18.0f : 21.0f, cx, cardY + 86.0f, kInkGreenDark,
+                             info.name.c_str());
+            DrawTextCentered(draw, m_ui, c, portrait ? 12.0f : 13.0f, cx, cardY + 114.0f, kTag,
+                             info.level.c_str());
+            DrawWrapped(draw, m_ui, c, portrait ? 11.5f : 12.5f, dx + 12.0f, cardY + 138.0f, drawW - 24.0f,
+                        kTextDim, info.desc.c_str(), 1.35f);
+            DrawTextCentered(draw, m_ui, c, portrait ? 11.5f : 12.5f, cx, cardY + cardH - 28.0f, kGoldBright,
+                             info.effect.c_str());
+            if (chosen) {
+                DrawTextCentered(draw, m_ui, c, 12.0f, cx, cardY + cardH - 12.0f, kTextMuted, "已获得");
+            }
+        }
+    }
+
+    if (m_rewardChosen < 0) {
+        DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, cardY + cardH + 14.0f, kTextMuted,
+                         "翻牌后即可进入下一层");
+    }
+
+    const float buttonW = 240.0f;
+    const float buttonY = panelY + panelH - 78.0f;
+    if (DrawButton(draw, m_ui, c, "##stage_menu", "回到主菜单", c.w * 0.5f - buttonW - 8.0f, buttonY, buttonW,
+                   46.0f, false, false, 18.0f)) {
+        PlaySfx("click", 0.6f);
+        ReturnToMenu();
+    }
+    char nextLabel[48];
+    std::snprintf(nextLabel, sizeof(nextLabel), "进入第 %d 层", nextFloor);
+    if (DrawButton(draw, m_ui, c, "##stage_next", nextLabel, c.w * 0.5f + 8.0f, buttonY, buttonW, 46.0f, true,
+                   m_rewardChosen < 0, 18.0f)) {
+        PlaySfx("click", 0.6f);
+        AdvanceStage(world);
+    }
+}
+
 // ================================================================ 结算
 void SurvivorsDirector::DrawResultScreen(World& world, float vx, float vy, float vw, float vh) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
@@ -1940,8 +2320,18 @@ void SurvivorsDirector::DrawResultScreen(World& world, float vx, float vy, float
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
-    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "挑战结束", "倒在怪潮之中",
-                     "水墨江湖 · 本局战绩", true);
+    char stageTag[64];
+    std::snprintf(stageTag, sizeof(stageTag), "到达第 %d / %d 层", m_floor, kSurvivorsFloorCount);
+    if (m_victory) {
+        DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "挑战成功", "通关二十层",
+                         "水墨江湖 · 天下无双", true);
+    } else {
+        DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "挑战结束",
+                         "倒在怪潮之中", "水墨江湖 · 本局战绩", true);
+    }
+    if (!m_victory) {
+        DrawTextCentered(draw, m_ui, c, 13.5f, c.w * 0.5f, panelY + 102.0f, kTextMuted, stageTag);
+    }
 
     DrawStatColumns(draw, m_ui, c, panelX + 30.0f, panelY + 126.0f, panelW - 60.0f, FormatClock(m_time),
                     std::to_string(m_kills), std::to_string(player ? player->level : 1));
@@ -1998,8 +2388,8 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
     const float rowW = panelW - 60.0f;
     float       rowY = panelY + 126.0f;
     for (int i = 0; i < kSurvivorsSkillCount; ++i) {
-        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(38, 32, 26, 235), c.V(3.0f));
-        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), IM_COL32(112, 86, 54, 255), c.V(3.0f),
+        draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), kPaperDeep, c.V(4.0f));
+        draw->AddRect(c.P(rowX, rowY), c.P(rowX + rowW, rowY + 44.0f), kCardBorder, c.V(4.0f),
                       c.V(1.0f));
         if (m_ui.icon[i]) DrawImage(draw, c, m_ui.icon[i], rowX + 10.0f, rowY + 4.0f, 34.0f, 34.0f);
         DrawText(draw, m_ui, c, 15.0f, rowX + 54.0f, rowY + 12.0f, kText, kSkills[i].name);
@@ -2019,155 +2409,177 @@ void SurvivorsDirector::DrawCodexScreen(float vx, float vy, float vw, float vh) 
 void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
-
     const bool  portrait = c.h > c.w * 1.15f;
-    const float panelW = FitPanelWidth(c, 840.0f);
-    const float panelH = portrait ? 780.0f : 660.0f;
+
+    const float panelW = FitPanelWidth(c, portrait ? 760.0f : 900.0f);
+    const float panelH = portrait ? 1160.0f : 720.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
-    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "踏入江湖",
-                     "职业决定初始武学；武学最高 20 级，击杀最多再掉落 4 个", true);
+    const bool tutorialDone = TutorialCompleted();
+    if (tutorialDone) m_startFloor = Clamp(m_startFloor, 1, MaxUnlockedFloor());
+    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "初入江湖",
+                     tutorialDone ? "选择职业与起始层；通关 20 层" : "先选职业，再进入第 1 层教学关；通关 20 层",
+                     true);
 
-    const float cardW = (panelW - 60.0f - 28.0f) / 3.0f;
-    const float cardH = 264.0f;
-    const float cardY = panelY + 146.0f;
-    for (int i = 0; i < 3; ++i) {
-        const float cardX = panelX + 30.0f + (cardW + 14.0f) * static_cast<float>(i);
-        DrawCard(draw, m_ui, c, cardX, cardY, cardW, cardH, false);
-        if (i == 0) {
-            Texture* heroTex = m_ui.hero[Clamp(m_playerClass, 0, 2)];
-            if (heroTex) {
-                const float heroH = 146.0f;
-                const float heroW = heroTex->Height() > 0
-                                        ? heroH * static_cast<float>(heroTex->Width()) / heroTex->Height()
-                                        : heroH;
-                DrawImage(draw, c, heroTex, cardX + (cardW - heroW) * 0.5f, cardY + 14.0f, heroW, heroH);
+    auto selectClass = [&](int cls) {
+        if (m_playerClass == cls) return;
+        m_playerClass = cls;
+        if (GameObject* player = SurvivorsFindLocalPlayer(world)) {
+            if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) component->playerClass = cls;
+            SurvivorsApplyPlayerVisual(*player, cls);
+        }
+        PlaySfx("click", 0.55f);
+    };
+
+    auto drawCard = [&](int cls, float x, float y, float w, float h, bool rowLayout) {
+        const bool selected = (m_playerClass == cls);
+        m_prepareClassHit[cls] = Vec4(c.P(x, y).x, c.P(x, y).y, c.V(w), c.V(h));
+        ImGui::SetCursorScreenPos(c.P(x, y));
+        const bool pressed = ImGui::InvisibleButton((std::string("##class") + std::to_string(cls)).c_str(),
+                                                     c.S(w, h));
+        const bool hovered = ImGui::IsItemHovered();
+        if (pressed) selectClass(cls);
+
+        DrawCard(draw, m_ui, c, x, y, w, h, selected);
+        if (selected) {
+            draw->AddRect(c.P(x, y), c.P(x + w, y + h), kGoldBright, c.V(6.0f), ImDrawFlags_None, c.V(2.5f));
+        }
+
+        const Texture* heroTexture = m_ui.hero[Clamp(cls, 0, kSurvivorsClassCount - 1)];
+        const float    heroH = rowLayout ? 150.0f : 178.0f;
+        const float    heroW = heroTexture && heroTexture->Height() > 0
+                                   ? heroH * static_cast<float>(heroTexture->Width()) / static_cast<float>(heroTexture->Height())
+                                   : heroH;
+        if (rowLayout) {
+            if (heroTexture) {
+                DrawImage(draw, c, m_ui.hero[cls], x + 18.0f, y + (h - heroH) * 0.5f, heroW, heroH);
             }
-            DrawTextCentered(draw, m_ui, c, 22.0f, cardX + cardW * 0.5f, cardY + 172.0f, kText,
-                             kSurvivorsClasses[m_playerClass].name);
-            char loadoutText[64];
-            std::snprintf(loadoutText, sizeof(loadoutText), "初始武学：%s",
-                          kSkills[kSurvivorsClasses[m_playerClass].baseSkill].name);
-            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 204.0f, kTextDim, loadoutText);
-        } else if (i == 1) {
-            const float mapX = cardX + 12.0f;
-            const float mapY = cardY + 12.0f;
-            const float mapW = cardW - 24.0f;
-            const float mapH = 132.0f;
-            // 直接用素材包草地做一张小地图，按 16:6 裁切，避免把方形贴图压扁。
-            if (m_ui.floor) {
-                SetSamplerLinear(draw);
-                draw->AddImage(TexId(m_ui.floor), c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH),
-                               ImVec2(0.16f, 0.34f), ImVec2(0.84f, 0.66f));
-                SetSamplerNearest(draw);
+            const float textX = x + 18.0f + 112.0f;
+            const float textW = w - (textX - x) - 18.0f;
+            DrawText(draw, m_ui, c, 28.0f, textX, y + 14.0f, kText, kSurvivorsClasses[cls].name);
+            DrawText(draw, m_ui, c, 17.0f, textX, y + 54.0f, kTag, kSurvivorsClasses[cls].desc);
+            DrawWrapped(draw, m_ui, c, 15.5f, textX, y + 84.0f, textW, kTextDim,
+                        kSurvivorsClasses[cls].style, 1.38f);
+            DrawWrapped(draw, m_ui, c, 15.0f, textX, y + 142.0f, textW, kMint,
+                        kSurvivorsClasses[cls].growth, 1.38f);
+            if (selected) {
+                DrawTextRight(draw, m_ui, c, 13.0f, x + w - 16.0f, y + 16.0f, kGold, "已选择");
+            } else if (hovered) {
+                DrawTextRight(draw, m_ui, c, 13.0f, x + w - 16.0f, y + 16.0f, kTextMuted, "点击选择");
             }
-            draw->AddRect(c.P(mapX, mapY), c.P(mapX + mapW, mapY + mapH), kCardBorder, c.V(1.0f));
-            // 几件水墨小景 + 玩家菱形标记，读起来像一张手绘地图。
-            if (m_ui.propTree) DrawImage(draw, c, m_ui.propTree, mapX + mapW * 0.15f, mapY + mapH * 0.24f,
-                                         38.0f, 48.0f);
-            if (m_ui.propRock) DrawImage(draw, c, m_ui.propRock, mapX + mapW * 0.68f, mapY + mapH * 0.52f,
-                                         30.0f, 34.0f);
-            if (m_ui.propLantern) DrawImage(draw, c, m_ui.propLantern, mapX + mapW * 0.82f, mapY + mapH * 0.20f,
-                                            22.0f, 30.0f);
-            if (m_ui.propJar) DrawImage(draw, c, m_ui.propJar, mapX + mapW * 0.38f, mapY + mapH * 0.60f,
-                                        14.0f, 20.0f);
-            const float markerX = mapX + mapW * 0.52f;
-            const float markerY = mapY + mapH * 0.50f;
-            draw->AddQuadFilled(c.P(markerX, markerY - 6.0f), c.P(markerX + 6.0f, markerY),
-                                c.P(markerX, markerY + 6.0f), c.P(markerX - 6.0f, markerY), kGoldBright);
-            DrawTextCentered(draw, m_ui, c, 22.0f, cardX + cardW * 0.5f, cardY + 158.0f, kText, "水墨江湖");
-            char mapInfo[64];
-            std::snprintf(mapInfo, sizeof(mapInfo), "%.0f×%.0f · 桃花谷、古树与石灯", kSurvivorsMapWidth,
-                          kSurvivorsMapHeight);
-            DrawTextCentered(draw, m_ui, c, 14.0f, cardX + cardW * 0.5f, cardY + 190.0f, kTextDim, mapInfo);
         } else {
-            DrawText(draw, m_ui, c, 22.0f, cardX + 16.0f, cardY + 22.0f, kText, "生存目标");
-            DrawWrapped(draw, m_ui, c, 14.0f, cardX + 16.0f, cardY + 62.0f, cardW - 32.0f, kText,
-                        "击败来敌，拾取经验，升级并选择武学强化。", 1.5f);
-            DrawWrapped(draw, m_ui, c, 13.0f, cardX + 16.0f, cardY + 152.0f, cardW - 32.0f, kTextDim,
-                        "WASD 移动 · Esc 暂停 · 自动攻击最近的敌人", 1.5f);
+            if (heroTexture) {
+                DrawImage(draw, c, m_ui.hero[cls], x + (w - heroW) * 0.5f, y + 12.0f, heroW, heroH);
+            }
+            DrawTextCentered(draw, m_ui, c, 23.0f, x + w * 0.5f, y + 200.0f, kText,
+                             kSurvivorsClasses[cls].name);
+            DrawTextCentered(draw, m_ui, c, 14.0f, x + w * 0.5f, y + 234.0f, kTag,
+                             kSurvivorsClasses[cls].desc);
+            DrawWrapped(draw, m_ui, c, 13.0f, x + 16.0f, y + 262.0f, w - 32.0f, kTextDim,
+                        kSurvivorsClasses[cls].style, 1.40f);
+            DrawWrapped(draw, m_ui, c, 12.0f, x + 16.0f, y + 314.0f, w - 32.0f, kMint,
+                        kSurvivorsClasses[cls].growth, 1.40f);
+            if (selected) {
+                DrawTextRight(draw, m_ui, c, 13.0f, x + w - 14.0f, y + 12.0f, kGold, "已选择");
+            } else if (hovered) {
+                DrawTextRight(draw, m_ui, c, 13.0f, x + w - 14.0f, y + 12.0f, kTextMuted, "点击选择");
+            }
+        }
+    };
+
+    if (portrait) {
+        const float rowX = panelX + 24.0f;
+        const float rowW = panelW - 48.0f;
+        const float rowH = 236.0f;
+        const float rowGap = 12.0f;
+        float       rowY = panelY + 146.0f;
+        for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
+            drawCard(cls, rowX, rowY, rowW, rowH, true);
+            rowY += rowH + rowGap;
+        }
+    } else {
+        const float gap = 18.0f;
+        const float cardW = (panelW - 60.0f - gap * 2.0f) / 3.0f;
+        const float cardH = 352.0f;
+        const float cardY = panelY + 146.0f;
+        for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
+            drawCard(cls, panelX + 30.0f + (cardW + gap) * static_cast<float>(cls), cardY, cardW, cardH, false);
         }
     }
 
-    // 职业选择：决定进入战斗时唯一的初始基础技能；其余技能靠击杀掉落。
-    {
-        const float classTitleY = portrait ? (panelY + 444.0f) : (panelY + 430.0f);
-        DrawText(draw, m_ui, c, 18.0f, panelX + 30.0f, classTitleY, kText, "选择职业");
-        DrawTextRight(draw, m_ui, c, 13.0f, panelX + panelW - 30.0f, classTitleY + 3.0f, kTextMuted,
-                      "基础技能 1 个 + 掉落最多 4 个 = 5 个");
-
+    const float infoY = portrait ? panelY + 900.0f : panelY + 506.0f;
+    if (tutorialDone) {
+        const int maxUnlocked = MaxUnlockedFloor();
+        const int cleared = MaxFloorCleared();
         if (portrait) {
-            // 手机竖屏：职业选项改为整行列表，避免三列横向溢出。
-            const float optionW = panelW - 60.0f;
-            const float optionH = 64.0f;
-            const float optionGap = 8.0f;
-            const float rowX = panelX + 30.0f;
-            float       rowY = panelY + 474.0f;
-            for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
-                const bool selected = (m_playerClass == cls);
-                ImGui::SetCursorScreenPos(c.P(rowX, rowY));
-                const bool pressed = ImGui::InvisibleButton((std::string("##class") + std::to_string(cls)).c_str(),
-                                                            c.S(optionW, optionH));
-                const bool hovered = ImGui::IsItemHovered();
-                if (pressed && !selected) {
-                    PlaySfx("click", 0.55f);
-                    m_playerClass = cls;
-                }
-                draw->AddRectFilled(c.P(rowX, rowY), c.P(rowX + optionW, rowY + optionH),
-                                    selected ? kCardHover : kCard, c.V(4.0f));
-                draw->AddRect(c.P(rowX, rowY), c.P(rowX + optionW, rowY + optionH),
-                              selected ? kGoldBright : (hovered ? kGold : kCardBorder), c.V(1.0f),
-                              ImDrawFlags_None, selected ? c.V(2.5f) : c.V(1.0f));
-                const int baseSkill = kSurvivorsClasses[cls].baseSkill;
-                DrawNineSlice(draw, c, m_ui.slot, rowX + 8.0f, rowY + 8.0f, 48.0f, 48.0f, 10.0f);
-                if (m_ui.icon[baseSkill]) {
-                    DrawImage(draw, c, m_ui.icon[baseSkill], rowX + 14.0f, rowY + 14.0f, 36.0f, 36.0f);
-                }
-                DrawText(draw, m_ui, c, 17.0f, rowX + 68.0f, rowY + 9.0f, kText, kSurvivorsClasses[cls].name);
-                DrawText(draw, m_ui, c, 13.0f, rowX + 68.0f, rowY + 34.0f, kTextDim,
-                         kSurvivorsClasses[cls].desc);
-                if (selected) {
-                    DrawTextRight(draw, m_ui, c, 12.0f, rowX + optionW - 12.0f, rowY + 24.0f, kGold, "已选择");
-                }
-                rowY += optionH + optionGap;
+            DrawText(draw, m_ui, c, 20.0f, panelX + 30.0f, infoY, kText, "历史最高");
+            char clearedText[64];
+            std::snprintf(clearedText, sizeof(clearedText), "第 %d 层 / %d", cleared, kSurvivorsFloorCount);
+            DrawTextRight(draw, m_ui, c, 20.0f, panelX + panelW - 30.0f, infoY, kTag, clearedText);
+            char floorText[48];
+            std::snprintf(floorText, sizeof(floorText), "起始层：第 %d 层", m_startFloor);
+            DrawTextCentered(draw, m_ui, c, 22.0f, c.w * 0.5f, infoY + 40.0f, kInkGreenDark, floorText);
+            m_prepareFloorPrevHit = Vec4(c.P(panelX + 30.0f, infoY + 34.0f).x,
+                                         c.P(panelX + 30.0f, infoY + 34.0f).y, c.V(92.0f), c.V(38.0f));
+            m_prepareFloorNextHit = Vec4(c.P(panelX + panelW - 122.0f, infoY + 34.0f).x,
+                                         c.P(panelX + panelW - 122.0f, infoY + 34.0f).y, c.V(92.0f), c.V(38.0f));
+            if (DrawButton(draw, m_ui, c, "##floor_prev", "上一", panelX + 30.0f, infoY + 34.0f, 92.0f, 38.0f,
+                           false, m_startFloor <= 1, 16.0f)) {
+                SetStartFloor(m_startFloor - 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (DrawButton(draw, m_ui, c, "##floor_next", "下一", panelX + panelW - 122.0f, infoY + 34.0f, 92.0f,
+                           38.0f, false, m_startFloor >= maxUnlocked, 16.0f)) {
+                SetStartFloor(m_startFloor + 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (m_playerClass < 0) {
+                DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, infoY + 92.0f, kGold,
+                                 "请选择一个职业后开始");
             }
         } else {
-            const float optionW = 246.0f;
-            const float optionH = 100.0f;
-            const float optionGap = 16.0f;
-            const float rowW = optionW * static_cast<float>(kSurvivorsClassCount) +
-                               optionGap * static_cast<float>(kSurvivorsClassCount - 1);
-            const float rowX = c.w * 0.5f - rowW * 0.5f;
-            const float rowY = panelY + 460.0f;
-            for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
-                const bool  selected = (m_playerClass == cls);
-                const float x = rowX + (optionW + optionGap) * static_cast<float>(cls);
-                ImGui::SetCursorScreenPos(c.P(x, rowY));
-                const bool pressed = ImGui::InvisibleButton((std::string("##class") + std::to_string(cls)).c_str(),
-                                                            c.S(optionW, optionH));
-                const bool hovered = ImGui::IsItemHovered();
-                if (pressed && !selected) {
-                    PlaySfx("click", 0.55f);
-                    m_playerClass = cls;
-                }
-                draw->AddRectFilled(c.P(x, rowY), c.P(x + optionW, rowY + optionH),
-                                    selected ? kCardHover : kCard, c.V(4.0f));
-                draw->AddRect(c.P(x, rowY), c.P(x + optionW, rowY + optionH),
-                              selected ? kGoldBright : (hovered ? kGold : kCardBorder), c.V(1.0f),
-                              ImDrawFlags_None, selected ? c.V(2.5f) : c.V(1.0f));
-                const int baseSkill = kSurvivorsClasses[cls].baseSkill;
-                DrawNineSlice(draw, c, m_ui.slot, x + 12.0f, rowY + 18.0f, 62.0f, 62.0f, 10.0f);
-                if (m_ui.icon[baseSkill]) {
-                    DrawImage(draw, c, m_ui.icon[baseSkill], x + 21.0f, rowY + 27.0f, 44.0f, 44.0f);
-                }
-                DrawText(draw, m_ui, c, 19.0f, x + 86.0f, rowY + 22.0f, kText, kSurvivorsClasses[cls].name);
-                DrawText(draw, m_ui, c, 14.0f, x + 86.0f, rowY + 54.0f, kTextDim,
-                         kSurvivorsClasses[cls].desc);
-                if (selected) {
-                    DrawTextRight(draw, m_ui, c, 12.0f, x + optionW - 12.0f, rowY + 76.0f, kGold, "已选择");
-                }
+            DrawText(draw, m_ui, c, 17.0f, panelX + 30.0f, infoY, kText, "历史最高");
+            char clearedText[64];
+            std::snprintf(clearedText, sizeof(clearedText), "第 %d 层 / %d", cleared, kSurvivorsFloorCount);
+            DrawTextRight(draw, m_ui, c, 17.0f, panelX + panelW - 30.0f, infoY, kTag, clearedText);
+            char floorText[48];
+            std::snprintf(floorText, sizeof(floorText), "起始层：第 %d 层", m_startFloor);
+            DrawTextCentered(draw, m_ui, c, 20.0f, c.w * 0.5f, infoY + 34.0f, kInkGreenDark, floorText);
+            m_prepareFloorPrevHit = Vec4(c.P(panelX + 30.0f, infoY + 30.0f).x,
+                                         c.P(panelX + 30.0f, infoY + 30.0f).y, c.V(92.0f), c.V(34.0f));
+            m_prepareFloorNextHit = Vec4(c.P(panelX + panelW - 122.0f, infoY + 30.0f).x,
+                                         c.P(panelX + panelW - 122.0f, infoY + 30.0f).y, c.V(92.0f), c.V(34.0f));
+            if (DrawButton(draw, m_ui, c, "##floor_prev", "上一", panelX + 30.0f, infoY + 30.0f, 92.0f, 34.0f,
+                           false, m_startFloor <= 1, 15.0f)) {
+                SetStartFloor(m_startFloor - 1);
+                PlaySfx("click", 0.55f);
             }
+            if (DrawButton(draw, m_ui, c, "##floor_next", "下一", panelX + panelW - 122.0f, infoY + 30.0f, 92.0f,
+                           34.0f, false, m_startFloor >= maxUnlocked, 15.0f)) {
+                SetStartFloor(m_startFloor + 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (m_playerClass < 0) {
+                DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, infoY + 76.0f, kGold,
+                                 "请选择一个职业后开始");
+            }
+        }
+    } else if (portrait) {
+        DrawText(draw, m_ui, c, 20.0f, panelX + 30.0f, infoY, kText, "第 1 层 · 教学关");
+        DrawWrapped(draw, m_ui, c, 16.0f, panelX + 30.0f, infoY + 34.0f, panelW - 60.0f, kTextDim,
+                    "首次进入先学移动、拾取与武学成长；完成后可从已通关层开始。", 1.38f);
+        if (m_playerClass < 0) {
+            DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, infoY + 90.0f, kGold,
+                             "请选择一个职业后开始教学");
+        }
+    } else {
+        DrawText(draw, m_ui, c, 17.0f, panelX + 30.0f, infoY, kText, "第 1 层 · 教学关");
+        DrawWrapped(draw, m_ui, c, 13.0f, panelX + 190.0f, infoY + 2.0f, panelW - 220.0f, kTextDim,
+                    "首次进入先学移动、拾取与武学成长；完成后可从已通关层开始。", 1.40f);
+        if (m_playerClass < 0) {
+            DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, infoY + 44.0f, kGold,
+                             "请选择一个职业后开始教学");
         }
     }
 
@@ -2175,14 +2587,29 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     const float startW = 240.0f;
     const float gap = 16.0f;
     const float total = backW + gap + startW;
-    const float buttonY = panelY + panelH - 80.0f;
+    const float buttonY = panelY + panelH - 82.0f;
     const float startX = c.w * 0.5f - total * 0.5f;
+    m_prepareBackHit = Vec4(c.P(startX, buttonY).x, c.P(startX, buttonY).y, c.V(backW), c.V(48.0f));
+    m_prepareStartHit = Vec4(c.P(startX + backW + gap, buttonY).x, c.P(startX + backW + gap, buttonY).y,
+                             c.V(startW), c.V(48.0f));
     if (DrawButton(draw, m_ui, c, "##prepare_back", "返回", startX, buttonY, backW, 48.0f, false, false, 19.0f)) {
         PlaySfx("click", 0.6f);
         m_state = State::Menu;
     }
-    if (DrawButton(draw, m_ui, c, "##prepare_start", "进入战斗", startX + backW + gap, buttonY, startW, 48.0f, true,
-                   false, 19.0f)) {
+    char startLabel[32];
+    if (tutorialDone) std::snprintf(startLabel, sizeof(startLabel), "进入第 %d 层", m_startFloor);
+    else std::snprintf(startLabel, sizeof(startLabel), "开始教学");
+    const bool startDisabled = m_playerClass < 0;
+    bool       startPressed = DrawButton(draw, m_ui, c, "##prepare_start", startLabel, startX + backW + gap,
+                                         buttonY, startW, 48.0f, true, startDisabled, 19.0f);
+    // 兜底命中：少数情况下 ImGui 窗口裁剪/活动项会让底部按钮收不到点击，直接按屏幕矩形再判一次。
+    if (!startPressed && !startDisabled && Input::IsMousePressed(0)) {
+        const Vec2   mouse = Input::MousePosition();
+        const ImVec2 min = c.P(startX + backW + gap, buttonY);
+        const ImVec2 max = c.P(startX + backW + gap + startW, buttonY + 48.0f);
+        startPressed = mouse.x >= min.x && mouse.x <= max.x && mouse.y >= min.y && mouse.y <= max.y;
+    }
+    if (startPressed) {
         PlaySfx("click", 0.6f);
         Reset(world);
     }
@@ -2199,12 +2626,12 @@ void SurvivorsDirector::DrawToast(float vx, float vy, float vw, float vh, const 
     const float  w = textW + 40.0f;
     const float  h = 38.0f;
     const float  x = c.w * 0.5f - w * 0.5f;
-    float        y = 96.0f;
+    float        y = 150.0f; // 桌面：让开顶部的层数/通关条件条
     if (c.textScale > 1.0f) {
-        // 手机 HUD 顶栏更高：Toast 放到顶栏下方，避开雷达。
+        // 手机 HUD 顶栏更高：Toast 放到层数条下方，避开雷达与暂停键。
         const float px = 1.0f / c.scale;
         const float top = ((std::max)(m_safeInsets.y, c.h > c.w ? 60.0f : 0.0f) + 14.0f) * px;
-        y = top + 80.0f * px;
+        y = top + 104.0f * px;
     }
     draw->AddRectFilled(c.P(x, y), c.P(x + w, y + h), IM_COL32(6, 8, 12, static_cast<int>(214 * alpha)),
                         c.V(5.0f));

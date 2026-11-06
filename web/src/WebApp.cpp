@@ -34,7 +34,17 @@ constexpr int   kMaxSubSteps = 5;
 // 2D 幸存者 UI 用到的全部字符（从 ImGuiLayer.cpp 的同名字形表复制）。
 // 字体子集 ErMaoUI.ttf 就是按这份表 + 源文件中的中文生成的。
 const char* kSurvivorsUIGlyphs =
-    "·×“”→、。一上下不与丛个中为主之乐了二人件休会伤住体使保倍倒值偏停入八关具兽内册再写冰冻准减出击刃分切到制刻前力加动化升半单卡即去发取可史各名后向吸命和回围图在地坏型士备复外大失好姆始子字存完定宝害家对寿射将少就局已并幸幽序度开弃强当录径得怪恢戏成战手打扩找技把择拾持挑损据提支攻放效敌散数整文斗新方旋无时明景暂最有木未本杀束来析柱标档检槽次每毒毛没法活测游满演潮火灰灵炸点爆片牢物猎率玩环现球瓶生用界的目矢知短石确碍示离秒称移程立等箭箱类精系索级纯经结绕绘统继绩绪续缩缺置者背能自色英范草莱获菜落蛛蜘血行角解计认设说读象败起距踏躲转载近返进连退选速道避部里重量鉴钉锁间附隔障雷雾霆霜面音页项额飞验骑骷髅高默！（），：；三且世业丢两久乎乘九也书于互些仅从以优伴但位低余例依侧信做像允元先光免全共其冒冲决冷几列则初别刷劈区十却历压原双反变叠口另只右号同否周响唯器团固圆场均坐垂域基塌墙多够太头奥如它实宫容宽导封小尝尾层屏展工左布带帧常幅应底廊廓式引张弹形影微心必态性息悬慢或截房所才投抖折抽拉拖拥指按挡挤捡掉排接携撞收断既旧易是显暖暗暴更朝期术机条板构果枝架染查栏样格桌桶模横橙正此步死比永沿注洗浮淡清源烟焰牌特状由电画留白直相看真着砖础硬碰磁磨秃稍穿窄窗端符第签算粒素纹线终给绿缓群翻而职致苔菱补表被裁裂装要见观视觉让许证试询调贴资走足跟跳轨轮较辑边达过还远迹透逐递通逻遍遮那都配醒采释针钮铺锅锚镜长闪际限除随需露青靠顶顺须颜飘饰馈侠创剑受启增天奖巨师平待普棱洞益稀空腐蚀衡诗路踪输追造闭降陨黑";
+    " !#$%&'()*+,-./0123456789:;<=>?ABCDEFGHIJKLMNOPQRSTUVWXYZ[]^_abcdefghijklmnopqrstuvwxyz{|}~·×“”→、。一丁"
+    "三上下不与专且世业丛丢两个中临为主久么之乎乐乘九也习书了事二于互些亡交享亮人什仅仍从他仙代以们件任份伏休优会传伤伴伸但位低住体何余作使例供依侠侧便保信倍倒候值偏做停像允元先光免兜入全八公共关兵其具兼兽"
+    "内册再冒写冰冲决冷冻准减凑几出击刃分切列刘则刚创初判利别到制刷刻前剑剩剪副劈力功加务动励勾匀包化匹区十升半卓单卡印即却历压原去参友双反发取受变叠口古句另只可台史右号各合同名后向否含启吸告周呼命和品响哪"
+    "唯器囊四回因团围固国图圆圈在地场均坏坐块坛垂型垫域基堆塌塞填境墙增墨士声处备复外多够大天太央失头奏奖套奥好如姆始子字存学它安宋完官定宝实审客宣宫害家容宽宿密寸对导寿封射将小少尔尖尚尝就尸尺尾局屁层居屏"
+    "展属山工左巨己已布师带帧常幅幕干平并幸幽广序应底度廊廓建开异弃式引张弱弹强当录形彩影径待很得微心必志快态思性怪总恢息悬惩意感慢戏成或战截户房所手才打执扩扰找技把投抖折抛报抽拉拖拟拥择拾拿持指按挑挡挤损"
+    "捡换据掉排接控推掩提携摇摸撞播操擎支收攻放效敌教散数整文斗断新方旁旋无既日旧时明易星是显晃晕普景晰晶暂暖暗暴曲更最月有服朝期木未本术朱机杀杆材束条来板极构析枚果枝架柄染柔查柱标栈栏树样核根格桃框案桌档"
+    "桩桶检棱槽模横橙次止正此步武死残段每毒比毛气水永求江没沿泉法波注洗洞活派流浅测浏浮海消淡深清渐渲游湖源满漂漆演潮火灯灰灵炉炸点烘烟焙焰然照爆爽片版牌牙牢物特状独猎率玉王玩环现珀球理琥瓶生用由电画界留略"
+    "痕登白的益盖盘目直相看真着矢知短石码砂砖破础硬确碍碎碰磁磨示禁离秃种秒积称移稀程稍空穿突窄窗立竖站端笔符第等签算管箭箱类粒粗精糊系素索紧累约级纯纸纹线练组细终经结绕绘给络绝统继绩绪续维绿缓缘缝缩缺网罗"
+    "罚置群翻者而职联肉股胀背胜胶能脆脚脸腐膨自至致色节花苔若英范草莱获菜菱落蓝藏虎蚀蛛蜘血行衡补表衬被裁裂装要覆见观视览觉角解触计认让训记许设证识诉试诗话询该误说请读调谷象负责败质贴贼资赖走赶起超越足跑距"
+    "跟跨路跳踏踢踪身躲轨转轮软轻载较辑输边达过运近返还这进远连迹追退适选透逐递途通速造逻遇遍道遮避那部都配酒醒采释里重野量金鉴针钉钟钮铺锁锅错锚键镜长闪闭间队阶附际降限除陨随隐隔障雅集雨雪雷雾需霆震霜露青"
+    "静非靠面音页顶项顺须预题颜额风飘飞饰馈首香驱驿验骑骤骷髅高鬼鹰黑默鼠齐龙！（），：；";
 
 ImFont* AddFont(ImGuiIO& io, const char* path, float size, const ImWchar* ranges) {
     if (!path || !*path) return nullptr;
@@ -67,6 +77,24 @@ int InstallWeChatCompatShims() {
                 if (!window.innerWidth) { try { window.innerWidth = info.windowWidth || 1280; changed |= 2; } catch (e) {} }
                 if (!window.innerHeight) { try { window.innerHeight = info.windowHeight || 720; changed |= 4; } catch (e) {} }
             }
+
+            // 微信 iOS 运行时没有 crypto.getRandomValues：Emscripten 的 std::random_device
+            // 会直接 abort（WXUncaughtException / no cryptographic support found）。
+            // 这里补一个仅用于游戏随机种子的非密码学实现；已有实现时不动。
+            try {
+                var needsCrypto = (typeof crypto === 'undefined') || !crypto || (typeof crypto.getRandomValues !== 'function');
+                if (needsCrypto) {
+                    var shim = {
+                        getRandomValues: function (array) {
+                            if (!array || !array.length) return array;
+                            for (var i = 0; i < array.length; ++i) array[i] = (Math.random() * 256) | 0;
+                            return array;
+                        }
+                    };
+                    try { globalThis.crypto = shim; changed |= 16; } catch (e) {}
+                    try { if (typeof window !== 'undefined') window.crypto = shim; } catch (e) {}
+                }
+            } catch (e) {}
 
             var cv = null;
             try { cv = (typeof Module !== 'undefined' && Module.canvas) ? Module.canvas : null; } catch (e) {}
@@ -255,6 +283,11 @@ bool WebApp::Init() {
             "window.location.search : ''");
     }
     if (search && std::strstr(search, "play=1")) {
+        // H5 演示/截图直接开局：URL 可用 class=0|1|2 指定职业，默认游侠。
+        int classIndex = 0;
+        const char* classParam = std::strstr(search, "class=");
+        if (classParam) classIndex = std::atoi(classParam + 6);
+        m_survivors->SelectPlayerClass(m_world, classIndex);
         m_survivors->Reset(m_world);
     }
     // 截图走查：与桌面 --ui-preview 共用同一份状态构造逻辑。
@@ -305,10 +338,10 @@ bool WebApp::Init() {
         m_safeInsets = Vec4(inset(1), inset(0), inset(2), inset(3));
         LogInfo("[Web] 安全区（CSS 像素）：左 %.1f 上 %.1f 右 %.1f 下 %.1f", m_safeInsets.x, m_safeInsets.y,
                 m_safeInsets.z, m_safeInsets.w);
-        // 小游戏从游戏画面直接进入；菜单/暂停仍由游戏内 UI 处理。
-        WeChatDebugStage("game.autostart.before");
-        m_survivors->Reset(m_world);
-        WeChatDebugStage("game.autostart.after");
+        // 小游戏启动后先让玩家选职业，不再默认“游侠”直接开局。
+        WeChatDebugStage("game.classselect.before");
+        m_survivors->ShowClassSelect(m_world);
+        WeChatDebugStage("game.classselect.after");
     }
 
     // 截图/自动化：在进入 requestAnimationFrame 前同步推进 N 个固定步。
@@ -462,8 +495,23 @@ void WebApp::ProcessEvent(SDL_Event& event) {
             const bool down = event.type == SDL_FINGERDOWN;
             const bool up = event.type == SDL_FINGERUP;
 
+            if (down && m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Prepare) {
+                // Prepare 页的按钮按屏幕矩形直接命中：触屏不依赖 ImGui 的鼠标状态，
+                // 避免“先点职业、再点开始”时第二次点击被 ImGui 吃掉。
+                if (m_survivors->HandlePrepareTap(m_world, x, y)) break;
+            }
             if (down && m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Playing) {
-                // 暂停键是战斗 HUD 里唯一需要点的按钮；其余任意位置都立刻成为摇杆原点。
+                // 教学“跳过”是 Playing 状态下除暂停键外的第二个 HUD 按钮；触屏要单独命中，
+                // 因为 Playing 时触点默认被移动摇杆消费，不会转发给 ImGui。
+                if (m_survivors->HitTutorialSkipButton(x, y)) {
+                    if (m_touchActive) {
+                        m_touchActive = false;
+                        m_touchFinger = -1;
+                        ReleaseTouchKeys();
+                    }
+                    m_survivors->SkipTutorial(m_world);
+                    break;
+                }
                 if (m_survivors->HitPauseButton(x, y)) {
                     if (m_touchActive) {
                         m_touchActive = false;
@@ -555,7 +603,7 @@ void WebApp::Render() {
         Vec2 half(20.0f, 8.0f);
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
         camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
-                                 Clamp(position.y, -half.y + 6.0f, half.y - 6.0f));
+                                 Clamp(position.y + 0.75f, -half.y + 6.0f, half.y - 6.0f));
     }
     m_scene.camera2D = camera2D;
 
