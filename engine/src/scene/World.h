@@ -44,6 +44,8 @@ public:
     // ------------------------------------------------ 每帧
     void Update(float dt);      // 逻辑：脚本、动画、AI、相机同步
     void FixedUpdate(float dt); // 物理：固定步长
+    // 联机客户端副本：只推进纯表现组件（序列帧/粒子/自转），不跑玩法逻辑。
+    void UpdateVisuals(float dt);
 
     // ------------------------------------------------ 渲染输入
     void BuildRenderScene(RenderScene& scene, const Camera& viewCamera) const;

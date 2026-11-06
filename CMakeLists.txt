@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ErMao VERSION 0.8.0 LANGUAGES CXX)
+project(ErMao VERSION 0.8.0 LANGUAGES C CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -38,12 +38,34 @@ add_compile_definitions(
     IMGUI_DEFINE_MATH_OPERATORS
 )
 if(MSVC)
-    add_compile_options(/utf-8 /W3 /permissive-)
+    # ENet 是 C 源码；/utf-8 /permissive- 只给 C++，避免 cl 对 .c 文件报参数错误。
+    add_compile_options($<$<COMPILE_LANGUAGE:CXX>:/utf-8> $<$<COMPILE_LANGUAGE:CXX>:/W3>
+                        $<$<COMPILE_LANGUAGE:CXX>:/permissive->)
     if(CMAKE_GENERATOR MATCHES "Visual Studio")
         add_compile_options(/MP) # Ninja 下由 jobserver 并行，不需要 /MP
     endif()
 endif()
 add_compile_options($<$<CONFIG:Debug>:/Zi> $<$<CONFIG:Debug>:/Od>)
+
+# ---------------------------------------------------------------- ENet（UDP 可靠传输，MIT）
+# vendored 源码，避免引入 vcpkg/包管理器；Windows 静态链接 ws2_32 + winmm。
+set(ENET_DIR ${CMAKE_CURRENT_SOURCE_DIR}/third_party/enet)
+add_library(enet STATIC
+    ${ENET_DIR}/callbacks.c
+    ${ENET_DIR}/compress.c
+    ${ENET_DIR}/host.c
+    ${ENET_DIR}/list.c
+    ${ENET_DIR}/packet.c
+    ${ENET_DIR}/peer.c
+    ${ENET_DIR}/protocol.c
+    ${ENET_DIR}/unix.c
+    ${ENET_DIR}/win32.c
+)
+target_include_directories(enet PUBLIC ${ENET_DIR}/include)
+target_link_libraries(enet PUBLIC ws2_32 winmm)
+source_group(TREE ${ENET_DIR} FILES ${ENET_DIR}/callbacks.c ${ENET_DIR}/compress.c ${ENET_DIR}/host.c
+    ${ENET_DIR}/list.c ${ENET_DIR}/packet.c ${ENET_DIR}/peer.c ${ENET_DIR}/protocol.c
+    ${ENET_DIR}/unix.c ${ENET_DIR}/win32.c)
 
 # ---------------------------------------------------------------- Dear ImGui
 # 单独成 target：只把 include 目录与 d3d11 依赖"私有"地传给引擎库，
@@ -71,7 +93,7 @@ target_include_directories(ErMaoEngine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/engine
 target_compile_definitions(ErMaoEngine PRIVATE ERMAO_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
 target_link_libraries(ErMaoEngine
     PUBLIC d3d11 dxgi d3dcompiler dxguid user32 gdi32 ole32 windowscodecs shcore xaudio2
-    PRIVATE imgui
+    PRIVATE imgui enet
 )
 
 # 只为 engine 源码做分组，ImGui 走默认分组

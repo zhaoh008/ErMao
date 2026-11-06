@@ -528,7 +528,9 @@ LevelCardInfo MakeLevelCardInfo(const SurvivorsPlayerComponent& player, const Su
 }
 
 SurvivorsPlayerComponent* PlayerOf(World& world) {
-    if (GameObject* object = world.FindByName("玩家")) return object->GetComponent<SurvivorsPlayerComponent>();
+    if (GameObject* object = SurvivorsFindLocalPlayer(world)) {
+        if (auto* player = object->GetComponent<SurvivorsPlayerComponent>()) return player;
+    }
     return nullptr;
 }
 
