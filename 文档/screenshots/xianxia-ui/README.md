@@ -24,6 +24,9 @@
 |---|---|
 | `after-menu-1600x900.png` | 主菜单：宣纸留白、朱砂标题、青玉按钮 |
 | `after-tutorial-step-1600x900.png` | 教学第一步：未操作前暂停刷怪/计时，清单高亮“移动” |
+| `after-tutorial-skip-1600x900.png` | 教学面板“跳过教学”，直接进入第 2 层 |
+| `after-class-first-1600x900.png` | 首次进入：第 1 层教学，无选层器 |
+| `after-class-progress-1600x900.png` / `after-class-progress-500x874.png` | 已通关后：历史最高 + 起始层选择 |
 | `after-tutorial-done-1600x900.png` | 步骤完成：勾选 + “步骤完成”提示，再自动进入下一步 |
 | `after-tutorial-finale-1600x900.png` | 四步完成后的 35 秒怪潮实战与成长方向面板 |
 | `after-tutorial-500x874.png` | 手机竖屏分步教学面板（底部，不挡角色） |
