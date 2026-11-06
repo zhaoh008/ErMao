@@ -4069,15 +4069,17 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
         }
 
-        // 回旋刃：环绕轨道 + 素材包飞剑/月牙剑气。
+        // 回旋刃：轨道与飞剑都以角色身体中心为圆心，而不是脚底。
         const int bladeCount = playerComponent->BladeCount();
         if (bladeCount > 0) {
+            const Vec2  bladeCenter(player->Position().x, player->Position().y + 1.5f);
+            const ImVec2 bladeCenterScreen = project(bladeCenter);
             const float orbitRadius = playerComponent->BladeRadius() * pixelsPerUnit;
-            draw->AddCircle(centerScreen, orbitRadius, IM_COL32(214, 186, 120, 40), 72, 1.5f);
+            draw->AddCircle(bladeCenterScreen, orbitRadius, IM_COL32(214, 186, 120, 40), 72, 1.5f);
             for (int i = 0; i < bladeCount; ++i) {
                 const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
                                                                           static_cast<float>(bladeCount);
-                const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
+                const Vec2 tip = bladeCenter + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
                 draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
                 drawSheet(m_ui.fxSword, 1, 1, 0, tip, 0.30f, 0.62f, IM_COL32(245, 240, 220, 245), angle);
                 drawSheet(m_ui.fxBlade, 2, 2, static_cast<int>(m_time * 16.0f + i) % 4, tip,
@@ -4150,20 +4152,6 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 技能特效贴图（线性采样，避免序列帧被拉成硬边）
     draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
-
-    // 回旋刃：月牙剑气拖影（素材包 2×2 序列帧）。
-    if (player && playerComponent && playerComponent->HasSkill(2)) {
-        const Vec2 center(player->Position().x, player->Position().y + 1.0f);
-        const int  bladeCount = playerComponent->BladeCount();
-        for (int i = 0; i < bladeCount; ++i) {
-            const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
-                                                                      static_cast<float>((std::max)(1, bladeCount));
-            const Vec2 tip = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->BladeRadius();
-            drawSheet(m_ui.fxBlade, 2, 2, static_cast<int>(m_time * 18.0f + i) % 4, tip,
-                      playerComponent->BladeSize() * 0.55f, playerComponent->BladeSize() * 0.55f,
-                      IM_COL32(190, 245, 255, 150), angle + kPi * 0.5f);
-        }
-    }
 
     // 棱镜光束：素材包的晶龙光束沿旋转方向拉长，模拟穿透光柱。
     if (player && playerComponent && playerComponent->HasSkill(8)) {

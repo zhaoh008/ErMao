@@ -1,11 +1,11 @@
-# 2D 幸存者 0.5.1：仙侠 UI、分步教学与角色/技能居中
+# 2D 幸存者 0.5.2：仙侠 UI、分步教学与角色/技能居中
 
 参考：`D:\GameEngine\game\xianxia-design`（暖宣纸 + 青玉 + 朱砂的仙侠 UI 设计稿）。
 
 ## 对照口径
 
 - **Before**：`main @ 0cf36d8`（0.4.0 之前的暗色水墨 UI）。
-- **After**：本分支 0.5.1。
+- **After**：本分支 0.5.2。
 - 桌面 1600×900，手机竖屏 500×874。旧版截图使用 402×874；本机新版 Chrome 会强制 ≥500px 布局宽度，500×874 才是完整未裁切的竖屏视口，因此 Before/After 均用 500×874 重拍。
 - 截图由 Windows Chrome headless（SwiftShader WebGL1）直接抓取 H5 产物，未使用 mockup 或图片编辑。
 
@@ -27,7 +27,7 @@
 | `after-tutorial-done-1600x900.png` | 步骤完成：勾选 + “步骤完成”提示，再自动进入下一步 |
 | `after-tutorial-finale-1600x900.png` | 四步完成后的 35 秒怪潮实战与成长方向面板 |
 | `after-tutorial-500x874.png` | 手机竖屏分步教学面板（底部，不挡角色） |
-| `after-stage-1600x900.png` | 第 8 层：角色居中、箭矢/飞刃从身体高度释放 |
+| `after-stage-1600x900.png` / `after-stage-500x874.png` | 第 8 层：人物、飞刃圈与技能都以身体中心为圆心 |
 | `after-stageclear-1600x900.png` | 层间结算（宣纸法册 + 青玉按钮） |
 | `after-victory-1600x900.png` | 通关 20 层结算 |
 | `after-levelup-1600x900.png` / `after-settings-1600x900.png` / `after-codex-1600x900.png` / `after-gacha-1600x900.png` | 升级三选一 / 设置 / 图鉴 / 开箱抽奖 |

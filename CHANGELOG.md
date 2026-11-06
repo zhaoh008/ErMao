@@ -6,6 +6,7 @@
 ## [Unreleased]
 
 ### Fixed
+- 2D 幸存者 0.5.2：以回旋刃轨道为参照，把飞刃圈圆心从玩家脚底改到角色身体中心（+1.5 世界单位），并去掉重复的飞刃绘制；人物与飞刃圈在屏幕上同心
 - 2D 幸存者 0.5.1：修复微信 iOS 启动崩溃——`std::random_device` 依赖 `crypto.getRandomValues`，微信运行时没有该接口导致 `WXUncaughtException` abort；关卡随机种子改用 `Timer::Now()`，并在 `InstallWeChatCompatShims` 补一个仅用于游戏随机种子的 `crypto.getRandomValues` 兜底
 
 ### Changed
