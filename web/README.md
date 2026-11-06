@@ -43,7 +43,9 @@ python3 -m http.server 8000 -d build-web
 # http://localhost:8000/index.html?play=1&frames=300&mobile=1
 # UI/特效走查页（与桌面 --ui-preview 共用状态构造）：
 # http://localhost:8000/index.html?ui-preview=class&frames=2
-# http://localhost:8000/index.html?ui-preview=tutorial&frames=4
+# http://localhost:8000/index.html?ui-preview=tutorial&frames=2
+# http://localhost:8000/index.html?ui-preview=tutorial-done&frames=2
+# http://localhost:8000/index.html?ui-preview=tutorial-finale&frames=4
 # http://localhost:8000/index.html?ui-preview=stage&frames=4
 # http://localhost:8000/index.html?ui-preview=stageclear&frames=2
 # http://localhost:8000/index.html?ui-preview=victory&frames=2

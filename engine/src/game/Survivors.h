@@ -63,7 +63,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.4.0";
+constexpr const char* kSurvivorsVersion = "0.5.0";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -102,7 +102,8 @@ constexpr int kSurvivorsDefaultLoadout = (1 << 0);
 // ---------------------------------------------------------------- 20 层关卡
 // 第 1 层固定为教学关，通关后进入 2..20 层；每层进入时随机抽取一种通关条件。
 constexpr int   kSurvivorsFloorCount = 20;
-constexpr float kSurvivorsTutorialDuration = 55.0f;
+constexpr float kSurvivorsTutorialDuration = 35.0f; // 完成动作步骤后的实战教学时长
+constexpr int   kSurvivorsTutorialStepCount = 4;
 
 enum class SurvivorsGoalType : int {
     Tutorial = 0,
@@ -437,6 +438,7 @@ public:
     float value = 3.0f;
     float magnetRange = 6.0f;
     float age = 0.0f;
+    bool  locked = false; // 教学步骤用：不吸附、不自动飞向玩家，必须走过去拾取
 
     void OnUpdate(float dt) override;
 };
@@ -449,6 +451,7 @@ public:
     int   type = 0; // SurvivorsPickupType
     float age = 0.0f;
     float magnetRange = 7.0f;
+    bool  locked = false; // 教学步骤用：不吸附、不超时消失
 
     void OnUpdate(float dt) override;
     void OnDestroy() override;
@@ -537,6 +540,8 @@ private:
     void CompleteStage(World& world);
     void AdvanceStage(World& world);
     void UpdateTutorial(World& world, SurvivorsPlayerComponent& player, float dt);
+    void StartTutorialStep(World& world, SurvivorsPlayerComponent& player);
+    void CompleteTutorialStep(World& world, SurvivorsPlayerComponent& player);
     bool StageGoalReached(const SurvivorsPlayerComponent& player) const;
     float StagePressureTime() const; // 刷怪/强度按“层数 + 本层时间”推进
     SurvivorsStageGoal RollStageGoal(int floor, int avoidType);
@@ -594,7 +599,14 @@ private:
     int                m_stageKillBase = 0;
     int                m_stageEliteBase = 0;
     int                m_stageGemBase = 0;
-    int                m_tutorialStep = 0;
+    int                m_tutorialStep = 0; // 0=移动 1=拾取经验 2=新法术 3=强化 4=实战
+    bool               m_tutorialGate = false; // 当前步骤未完成，暂停刷怪/计时
+    float              m_tutorialFlash = 0.0f; // 步骤完成提示
+    bool               m_tutorialFinaleStarted = false;
+    Vec2               m_tutorialStartPos{0.0f, 0.0f};
+    int                m_tutorialGemBase = 0;
+    int                m_tutorialSkillBase = 0;
+    int                m_tutorialSkillLevelBase = 1;
     bool               m_victory = false;
     std::mt19937       m_stageRng{std::random_device{}()};
 

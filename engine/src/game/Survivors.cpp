@@ -434,11 +434,12 @@ void ClearSurvivorsArena(World& world) {
     ClearSkillEffects();
 }
 
-void SpawnGem(World& world, const Vec2& position, float value) {
+void SpawnGem(World& world, const Vec2& position, float value, bool locked = false) {
     GameObject* gem = SpawnSprite(world, "宝石", "inkwash/gem.png", position, Vec2(0.55f, 0.55f), 3);
     auto*       component = gem->AddComponent<SurvivorsGemComponent>();
     component->value = value;
     component->magnetRange = 6.0f;
+    component->locked = locked;
     if (auto* sprite = gem->GetComponent<SpriteRendererComponent>()) {
         sprite->color = Vec4(0.95f, 1.0f, 0.95f, 1.0f);
     }
@@ -487,7 +488,7 @@ const char* PickupTexture(int type) {
     return "inkwash/xp.png";
 }
 
-void SpawnPickup(World& world, const Vec2& position, int type) {
+void SpawnPickup(World& world, const Vec2& position, int type, bool locked = false) {
     const bool  skillUnlock = IsSkillUnlockType(type);
     const float size = skillUnlock ? 1.15f : 0.85f;
     GameObject* pickup = SpawnSprite(world, skillUnlock ? "技能掉落" : "强化道具", PickupTexture(type), position,
@@ -496,6 +497,7 @@ void SpawnPickup(World& world, const Vec2& position, int type) {
     if (sprite) sprite->color = Vec4(1.0f, 1.0f, 1.0f, 1.0f);
     auto* component = pickup->AddComponent<SurvivorsPickupComponent>();
     component->type = type;
+    component->locked = locked;
     // 时间保底以“新技能真正掉到地上”为准；所有掉落路径（击杀/新手兜底/时间保底）共用。
     if (skillUnlock) g_lastSkillDropTime = g_gameTime;
     g_pickups.push_back(pickup);
@@ -1783,8 +1785,10 @@ void SurvivorsPlayerComponent::FireArrow(const Vec2& origin, const Vec2& directi
     const Vec2  spawn = origin + dir * 0.55f;
     const float angle = std::atan2(dir.y, dir.x);
 
-    GameObject* arrow = SpawnSprite(*world, "箭", "inkwash/arrow.png", spawn, Vec2(0.95f, 0.48f), 2);
+    GameObject* arrow = SpawnSprite(*world, "箭", "inkwash/arrow.png", spawn, Vec2(1.05f, 0.54f), 2);
     if (auto* sprite = arrow->GetComponent<SpriteRendererComponent>()) {
+        // 箭从角色手部高度飞出，而不是贴地（否则看起来像用脚踢出去的）。
+        sprite->offset = Vec2(0.0f, 1.10f);
         // 素材箭头的箭尖朝左，飞行方向是 +X，因此整体再转 180°。
         sprite->rotation = angle + kPi;
         sprite->color = Vec4(1.0f, 0.93f, 0.72f, 1.0f);
@@ -2326,8 +2330,9 @@ void SurvivorsGemComponent::OnUpdate(float dt) {
     const Vec2 toTarget = target - position;
     const float distance = Length(toTarget);
 
-    // 近距离吸附；掉落 2.5 秒后开始全图回收，避免远程击杀的宝石永远捡不到
-    if (distance < magnetRange || age > 2.5f) {
+    // 近距离吸附；掉落 2.5 秒后开始全图回收，避免远程击杀的宝石永远捡不到。
+    // 教学步骤里的宝石 locked=true：不吸附、不自动回收，必须走过去。
+    if (!locked && (distance < magnetRange || age > 2.5f)) {
         const Vec2  direction = SafeDir(toTarget);
         Vec3        next = m_owner->Position();
         const float speed = 4.0f + age * 5.0f;
@@ -2364,8 +2369,8 @@ void SurvivorsPickupComponent::OnUpdate(float dt) {
     }
 
     // 新技能是“临时选择”：地上没被捡走的技能掉落 8 秒后消失，避免满地残留。
-    // 强化/血瓶仍然保留 60 秒。
-    if (age > (skillUnlock ? 8.0f : 60.0f)) {
+    // 强化/血瓶仍然保留 60 秒。教学步骤里的掉落 locked=true，不会消失也不会被吸走。
+    if (!locked && age > (skillUnlock ? 8.0f : 60.0f)) {
         world->DestroyObject(m_owner);
         return;
     }
@@ -2381,7 +2386,7 @@ void SurvivorsPickupComponent::OnUpdate(float dt) {
     const float distance = Length(toTarget);
 
     // 新技能必须手动走过去捡：既不进入磁吸范围，也不会随时间自动飞向玩家。
-    if (!skillUnlock && (age > 3.0f || distance < magnetRange)) {
+    if (!locked && !skillUnlock && (age > 3.0f || distance < magnetRange)) {
         const Vec2  direction = SafeDir(toTarget);
         Vec3        next = m_owner->Position();
         const float speed = 4.5f + age * 0.5f;
@@ -2771,6 +2776,9 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
     m_stageEliteBase = g_eliteKills;
     m_stageGemBase = g_gemsCollected;
     m_tutorialStep = 0;
+    m_tutorialGate = false;
+    m_tutorialFlash = 0.0f;
+    m_tutorialFinaleStarted = false;
     m_spawnTimer = (m_floor == 1) ? 0.9f : 0.6f;
     m_eliteTimer = (m_floor == 1) ? 1.0e9f
                                   : (m_stageGoal.type == static_cast<int>(SurvivorsGoalType::EliteHunt) ? 4.0f
@@ -2782,7 +2790,8 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
     m_selectedSkill = -1;
     m_state = State::Playing;
 
-    if (GameObject* playerObject = FindPlayer(world)) {
+    GameObject* playerObject = FindPlayer(world);
+    if (playerObject) {
         playerObject->SetPosition(Vec3(0.0f, 0.0f, 0.0f));
         if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
             player->alive = true;
@@ -2794,8 +2803,10 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
     }
 
     if (m_floor == 1) {
-        ShowToast("教学关卡：移动、自动攻击，学会武学成长");
-        LogInfo("[2D] 第 1 层：教学关");
+        if (auto* player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr) {
+            StartTutorialStep(world, *player);
+        }
+        LogInfo("[2D] 第 1 层：教学关（分步操作）");
     } else {
         char text[128];
         std::snprintf(text, sizeof(text), "第 %d 层：%s %s", m_floor, SurvivorsGoalName(m_stageGoal.type),
@@ -2811,7 +2822,7 @@ bool SurvivorsDirector::StageGoalReached(const SurvivorsPlayerComponent& player)
     const int elites = g_eliteKills - m_stageEliteBase;
     const int gems = g_gemsCollected - m_stageGemBase;
     switch (static_cast<SurvivorsGoalType>(m_stageGoal.type)) {
-        case SurvivorsGoalType::Tutorial: return m_stageTime >= m_stageGoal.target;
+        case SurvivorsGoalType::Tutorial: return m_tutorialStep >= 4 && m_stageTime >= m_stageGoal.target;
         case SurvivorsGoalType::SurviveTime: return m_stageTime >= m_stageGoal.target;
         case SurvivorsGoalType::KillCount: return static_cast<float>(kills) >= m_stageGoal.target;
         case SurvivorsGoalType::EliteHunt: return static_cast<float>(elites) >= m_stageGoal.target;
@@ -2825,68 +2836,102 @@ bool SurvivorsDirector::StageGoalReached(const SurvivorsPlayerComponent& player)
     }
 }
 
-void SurvivorsDirector::UpdateTutorial(World& world, SurvivorsPlayerComponent& player, float dt) {
-    (void)dt;
+void SurvivorsDirector::StartTutorialStep(World& world, SurvivorsPlayerComponent& player) {
+    ClearSurvivorsArena(world);
     GameObject* playerObject = FindPlayer(world);
     if (!playerObject) return;
-    // 教学关不惩罚玩家：持续无敌，保证 55 秒内一定能把机制演示完。
-    player.invulnerable = (std::max)(player.invulnerable, 1.0f);
-    const int baseSkill = kSurvivorsClasses[Clamp(m_playerClass, 0, kSurvivorsClassCount - 1)].baseSkill;
+    const Vec2 position(playerObject->Position().x, playerObject->Position().y);
+    m_tutorialFinaleStarted = false;
 
-    if (m_tutorialStep < 1 && m_stageTime >= 1.0f) {
-        m_tutorialStep = 1;
-        ShowToast("教学：WASD / 拖动屏幕移动；武学自动攻击最近敌人");
-    }
-    if (m_tutorialStep < 2 && m_stageTime >= 9.0f) {
-        m_tutorialStep = 2;
-        ShowToast("教学：击杀掉落经验与强化，走近即可拾取");
-    }
-    if (m_tutorialStep < 3 && m_stageTime >= 16.0f) {
-        m_tutorialStep = 3;
-        if (!player.HasSkill(1) && player.SelectedSkillCount() < kSurvivorsMaxLoadout) {
-            player.UnlockSkill(1);
-        }
-        ShowToast("习得雷霆：等级越高，落雷数量与范围越大");
-    }
-    if (m_tutorialStep < 4 && m_stageTime >= 24.0f) {
-        m_tutorialStep = 4;
-        if (baseSkill == 0) {
-            player.arrowSpreadLevel = (std::max)(player.arrowSpreadLevel, 2);
-            ShowToast("箭矢成长：散射提升，同时射出 4 支箭");
-        } else if (baseSkill == 2) {
-            player.bladeLevel = (std::max)(player.bladeLevel, 4);
-            ShowToast("回旋刃成长：3 把飞刃开始环绕");
-        } else {
-            player.fireballLevel = (std::max)(player.fireballLevel, 5);
-            ShowToast("火球成长：一次 2 发，爆炸范围更大");
-        }
-        player.RefreshDerivedStats();
-    }
-    if (m_tutorialStep < 5 && m_stageTime >= 32.0f) {
-        m_tutorialStep = 5;
-        if (SpawnSkillUnlockNearPlayer(world, *playerObject, player, 2.6f)) {
-            ShowToast("绿色光点=新武学：必须走过去拾取，最多 5 个");
-        }
-        for (int i = 0; i < 8; ++i) {
+    if (m_tutorialStep >= 4) {
+        m_tutorialGate = false;
+        m_tutorialFinaleStarted = true;
+        m_spawnTimer = 0.25f;
+        for (int i = 0; i < 14; ++i) {
             const float angle = Random01() * kTwoPi;
-            const float radius = RandomRange(7.0f, 10.0f);
-            SpawnEnemy(world, Vec2(playerObject->Position().x, playerObject->Position().y) +
-                                  Vec2(std::cos(angle), std::sin(angle)) * radius,
-                       0, 0.5f, 0.8f, 0.35f);
+            const float radius = RandomRange(6.0f, 10.0f);
+            SpawnEnemy(world, position + Vec2(std::cos(angle), std::sin(angle)) * radius, 0, 0.45f, 0.8f, 0.30f);
         }
+        ShowToast("训练完成：怪潮来了，满屏武学清场");
+        LogInfo("[2D] 教学步骤完成，进入实战怪潮");
+        return;
     }
-    if (m_tutorialStep < 6 && m_stageTime >= 42.0f) {
-        m_tutorialStep = 6;
-        player.invulnerable = (std::max)(player.invulnerable, 2.0f);
-        for (int i = 0; i < 16; ++i) {
-            const float angle = Random01() * kTwoPi;
-            const float radius = RandomRange(5.0f, 9.0f);
-            SpawnEnemy(world, Vec2(playerObject->Position().x, playerObject->Position().y) +
-                                  Vec2(std::cos(angle), std::sin(angle)) * radius,
-                       0, 0.45f, 0.8f, 0.30f);
+
+    m_tutorialGate = true;
+    switch (m_tutorialStep) {
+        case 0:
+            m_tutorialStartPos = position;
+            break;
+        case 1:
+            m_tutorialGemBase = g_gemsCollected;
+            SpawnGem(world, position + Vec2(3.0f, 0.0f), 1.0f, true);
+            break;
+        case 2: {
+            m_tutorialSkillBase = player.SelectedSkillCount();
+            // 教学强制给“雷霆”，和面板展示的成长方向一致；若已拥有再随机补一个缺失技能。
+            int skill = player.HasSkill(1) ? PickSkillUnlockType(player) : 1;
+            if (skill < 0) skill = 1;
+            SpawnPickup(world, position + Vec2(3.0f, 0.0f),
+                        static_cast<int>(SurvivorsPickupType::SkillUnlockBase) + skill, true);
+            break;
         }
-        ShowToast("怪潮来了：满屏武学清场，这就是爽点");
+        case 3: {
+            const int baseSkill = kSurvivorsClasses[Clamp(m_playerClass, 0, kSurvivorsClassCount - 1)].baseSkill;
+            m_tutorialSkillLevelBase = player.SkillLevel(baseSkill);
+            int upgrade = static_cast<int>(SurvivorsPickupType::ArrowSpread);
+            if (baseSkill == 2) upgrade = static_cast<int>(SurvivorsPickupType::BladeUpgrade);
+            else if (baseSkill == 5) upgrade = static_cast<int>(SurvivorsPickupType::FireballUpgrade);
+            SpawnPickup(world, position + Vec2(3.0f, 0.0f), upgrade, true);
+            break;
+        }
+        default: break;
     }
+    LogInfo("[2D] 教学步骤 %d 开始（等待玩家操作）", m_tutorialStep + 1);
+}
+
+void SurvivorsDirector::CompleteTutorialStep(World& world, SurvivorsPlayerComponent& player) {
+    (void)world;
+    (void)player;
+    m_tutorialGate = false;
+    m_tutorialFlash = 1.5f;
+    if (m_tutorialStep < 4) ++m_tutorialStep;
+    PlaySfx("levelup", 0.55f, 1.16f);
+    LogInfo("[2D] 教学步骤完成，下一步 %d", m_tutorialStep + 1);
+}
+
+void SurvivorsDirector::UpdateTutorial(World& world, SurvivorsPlayerComponent& player, float dt) {
+    GameObject* playerObject = FindPlayer(world);
+    if (!playerObject) return;
+    // 教学关不惩罚玩家：持续无敌，保证机制演示不被怪潮打断。
+    player.invulnerable = (std::max)(player.invulnerable, 1.0f);
+
+    if (m_tutorialFlash > 0.0f) {
+        m_tutorialFlash -= dt;
+        if (m_tutorialFlash <= 0.0f) {
+            m_tutorialFlash = 0.0f;
+            StartTutorialStep(world, player);
+        }
+        return;
+    }
+
+    if (m_tutorialStep >= 4) {
+        if (!m_tutorialFinaleStarted) StartTutorialStep(world, player);
+        return;
+    }
+
+    if (!m_tutorialGate) return;
+
+    const Vec2 position(playerObject->Position().x, playerObject->Position().y);
+    const int  baseSkill = kSurvivorsClasses[Clamp(m_playerClass, 0, kSurvivorsClassCount - 1)].baseSkill;
+    bool       done = false;
+    switch (m_tutorialStep) {
+        case 0: done = Length(position - m_tutorialStartPos) > 1.2f; break;
+        case 1: done = g_gemsCollected > m_tutorialGemBase; break;
+        case 2: done = player.SelectedSkillCount() > m_tutorialSkillBase; break;
+        case 3: done = player.SkillLevel(baseSkill) > m_tutorialSkillLevelBase; break;
+        default: break;
+    }
+    if (done) CompleteTutorialStep(world, player);
 }
 
 void SurvivorsDirector::CompleteStage(World& world) {
@@ -2920,8 +2965,14 @@ std::string SurvivorsDirector::StageGoalProgressText(World& world) const {
     const int gems = g_gemsCollected - m_stageGemBase;
     switch (static_cast<SurvivorsGoalType>(m_stageGoal.type)) {
         case SurvivorsGoalType::Tutorial: {
-            const int left = static_cast<int>(std::ceil((std::max)(0.0f, m_stageGoal.target - m_stageTime)));
-            std::snprintf(text, sizeof(text), "教学 · 还剩 %d 秒", left);
+            if (m_tutorialStep < kSurvivorsTutorialStepCount) {
+                std::snprintf(text, sizeof(text), "教学 · 第 %d / %d 步",
+                              (std::min)(m_tutorialStep + 1, kSurvivorsTutorialStepCount),
+                              kSurvivorsTutorialStepCount);
+            } else {
+                const int left = static_cast<int>(std::ceil((std::max)(0.0f, m_stageGoal.target - m_stageTime)));
+                std::snprintf(text, sizeof(text), "教学 · 还剩 %d 秒", left);
+            }
             break;
         }
         case SurvivorsGoalType::SurviveTime: {
@@ -3073,9 +3124,12 @@ void SurvivorsDirector::Update(World& world, float dt) {
         if (BeginChestGacha(world, pending.rarity, pending.effect)) return;
     }
 
-    m_time += dt;
-    m_stageTime += dt;
-    g_gameTime = m_time;
+    const bool tutorialHold = (m_floor == 1) && (m_tutorialGate || m_tutorialFlash > 0.0f);
+    if (!tutorialHold) {
+        m_time += dt;
+        m_stageTime += dt;
+        g_gameTime = m_time;
+    }
     m_difficulty = m_time / 60.0f;
     m_kills = g_kills;
     if (m_time - m_lastBalanceLog >= 60.0f) {
@@ -3108,6 +3162,8 @@ void SurvivorsDirector::Update(World& world, float dt) {
         });
     }
 
+    // 教学步骤未完成/步骤完成提示期间：只允许玩家移动，冻结刷怪、计时、掉落保底与宝箱。
+    if (!tutorialHold) {
     // 新手期兜底：2:30 后如果还没集齐技能，每 2 秒在玩家附近补掉一个缺失技能（仍需手动拾取）。
     if (m_time >= 150.0f) {
         GameObject* catchUpPlayer = FindPlayer(world);
@@ -3163,6 +3219,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
             }
         }
     }
+    } // !tutorialHold
 
     GameObject* player = FindPlayer(world);
     if (!player) return;
@@ -3568,10 +3625,27 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
         SelectPlayerClass(world, 2);
     } else if (screen == "tutorial") {
         Reset(world);
+        m_time = 3.0f;
+        g_gameTime = m_time;
+        m_stageTime = 0.0f;
+        m_tutorialStep = 0;
+        m_tutorialGate = true;
+        m_tutorialFlash = 0.0f;
+    } else if (screen == "tutorial-done") {
+        Reset(world);
+        m_time = 3.0f;
+        g_gameTime = m_time;
+        m_tutorialStep = 1;
+        m_tutorialGate = false;
+        m_tutorialFlash = 1.4f;
+    } else if (screen == "tutorial-finale") {
+        Reset(world);
         m_time = 30.0f;
         g_gameTime = m_time;
-        m_stageTime = 26.0f;
         m_tutorialStep = 4;
+        m_tutorialGate = false;
+        m_tutorialFlash = 0.0f;
+        m_stageTime = 12.0f;
         if (GameObject* playerObject = FindPlayer(world)) {
             if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
                 player->UnlockSkill(1);
@@ -3580,8 +3654,8 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 else player->fireballLevel = 5;
                 player->RefreshDerivedStats();
                 const Vec2 center(playerObject->Position().x, playerObject->Position().y);
-                for (int i = 0; i < 22; ++i) {
-                    const float angle = static_cast<float>(i) * kTwoPi / 22.0f;
+                for (int i = 0; i < 24; ++i) {
+                    const float angle = static_cast<float>(i) * kTwoPi / 24.0f;
                     SpawnEnemy(world, center + Vec2(std::cos(angle), std::sin(angle)) * RandomRange(5.0f, 9.0f), 0,
                                0.45f, 0.75f, 0.3f);
                 }
@@ -4031,10 +4105,10 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
         const ImVec2     textSize = ImGui::GetFont()->CalcTextSizeA(13.0f, FLT_MAX, 0.0f, info.label);
         const ImVec2     min(screen.x - textSize.x * 0.5f - 5.0f, screen.y - textSize.y - 3.0f);
         const ImVec2     max(screen.x + textSize.x * 0.5f + 5.0f, screen.y + 1.0f);
-        draw->AddRectFilled(min, max, IM_COL32(8, 10, 15, 205), 4.0f);
-        draw->AddRect(min, max, ToImColor(info.color, 0.85f), 4.0f);
+        draw->AddRectFilled(min, max, IM_COL32(246, 238, 220, 238), 4.0f);
+        draw->AddRect(min, max, IM_COL32(46, 107, 87, 230), 4.0f);
         draw->AddText(ImGui::GetFont(), 13.0f, ImVec2(screen.x - textSize.x * 0.5f, screen.y - textSize.y),
-                      ToImColor(info.color, 1.0f), info.label);
+                      IM_COL32(36, 58, 48, 255), info.label);
         draw->AddCircleFilled(project(Vec2(pickup->Position().x, pickup->Position().y)), 7.0f,
                               ToImColor(info.color, 0.28f));
     }
@@ -4065,10 +4139,10 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
         const ImVec2 textPos = project(Vec2(center.x, center.y + 1.15f));
         const ImVec2 min(textPos.x - textSize.x * 0.5f - 5.0f, textPos.y - textSize.y - 3.0f);
         const ImVec2 max(textPos.x + textSize.x * 0.5f + 5.0f, textPos.y + 1.0f);
-        draw->AddRectFilled(min, max, IM_COL32(8, 10, 15, 210), 4.0f);
-        draw->AddRect(min, max, ToImColor(rarityColor, 0.9f), 4.0f);
+        draw->AddRectFilled(min, max, IM_COL32(246, 238, 220, 242), 4.0f);
+        draw->AddRect(min, max, ToImColor(rarityColor, 0.95f), 4.0f);
         draw->AddText(ImGui::GetFont(), 13.0f, ImVec2(textPos.x - textSize.x * 0.5f, textPos.y - textSize.y),
-                      ToImColor(rarityColor, 1.0f), label);
+                      IM_COL32(36, 58, 48, 255), label);
     }
 
     // 技能特效贴图（线性采样，避免序列帧被拉成硬边）
@@ -4076,7 +4150,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 回旋刃：月牙剑气拖影（素材包 2×2 序列帧）。
     if (player && playerComponent && playerComponent->HasSkill(2)) {
-        const Vec2 center(player->Position().x, player->Position().y);
+        const Vec2 center(player->Position().x, player->Position().y + 1.0f);
         const int  bladeCount = playerComponent->BladeCount();
         for (int i = 0; i < bladeCount; ++i) {
             const float angle = playerComponent->BladeAngle() + static_cast<float>(i) * kTwoPi /
@@ -4090,7 +4164,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 棱镜光束：素材包的晶龙光束沿旋转方向拉长，模拟穿透光柱。
     if (player && playerComponent && playerComponent->HasSkill(8)) {
-        const Vec2  center(player->Position().x, player->Position().y);
+        const Vec2  center(player->Position().x, player->Position().y + 1.1f);
         const int   beamCount = playerComponent->PrismBeamCount();
         const float length = playerComponent->PrismBeamLength();
         for (int i = 0; i < beamCount; ++i) {
@@ -4161,12 +4235,13 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 火球：素材包 4×4 火团序列 + 拖尾。
     for (const FireballFx& fireball : g_fireballs) {
-        const ImVec2 screen = project(fireball.position);
-        const ImVec2 trail = project(fireball.position - fireball.velocity * 0.09f);
+        const Vec2   visual = fireball.position + Vec2(0.0f, 1.10f);
+        const ImVec2 screen = project(visual);
+        const ImVec2 trail = project(visual - fireball.velocity * 0.09f);
         draw->AddLine(trail, screen, IM_COL32(255, 150, 50, 130), 9.0f);
         const int   frame = static_cast<int>(fireball.age * 16.0f) % 16;
         const float rotation = std::atan2(fireball.velocity.y, fireball.velocity.x) + kPi;
-        drawSheet(m_ui.fxFireball, 4, 4, frame, fireball.position, 0.72f, 0.72f, IM_COL32_WHITE, rotation);
+        drawSheet(m_ui.fxFireball, 4, 4, frame, visual, 0.82f, 0.82f, IM_COL32_WHITE, rotation);
     }
 
     // 毒雾：素材包墨烟染绿，缓慢上飘。
@@ -4245,12 +4320,12 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
         const ImVec2 textSize = ImGui::GetFont()->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text);
         const ImVec2 pos(screen.x - textSize.x * 0.5f, screen.y - textSize.y * 0.5f);
         const int alpha = static_cast<int>(255.0f * (1.0f - t));
-        const ImU32 outline = IM_COL32(20, 12, 6, alpha);
+        const ImU32 outline = IM_COL32(18, 34, 28, alpha);
         draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x - 1.5f, pos.y), outline, text);
         draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x + 1.5f, pos.y), outline, text);
         draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x, pos.y - 1.5f), outline, text);
         draw->AddText(ImGui::GetFont(), fontSize, ImVec2(pos.x, pos.y + 1.5f), outline, text);
-        draw->AddText(ImGui::GetFont(), fontSize, pos, IM_COL32(255, 214, 96, alpha), text);
+        draw->AddText(ImGui::GetFont(), fontSize, pos, IM_COL32(86, 206, 176, alpha), text);
     }
 
     draw->PopClipRect();
