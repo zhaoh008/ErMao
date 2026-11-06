@@ -454,6 +454,7 @@ void SpawnCorpse(World& world, const Vec2& position, const std::string& texture,
         if (auto* animator = corpse->AddComponent<SpriteAnimatorComponent>()) {
             animator->fps = fps;
             animator->loop = false;
+            animator->columnsOverride = columns;
             animator->OnUpdate(0.0f);
         }
     }
@@ -842,16 +843,17 @@ struct EnemyArchetype {
     const char* runTexture;
     const char* deathTexture;
     int         deathFrames;
+    int         runFrames;
 };
 
 const EnemyArchetype kEnemyArchetypes[] = {
     // name        hp    speed  dmg   xp   sprite contact atkInt color                                 run                          death                          frames
-    {"山贼",       18.0f, 1.90f, 8.0f, 3.0f, 2.15f, 0.75f, 0.80f, Vec4(1.00f, 1.00f, 1.00f, 1.00f), "inkwash/enemy_0_run.png", "inkwash/enemy_0_death.png", 5},
-    {"石人",       34.0f, 1.15f, 5.0f, 4.0f, 1.95f, 0.70f, 1.10f, Vec4(0.92f, 1.00f, 0.94f, 1.00f), "inkwash/enemy_1_run.png", "inkwash/enemy_1_death.png", 5},
-    {"飞鹰",       12.0f, 3.10f, 7.0f, 2.5f, 2.70f, 0.65f, 0.70f, Vec4(0.84f, 0.92f, 1.00f, 0.94f), "inkwash/enemy_2_run.png", "inkwash/enemy_2_death.png", 10},
-    {"毒蛛",       10.0f, 3.80f, 5.0f, 2.0f, 1.55f, 0.60f, 0.55f, Vec4(0.96f, 0.86f, 1.00f, 1.00f), "inkwash/enemy_3_run.png", "inkwash/enemy_3_death.png", 5},
-    {"官兵",       62.0f, 1.60f, 12.0f, 8.0f, 2.35f, 0.85f, 0.95f, Vec4(0.94f, 0.96f, 1.00f, 1.00f), "inkwash/enemy_4_run.png", "inkwash/enemy_4_death.png", 5},
-    {"虎王",      120.0f, 1.45f, 16.0f, 18.0f, 3.25f, 1.10f, 1.00f, Vec4(1.00f, 0.90f, 0.82f, 1.00f), "inkwash/enemy_5_run.png", "inkwash/enemy_5_death.png", 4},
+    {"山贼",       18.0f, 1.90f, 8.0f, 3.0f, 2.15f, 0.75f, 0.80f, Vec4(1.00f, 1.00f, 1.00f, 1.00f), "inkwash/enemy_0_run.png", "inkwash/enemy_0_death.png", 5, 8},
+    {"石人",       34.0f, 1.15f, 5.0f, 4.0f, 1.95f, 0.70f, 1.10f, Vec4(0.92f, 1.00f, 0.94f, 1.00f), "inkwash/enemy_1_run.png", "inkwash/enemy_1_death.png", 5, 6},
+    {"飞鹰",       12.0f, 3.10f, 7.0f, 2.5f, 2.70f, 0.65f, 0.70f, Vec4(0.84f, 0.92f, 1.00f, 0.94f), "inkwash/enemy_2_run.png", "inkwash/enemy_2_death.png", 10, 6},
+    {"毒蛛",       10.0f, 3.80f, 5.0f, 2.0f, 1.55f, 0.60f, 0.55f, Vec4(0.96f, 0.86f, 1.00f, 1.00f), "inkwash/enemy_3_run.png", "inkwash/enemy_3_death.png", 5, 5},
+    {"官兵",       62.0f, 1.60f, 12.0f, 8.0f, 2.35f, 0.85f, 0.95f, Vec4(0.94f, 0.96f, 1.00f, 1.00f), "inkwash/enemy_4_run.png", "inkwash/enemy_4_death.png", 5, 5},
+    {"虎王",      120.0f, 1.45f, 16.0f, 18.0f, 3.25f, 1.10f, 1.00f, Vec4(1.00f, 0.90f, 0.82f, 1.00f), "inkwash/enemy_5_run.png", "inkwash/enemy_5_death.png", 4, 5},
 };
 
 int PickEnemyType(float time) {
@@ -1635,15 +1637,26 @@ void SurvivorsPlayerComponent::OnUpdate(float dt) {
         const std::string runTexture = "inkwash/player_" + std::to_string(Clamp(playerClass, 0, 2)) + "_run.png";
         if (sprite && sprite->texture != runTexture) {
             sprite->texture = runTexture;
-            if (animator) animator->Play(12.0f);
+            if (animator) animator->Play(14.0f);
         }
-        if (sprite) sprite->flipX = facing.x < 0.0f;
+        if (animator) animator->columnsOverride = playerClass == 2 ? 7 : 5;
+        // 素材里的角色默认面朝左：向右移动时才翻转，否则会“倒着走”。
+        if (sprite && std::abs(facing.x) > 1e-3f) sprite->flipX = facing.x > 0.0f;
     } else if (sprite) {
         const std::string idleTexture = "inkwash/player_" + std::to_string(Clamp(playerClass, 0, 2)) + "_idle.png";
         if (sprite->texture != idleTexture) {
             sprite->texture = idleTexture;
-            if (animator) animator->Play(6.0f);
+            if (animator) animator->Play(4.0f);
         }
+        if (animator) animator->columnsOverride = 1;
+        if (std::abs(facing.x) > 1e-3f) sprite->flipX = facing.x > 0.0f;
+    }
+
+    if (sprite) {
+        const float bob = moving ? std::abs(std::sin(g_gameTime * 12.0f)) * 0.14f
+                                 : std::sin(g_gameTime * 3.0f) * 0.02f;
+        sprite->offset = Vec2(0.0f, 1.05f + bob);
+        sprite->rotation = moving ? std::sin(g_gameTime * 24.0f) * 0.02f : 0.0f;
     }
 
     // 自动攻击：有敌人时锁定最近目标；没有目标时朝面朝方向射击
@@ -2047,7 +2060,10 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
             color = Vec4(0.62f, 0.80f, 1.0f, baseColor.w);
         }
         sprite->color = color;
-        sprite->offset = Vec2(0.0f, std::sin(bobPhase * 3.0f + bobPhase * 0.7f) * 0.05f);
+        // 脚底锚点 + 行走起伏：素材的 run 帧位移很小，靠轻微上下浮动让走动更明显。
+        const float bob = std::abs(std::sin(bobPhase * 9.0f)) * 0.095f;
+        sprite->offset = Vec2(0.0f, visualHeight * 0.5f + bob);
+        sprite->rotation = std::sin(bobPhase * 9.0f) * 0.018f;
     }
 
     if (hp <= 0.0f) {
@@ -2136,7 +2152,8 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
     // 兽人贴图是面向镜头的正视图（脸略朝画面右侧）：向右走保持原图，向左走才翻转。
     // 之前条件写反了，向右追击玩家时会翻成背对玩家，看起来像“屁股对人倒着走”。
     if (sprite && Length(moved) > 0.001f && std::abs(moved.x) > 1e-4f) {
-        sprite->flipX = moved.x < 0.0f;
+        // 素材里的怪物默认面朝左，移动方向与翻转方向相反。
+        sprite->flipX = moved.x > 0.0f;
     }
 }
 
@@ -2347,7 +2364,9 @@ void SurvivorsDirector::SpawnEnemy(World& world, const Vec2& position, int type,
         sprite->offset = Vec2(0.0f, archetype.spriteWidth * 0.5f);
     }
     if (auto* animator = enemy->AddComponent<SpriteAnimatorComponent>()) {
-        animator->fps = 10.0f;
+        animator->fps = 12.0f;
+        // 不依赖贴图宽高自动推断：微信端也保证行走帧按素材表数量播放。
+        animator->columnsOverride = archetype.runFrames;
         animator->OnUpdate(0.0f);
     }
 
