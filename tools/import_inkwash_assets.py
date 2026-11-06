@@ -158,8 +158,9 @@ def build_widgets():
     for i, name in enumerate(icons):
         save(trim(load('道具图标', name)), f'icon_{i}.png', max_size=128)
 
-    # heroes for class cards
-    heroes = ['mp_img_gaibang_qiaoxiaotian.png', 'mp_img_huashanpai_linghuxiao.png', 'mp_img_mijiao_huoerba.png']
+    # heroes for class cards / in-game player（职业立绘：游侠 / 剑士 / 法师）
+    # 只用「角色立绘」文件夹的静态立绘；玩家角色不做行走动画，只按朝向翻转。
+    heroes = ['mp_img_taohuagu_guoshediao.png', 'mp_img_huashanpai_linghuxiao.png', 'mp_img_shenmupai_mochoujie.png']
     for i, name in enumerate(heroes):
         save(trim(load('角色立绘', name)), f'hero_{i}.png', max_size=360)
 

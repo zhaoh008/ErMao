@@ -13,9 +13,10 @@
   panel/slot/btn_*         水墨漆面面板、技能槽、按钮
   bar_* / crest / chest*   进度条、纹章、宝箱
   icon_0..9                十种武学图标
-  hero_0..2                职业立绘
+  hero_0..2                职业立绘（游侠/剑士/法师），同时作为玩家角色贴图
   prop_*                   古树、香炉、山石、石灯、酒坛、石案
-  player_* / enemy_*       玩家与怪物 idle/run/death 横向序列帧
+  player_*                 旧版玩家行走序列帧（已不再使用，保留供历史构建）
+  enemy_*                  怪物 idle/run/death 横向序列帧
   fx_*                     剑气、雷、霜、毒、火、陨石、黑洞、棱镜、毒爆、墨点
   arrow.png                箭矢
 
