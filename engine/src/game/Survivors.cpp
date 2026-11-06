@@ -16,6 +16,10 @@
 
 #include <imgui.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -90,6 +94,89 @@ std::string SettingsPath() {
 
 std::string SavePath() {
     return FileSystem::Join(FileSystem::Join(FileSystem::WritableAssetDir(), "saves"), "survivors_save.json");
+}
+
+// 跨局进度：是否看过教学 + 历史最高通关层。与单局存档分开，删单局存档不会重置教学。
+struct SurvivorsMetaProgress {
+    bool tutorialCompleted = false;
+    int  maxFloorCleared = 0;
+    bool loaded = false;
+};
+
+std::string ProgressPath() {
+    return FileSystem::Join(FileSystem::WritableAssetDir(), "survivors_progress.json");
+}
+
+// 微信小游戏冷启动后 /CustomWritablePath 并不是持久目录；教学/层数进度改用
+// wx.setStorageSync / localStorage 键值存储，Web 与小程序都能跨次启动保留。
+bool ReadProgressStorage(std::string& out) {
+#ifdef __EMSCRIPTEN__
+    char buffer[512];
+    const int length = EM_ASM_INT(
+        {
+            try {
+                var stored = null;
+                if (typeof wx !== 'undefined' && wx.getStorageSync) {
+                    stored = wx.getStorageSync('ermao_survivors_progress_v1');
+                } else if (typeof localStorage !== 'undefined') {
+                    stored = localStorage.getItem('ermao_survivors_progress_v1');
+                }
+                if (!stored) return 0;
+                var text = (typeof stored === 'string') ? stored : JSON.stringify(stored);
+                stringToUTF8(text, $0, $1);
+                return lengthBytesUTF8(text);
+            } catch (e) {
+                return 0;
+            }
+        },
+        buffer, static_cast<int>(sizeof(buffer)));
+    if (length > 0) {
+        out.assign(buffer, static_cast<size_t>(length));
+        return true;
+    }
+#endif
+    return FileSystem::ReadTextFile(ProgressPath(), out);
+}
+
+void WriteProgressStorage(const std::string& text) {
+#ifdef __EMSCRIPTEN__
+    EM_ASM(
+        {
+            try {
+                if (typeof wx !== 'undefined' && wx.setStorageSync) {
+                    wx.setStorageSync('ermao_survivors_progress_v1', UTF8ToString($0));
+                } else if (typeof localStorage !== 'undefined') {
+                    localStorage.setItem('ermao_survivors_progress_v1', UTF8ToString($0));
+                }
+            } catch (e) {}
+        },
+        text.c_str());
+#endif
+    // 原生平台走文件；Web 上同时写 MEMFS，作为 storage 不可用时的退路。
+    FileSystem::WriteTextFile(ProgressPath(), text);
+}
+
+SurvivorsMetaProgress& MetaProgress() {
+    static SurvivorsMetaProgress progress;
+    if (progress.loaded) return progress;
+    progress.loaded = true;
+
+    std::string text;
+    if (!ReadProgressStorage(text)) return progress;
+    std::string error;
+    JsonValue   root = JsonValue::Parse(text, &error);
+    if (!error.empty() || !root.IsObject()) return progress;
+    progress.tutorialCompleted = root["tutorialCompleted"].AsBool(false);
+    progress.maxFloorCleared = Clamp(root["maxFloorCleared"].AsInt(0), 0, kSurvivorsFloorCount);
+    return progress;
+}
+
+void SaveMetaProgress() {
+    SurvivorsMetaProgress& progress = MetaProgress();
+    JsonValue              root = JsonValue::MakeObject();
+    root.Set("tutorialCompleted", progress.tutorialCompleted);
+    root.Set("maxFloorCleared", progress.maxFloorCleared);
+    WriteProgressStorage(root.Dump(2));
 }
 
 void ApplySurvivorsAudioSettings() {
@@ -505,11 +592,13 @@ void SpawnPickup(World& world, const Vec2& position, int type, bool locked = fal
 
 // 短命装饰：死亡残影 / 墨点。sprite 用 addComponent 的动画组件播放序列帧。
 void SpawnCorpse(World& world, const Vec2& position, const std::string& texture, int columns, float size,
-                 float life, float alpha, const Vec4& tint = Vec4(1, 1, 1, 1), float fps = 12.0f) {
+                 float life, float alpha, const Vec4& tint = Vec4(1, 1, 1, 1), float fps = 12.0f,
+                 bool flipX = false) {
     GameObject* corpse = SpawnSprite(world, "残影", texture, position, Vec2(size, size), 2);
     if (auto* sprite = corpse->GetComponent<SpriteRendererComponent>()) {
         sprite->color = Vec4(tint.x, tint.y, tint.z, tint.w * alpha);
         sprite->offset = Vec2(0.0f, size * 0.5f);
+        sprite->flipX = flipX;
     }
     if (columns > 1) {
         if (auto* animator = corpse->AddComponent<SpriteAnimatorComponent>()) {
@@ -965,7 +1054,7 @@ void SurvivorsApplyPlayerVisual(GameObject& player, int playerClass) {
     const std::string texture = "inkwash/hero_" + std::to_string(classIndex) + ".png";
     sprite->texture = texture;
 
-    constexpr float kPlayerHeight = 3.0f;
+    constexpr float kPlayerHeight = 1.5f;
     float           width = kPlayerHeight;
     if (World* world = player.GetWorld()) {
         if (AssetManager* assets = world->Assets()) {
@@ -978,11 +1067,8 @@ void SurvivorsApplyPlayerVisual(GameObject& player, int playerClass) {
     }
     sprite->size = Vec2(width, kPlayerHeight);
     sprite->offset = Vec2(0.0f, kPlayerHeight * 0.5f);
-    // 原画朝向不同：默认面向右的立绘只在向左移动时翻转。
-    const bool wantRight = player.GetComponent<SurvivorsPlayerComponent>()
-                               ? player.GetComponent<SurvivorsPlayerComponent>()->facing.x > 0.0f
-                               : true;
-    sprite->flipX = wantRight != kSurvivorsClasses[classIndex].artFacesRight;
+    // 导入阶段已统一成面朝右；这里只重置为初始朝向，移动时由 FaceMovementX 翻转。
+    sprite->flipX = false;
 }
 
 // ================================================================ 玩家：设置/数值
@@ -1696,11 +1782,7 @@ void SurvivorsPlayerComponent::MoveByInput(const Vec2& move, float dt) {
 
     // 人物是静态立绘：不切行走帧、不做走路起伏，只按移动方向翻转（“转向”）。
     if (sprite) {
-        const bool classFacesRight = kSurvivorsClasses[Clamp(playerClass, 0, kSurvivorsClassCount - 1)].artFacesRight;
-        if (std::abs(facing.x) > 1e-3f) {
-            const bool wantRight = facing.x > 0.0f;
-            sprite->flipX = wantRight != classFacesRight;
-        }
+        sprite->FaceMovementX(facing.x);
         sprite->offset = Vec2(0.0f, sprite->size.y * 0.5f);
         sprite->rotation = 0.0f;
     }
@@ -1788,7 +1870,7 @@ void SurvivorsPlayerComponent::FireArrow(const Vec2& origin, const Vec2& directi
     GameObject* arrow = SpawnSprite(*world, "箭", "inkwash/arrow.png", spawn, Vec2(1.05f, 0.54f), 2);
     if (auto* sprite = arrow->GetComponent<SpriteRendererComponent>()) {
         // 箭从角色手部高度飞出，而不是贴地（否则看起来像用脚踢出去的）。
-        sprite->offset = Vec2(0.0f, 1.10f);
+        sprite->offset = Vec2(0.0f, 0.75f);
         // 素材箭头的箭尖朝左，飞行方向是 +X，因此整体再转 180°。
         sprite->rotation = angle + kPi;
         sprite->color = Vec4(1.0f, 0.93f, 0.72f, 1.0f);
@@ -1940,7 +2022,7 @@ void SurvivorsPlayerComponent::CastFrost() {
     }
 
     FrostRingFx fx;
-    fx.center = origin;
+    fx.center = origin + Vec2(0.0f, 0.75f); // 视觉圆环与角色身体中心对齐；命中仍按 origin
     fx.maxRadius = FrostRadius();
     g_frostFx.push_back(fx);
     PlaySfx("frost", 0.45f, 0.95f + Random01() * 0.10f);
@@ -2175,10 +2257,12 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
         ++g_kills;
         if (type == static_cast<int>(SurvivorsEnemyType::Elite)) ++g_eliteKills;
         PlaySfx("death", 0.30f, 0.90f + Random01() * 0.20f);
+        bool deathFlipX = false;
+        if (auto* deathSprite = m_owner->GetComponent<SpriteRendererComponent>()) deathFlipX = deathSprite->flipX;
         if (type >= 0 && type < static_cast<int>(SurvivorsEnemyType::Count)) {
             const EnemyArchetype& archetype = kEnemyArchetypes[type];
             SpawnCorpse(*world, position, archetype.deathTexture, archetype.deathFrames,
-                        visualHeight * 0.92f, 0.62f, 0.85f, Vec4(1, 1, 1, 1), 12.0f);
+                        visualHeight * 0.92f, 0.62f, 0.85f, Vec4(1, 1, 1, 1), 12.0f, deathFlipX);
             SpawnCorpse(*world, position + Vec2(0.0f, 0.25f), "inkwash/fx_ink.png", 1, 1.15f, 0.32f, 0.55f,
                         Vec4(0.16f, 0.15f, 0.13f, 1.0f));
         }
@@ -2251,13 +2335,8 @@ void SurvivorsEnemyComponent::OnUpdate(float dt) {
         }
     }
 
-    // 朝向按实际移动方向翻转，而不是只看向量左右，绕障碍时也能面向玩家。
-    // 兽人贴图是面向镜头的正视图（脸略朝画面右侧）：向右走保持原图，向左走才翻转。
-    // 之前条件写反了，向右追击玩家时会翻成背对玩家，看起来像“屁股对人倒着走”。
-    if (sprite && Length(moved) > 0.001f && std::abs(moved.x) > 1e-4f) {
-        // 素材里的怪物默认面朝左，移动方向与翻转方向相反。
-        sprite->flipX = moved.x > 0.0f;
-    }
+    // 怪物序列帧在导入时也统一面朝右，移动时只走引擎的 FaceMovementX 约定。
+    if (sprite && Length(moved) > 0.001f) sprite->FaceMovementX(moved.x);
 }
 
 void SurvivorsCorpseComponent::OnUpdate(float dt) {
@@ -2572,7 +2651,7 @@ void SurvivorsDirector::SpawnWave(World& world) {
     const Vec2  center = player ? Vec2(player->Position().x, player->Position().y) : Vec2(0.0f, 0.0f);
 
     // 教学关保持“很多小怪、技能满屏”的爽点：数量多、强度低。
-    const bool  tutorial = m_floor == 1;
+    const bool  tutorial = m_tutorialPending;
     const int   count = tutorial ? (m_stageTime > 30.0f ? 9 : 6) : WaveCount(pressure);
     const float hpScale = tutorial ? 0.45f : EnemyHpScale(pressure);
     const float speedScale = tutorial ? 0.75f : EnemySpeedScale(pressure);
@@ -2674,22 +2753,38 @@ void SurvivorsDirector::Reset(World& world) {
     m_toastTimer = 0.0f;
     m_toastText.clear();
     m_victory = false;
-    m_floor = 1;
     m_stageTime = 0.0f;
     m_tutorialStep = 0;
-    m_stageGoal = SurvivorsStageGoal{static_cast<int>(SurvivorsGoalType::Tutorial),
-                                     kSurvivorsTutorialDuration};
+    m_tutorialGate = false;
+    m_tutorialFlash = 0.0f;
+    m_tutorialFinaleStarted = false;
+
+    // 第一次进入强制教学；已经完成过教学则按玩家选择的起始层直接开打。
+    const SurvivorsMetaProgress& progress = MetaProgress();
+    const int                    maxUnlocked = Clamp(progress.maxFloorCleared + 1, 1, kSurvivorsFloorCount);
+    m_startFloor = Clamp(m_startFloor, 1, maxUnlocked);
+    m_tutorialPending = (!progress.tutorialCompleted && m_startFloor == 1);
+    m_floor = m_startFloor;
+    if (m_tutorialPending) {
+        m_stageGoal = SurvivorsStageGoal{static_cast<int>(SurvivorsGoalType::Tutorial),
+                                         kSurvivorsTutorialDuration};
+    } else {
+        m_stageGoal = RollStageGoal(m_floor, -1);
+    }
     m_nextStageGoal = SurvivorsStageGoal{};
-    m_stageKillBase = g_kills;
-    m_stageEliteBase = g_eliteKills;
-    m_stageGemBase = g_gemsCollected;
     ClearChestGacha();
-    BeginStage(world, 1, m_stageGoal);
-    LogInfo("[2D] 开始游戏：职业 %s，第 1 层教学关", kSurvivorsClasses[m_playerClass].name);
+    BeginStage(world, m_floor, m_stageGoal);
+    LogInfo("[2D] 开始游戏：职业 %s，起始第 %d 层%s", kSurvivorsClasses[m_playerClass].name, m_floor,
+            m_tutorialPending ? "（教学）" : "");
 }
 
 void SurvivorsDirector::ShowClassSelect(World& world) {
     ClearSurvivorsArena(world);
+    const SurvivorsMetaProgress& progress = MetaProgress();
+    m_startFloor = progress.tutorialCompleted ? Clamp(progress.maxFloorCleared + 1, 1, kSurvivorsFloorCount) : 1;
+    m_tutorialPending = false;
+    m_tutorialGate = false;
+    m_tutorialFlash = 0.0f;
     m_playerClass = kSurvivorsNoClass;
     m_state = State::Prepare;
     m_showSettings = false;
@@ -2712,6 +2807,83 @@ void SurvivorsDirector::ShowClassSelect(World& world) {
         }
     }
     LogInfo("[2D] 进入职业选择");
+}
+
+bool SurvivorsDirector::TutorialCompleted() const { return MetaProgress().tutorialCompleted; }
+
+int SurvivorsDirector::MaxFloorCleared() const { return MetaProgress().maxFloorCleared; }
+
+int SurvivorsDirector::MaxUnlockedFloor() const {
+    return Clamp(MetaProgress().maxFloorCleared + 1, 1, kSurvivorsFloorCount);
+}
+
+void SurvivorsDirector::SetStartFloor(int floor) {
+    m_startFloor = Clamp(floor, 1, MaxUnlockedFloor());
+}
+
+bool SurvivorsDirector::HitTutorialSkipButton(float screenX, float screenY) const {
+    const Vec4& rect = m_tutorialSkipHit;
+    return rect.z > 0.0f && rect.w > 0.0f && screenX >= rect.x && screenX <= rect.x + rect.z &&
+           screenY >= rect.y && screenY <= rect.y + rect.w;
+}
+
+void SurvivorsDirector::SkipTutorial(World& world) {
+    if (m_floor != 1 || m_stageGoal.type != static_cast<int>(SurvivorsGoalType::Tutorial)) return;
+    SurvivorsMetaProgress& progress = MetaProgress();
+    progress.tutorialCompleted = true;
+    progress.maxFloorCleared = (std::max)(progress.maxFloorCleared, 1);
+    SaveMetaProgress();
+    m_tutorialPending = false;
+    m_tutorialGate = false;
+    m_tutorialFlash = 0.0f;
+    m_tutorialStep = 4;
+    m_startFloor = 2;
+    const SurvivorsStageGoal next = RollStageGoal(2, static_cast<int>(SurvivorsGoalType::Tutorial));
+    BeginStage(world, 2, next);
+    ShowToast("已跳过教学，从第 2 层开始");
+    LogInfo("[2D] 跳过教学，从第 2 层开始");
+}
+
+bool SurvivorsDirector::HandlePrepareTap(World& world, float screenX, float screenY) {
+    if (m_state != State::Prepare) return false;
+    auto inRect = [&](const Vec4& r) {
+        return r.z > 0.0f && r.w > 0.0f && screenX >= r.x && screenX <= r.x + r.z && screenY >= r.y &&
+               screenY <= r.y + r.w;
+    };
+    for (int cls = 0; cls < kSurvivorsClassCount; ++cls) {
+        if (inRect(m_prepareClassHit[cls])) {
+            m_playerClass = cls;
+            if (GameObject* player = FindPlayer(world)) {
+                if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) component->playerClass = cls;
+                SurvivorsApplyPlayerVisual(*player, cls);
+            }
+            PlaySfx("click", 0.55f);
+            return true;
+        }
+    }
+    if (inRect(m_prepareFloorPrevHit)) {
+        SetStartFloor(m_startFloor - 1);
+        PlaySfx("click", 0.55f);
+        return true;
+    }
+    if (inRect(m_prepareFloorNextHit)) {
+        SetStartFloor(m_startFloor + 1);
+        PlaySfx("click", 0.55f);
+        return true;
+    }
+    if (inRect(m_prepareBackHit)) {
+        PlaySfx("click", 0.6f);
+        m_state = State::Menu;
+        return true;
+    }
+    if (inRect(m_prepareStartHit)) {
+        if (m_playerClass >= 0) {
+            PlaySfx("click", 0.6f);
+            Reset(world);
+        }
+        return true;
+    }
+    return false;
 }
 
 void SurvivorsDirector::SelectPlayerClass(World& world, int classIndex) {
@@ -2769,8 +2941,9 @@ SurvivorsStageGoal SurvivorsDirector::RollStageGoal(int floor, int avoidType) {
 void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStageGoal& goal) {
     ClearSurvivorsArena(world);
     m_floor = Clamp(floor, 1, kSurvivorsFloorCount);
+    if (m_floor != 1) m_tutorialPending = false;
     m_stageGoal = goal;
-    if (m_floor == 1) {
+    if (m_floor == 1 && m_tutorialPending) {
         m_stageGoal.type = static_cast<int>(SurvivorsGoalType::Tutorial);
         m_stageGoal.target = kSurvivorsTutorialDuration;
     }
@@ -2782,10 +2955,11 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
     m_tutorialGate = false;
     m_tutorialFlash = 0.0f;
     m_tutorialFinaleStarted = false;
-    m_spawnTimer = (m_floor == 1) ? 0.9f : 0.6f;
-    m_eliteTimer = (m_floor == 1) ? 1.0e9f
-                                  : (m_stageGoal.type == static_cast<int>(SurvivorsGoalType::EliteHunt) ? 4.0f
-                                                                                                        : 38.0f);
+    m_tutorialSkipHit = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    m_spawnTimer = (m_floor == 1 && m_tutorialPending) ? 0.9f : 0.6f;
+    m_eliteTimer = (m_floor == 1 && m_tutorialPending)
+                       ? 1.0e9f
+                       : (m_stageGoal.type == static_cast<int>(SurvivorsGoalType::EliteHunt) ? 4.0f : 38.0f);
     m_buffTimer = 18.0f;
     m_skillCatchUpTimer = 0.0f;
     m_toastTimer = 0.0f;
@@ -2805,7 +2979,7 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
         SurvivorsApplyPlayerVisual(*playerObject, m_playerClass);
     }
 
-    if (m_floor == 1) {
+    if (m_floor == 1 && m_tutorialPending) {
         if (auto* player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr) {
             StartTutorialStep(world, *player);
         }
@@ -2940,6 +3114,16 @@ void SurvivorsDirector::UpdateTutorial(World& world, SurvivorsPlayerComponent& p
 void SurvivorsDirector::CompleteStage(World& world) {
     (void)world;
     if (m_state != State::Playing) return;
+
+    // 记录跨局进度：教学是否完成 + 历史最高通关层。
+    SurvivorsMetaProgress& progress = MetaProgress();
+    if (m_floor == 1 && m_stageGoal.type == static_cast<int>(SurvivorsGoalType::Tutorial)) {
+        progress.tutorialCompleted = true;
+    }
+    progress.maxFloorCleared = (std::max)(progress.maxFloorCleared, m_floor);
+    SaveMetaProgress();
+    m_tutorialPending = false;
+
     if (m_floor >= kSurvivorsFloorCount) {
         m_victory = true;
         m_state = State::GameOver;
@@ -3127,7 +3311,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
         if (BeginChestGacha(world, pending.rarity, pending.effect)) return;
     }
 
-    const bool tutorialHold = (m_floor == 1) && (m_tutorialGate || m_tutorialFlash > 0.0f);
+    const bool tutorialHold = m_tutorialPending && (m_tutorialGate || m_tutorialFlash > 0.0f);
     if (!tutorialHold) {
         m_time += dt;
         m_stageTime += dt;
@@ -3205,7 +3389,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
     m_spawnTimer -= dt;
     if (m_spawnTimer <= 0.0f) {
         SpawnWave(world);
-        m_spawnTimer = (m_floor == 1) ? 0.9f : WaveInterval(StagePressureTime());
+        m_spawnTimer = m_tutorialPending ? 0.9f : WaveInterval(StagePressureTime());
     }
 
     if (m_floor > 1) {
@@ -3229,7 +3413,7 @@ void SurvivorsDirector::Update(World& world, float dt) {
     auto* component = player->GetComponent<SurvivorsPlayerComponent>();
     if (!component) return;
 
-    if (m_floor == 1) UpdateTutorial(world, *component, dt);
+    if (m_tutorialPending) UpdateTutorial(world, *component, dt);
 
     // 通关条件达成：冻结世界，进入层间结算；第 20 层通过直接胜利。
     if (StageGoalReached(*component)) {
@@ -3621,12 +3805,23 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
     if (screen == "menu") {
         ReturnToMenu();
     } else if (screen == "prepare" || screen == "class") {
-        // 职业选择页：不预选职业，开始按钮保持禁用，和玩家首次进入小程序时一致。
+        // 走查首次进入：清掉内存中的教学进度，显示“第 1 层教学”状态。
+        MetaProgress().tutorialCompleted = false;
+        MetaProgress().maxFloorCleared = 0;
+        ShowClassSelect(world);
+    } else if (screen == "class-progress") {
+        // 走查第二次进入：假设已通关 8 层，展示层数选择。
+        MetaProgress().tutorialCompleted = true;
+        MetaProgress().maxFloorCleared = 8;
         ShowClassSelect(world);
     } else if (screen == "class-selected") {
+        MetaProgress().tutorialCompleted = false;
+        MetaProgress().maxFloorCleared = 0;
         ShowClassSelect(world);
         SelectPlayerClass(world, 2);
     } else if (screen == "tutorial") {
+        MetaProgress().tutorialCompleted = false;
+        MetaProgress().maxFloorCleared = 0;
         Reset(world);
         m_time = 3.0f;
         g_gameTime = m_time;
@@ -3635,6 +3830,8 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
         m_tutorialGate = true;
         m_tutorialFlash = 0.0f;
     } else if (screen == "tutorial-done") {
+        MetaProgress().tutorialCompleted = false;
+        MetaProgress().maxFloorCleared = 0;
         Reset(world);
         m_time = 3.0f;
         g_gameTime = m_time;
@@ -3642,6 +3839,8 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
         m_tutorialGate = false;
         m_tutorialFlash = 1.4f;
     } else if (screen == "tutorial-finale") {
+        MetaProgress().tutorialCompleted = false;
+        MetaProgress().maxFloorCleared = 0;
         Reset(world);
         m_time = 30.0f;
         g_gameTime = m_time;
@@ -3678,10 +3877,11 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
         g_kills = 63;
         if (GameObject* playerObject = FindPlayer(world)) {
             if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
-                player->loadoutMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5);
+                player->loadoutMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5);
                 player->lightningLevel = 3;
                 player->bladeLevel = 4;
                 player->frostLevel = 3;
+                player->poisonLevel = 4;
                 player->fireballLevel = 5;
                 player->arrowSpreadLevel = 2;
                 player->arrowSpeedLevel = 2;
@@ -4049,30 +4249,32 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
     GameObject* player = FindPlayer(world);
     auto*       playerComponent = player ? player->GetComponent<SurvivorsPlayerComponent>() : nullptr;
     if (player && playerComponent) {
-        const Vec2 center(player->Position().x, player->Position().y);
+        const Vec2   center(player->Position().x, player->Position().y);
+        const Vec2   bodyCenter(player->Position().x, player->Position().y + 0.75f);
         const ImVec2 centerScreen = project(center);
+        const ImVec2 bodyCenterScreen = project(bodyCenter);
 
         // 毒雾光环：素材包毒地 + 墨烟，未携带毒雾时不绘制。
         if (playerComponent->HasSkill(4)) {
             const float auraRadius = playerComponent->PoisonRadius() * pixelsPerUnit;
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerLinear);
-            drawSheet(m_ui.fxPoisonGround, 1, 1, 0, center, playerComponent->PoisonRadius(),
+            drawSheet(m_ui.fxPoisonGround, 1, 1, 0, bodyCenter, playerComponent->PoisonRadius(),
                       playerComponent->PoisonRadius(), IM_COL32(120, 210, 95, 46), m_time * 0.08f);
             for (int i = 0; i < 5; ++i) {
                 const float angle = m_time * 0.35f + static_cast<float>(i) * kTwoPi / 5.0f;
-                const Vec2  puffCenter = center + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->PoisonRadius() * 0.6f;
+                const Vec2  puffCenter = bodyCenter + Vec2(std::cos(angle), std::sin(angle)) * playerComponent->PoisonRadius() * 0.6f;
                 const int   frame = static_cast<int>(m_time * 6.0f + static_cast<float>(i) * 3.0f) % 16;
                 drawSheet(m_ui.fxPoison, 4, 4, frame, puffCenter, 1.0f + 0.2f * std::sin(m_time + i), 1.0f,
                           IM_COL32(105, 220, 105, 30), angle);
             }
-            draw->AddCircle(centerScreen, auraRadius, IM_COL32(120, 230, 120, 48), 56, 1.2f);
+            draw->AddCircle(bodyCenterScreen, auraRadius, IM_COL32(120, 230, 120, 48), 56, 1.2f);
             draw->AddCallback(ImGui::GetPlatformIO().DrawCallback_SetSamplerNearest);
         }
 
         // 回旋刃：轨道与飞剑都以角色身体中心为圆心，而不是脚底。
         const int bladeCount = playerComponent->BladeCount();
         if (bladeCount > 0) {
-            const Vec2  bladeCenter(player->Position().x, player->Position().y + 1.5f);
+            const Vec2  bladeCenter(player->Position().x, player->Position().y + 0.75f);
             const ImVec2 bladeCenterScreen = project(bladeCenter);
             const float orbitRadius = playerComponent->BladeRadius() * pixelsPerUnit;
             draw->AddCircle(bladeCenterScreen, orbitRadius, IM_COL32(214, 186, 120, 40), 72, 1.5f);
@@ -4155,7 +4357,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 棱镜光束：素材包的晶龙光束沿旋转方向拉长，模拟穿透光柱。
     if (player && playerComponent && playerComponent->HasSkill(8)) {
-        const Vec2  center(player->Position().x, player->Position().y + 1.1f);
+        const Vec2  center(player->Position().x, player->Position().y + 0.75f);
         const int   beamCount = playerComponent->PrismBeamCount();
         const float length = playerComponent->PrismBeamLength();
         for (int i = 0; i < beamCount; ++i) {
@@ -4226,7 +4428,7 @@ void SurvivorsDirector::DrawCombatFeedback(World& world, const Camera2D& camera,
 
     // 火球：素材包 4×4 火团序列 + 拖尾。
     for (const FireballFx& fireball : g_fireballs) {
-        const Vec2   visual = fireball.position + Vec2(0.0f, 1.10f);
+        const Vec2   visual = fireball.position + Vec2(0.0f, 0.75f);
         const ImVec2 screen = project(visual);
         const ImVec2 trail = project(visual - fireball.velocity * 0.09f);
         draw->AddLine(trail, screen, IM_COL32(255, 150, 50, 130), 9.0f);

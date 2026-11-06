@@ -8,6 +8,7 @@
 #include "core/FileSystem.h"
 #include "core/Log.h"
 #include "platform/Audio.h"
+#include "platform/Input.h"
 #include "rhi/Texture.h"
 #include "scene/GameObject.h"
 #include "scene/World.h"
@@ -1249,7 +1250,7 @@ void DrawCheckMark(ImDrawList* draw, const Canvas& c, float x, float y, float si
 }
 } // namespace
 
-void SurvivorsDirector::DrawTutorialHint(float vx, float vy, float vw, float vh, bool mobile) {
+void SurvivorsDirector::DrawTutorialHint(World& world, float vx, float vy, float vw, float vh, bool mobile) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
     const int   cls = Clamp(m_playerClass, 0, kSurvivorsClassCount - 1);
@@ -1258,6 +1259,7 @@ void SurvivorsDirector::DrawTutorialHint(float vx, float vy, float vw, float vh,
                       m_tutorialStep < kSurvivorsTutorialStepCount;
 
     if (!gate) {
+        m_tutorialSkipHit = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
         // 实战阶段：小面板展示成长方向，不遮挡操作。
         float panelW = mobile ? (std::min)(c.w - 24.0f, 680.0f) : 500.0f;
         float panelX = mobile ? c.w * 0.5f - panelW * 0.5f : 24.0f;
@@ -1346,8 +1348,18 @@ void SurvivorsDirector::DrawTutorialHint(float vx, float vy, float vw, float vh,
         }
     }
 
-    DrawTextCentered(draw, m_ui, c, mobile ? 15.0f : 13.5f, panelX + panelW * 0.5f, panelY + panelH - 30.0f, kTextMuted,
-                     "完成当前操作后自动继续");
+    const float skipW = mobile ? 132.0f : 118.0f;
+    const float skipH = mobile ? 40.0f : 36.0f;
+    const float skipX = panelX + panelW - skipW - 20.0f;
+    const float skipY = panelY + panelH - skipH - 12.0f;
+    DrawText(draw, m_ui, c, mobile ? 15.0f : 13.5f, panelX + 24.0f, skipY + 8.0f, kTextMuted,
+             "完成当前操作后自动继续");
+    if (DrawButton(draw, m_ui, c, "##tutorial_skip", "跳过教学", skipX, skipY, skipW, skipH, false, false,
+                   mobile ? 15.0f : 14.0f)) {
+        SkipTutorial(world);
+        return;
+    }
+    m_tutorialSkipHit = Vec4(c.P(skipX, skipY).x, c.P(skipX, skipY).y, c.V(skipW), c.V(skipH));
 }
 
 void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive) {
@@ -1475,7 +1487,7 @@ void SurvivorsDirector::DrawHudScreen(World& world, float vx, float vy, float vw
     }
 
     DrawSurvivorsMinimap(draw, m_ui, c, world, m_time);
-    if (m_floor == 1 && !m_networkReplica) DrawTutorialHint(vx, vy, vw, vh, false);
+    if (m_tutorialPending && !m_networkReplica) DrawTutorialHint(world, vx, vy, vw, vh, false);
 }
 
 // mobile-hud 原型的战斗 HUD：一块顶栏（等级/计时/击杀 + 生命/经验）、44px 暂停键、
@@ -1638,7 +1650,7 @@ void SurvivorsDirector::DrawMobileHudScreen(World& world, float vx, float vy, fl
     }
 
     DrawMobileRadar(draw, m_ui, c, world, hud);
-    if (m_floor == 1 && !m_networkReplica) DrawTutorialHint(vx, vy, vw, vh, true);
+    if (m_tutorialPending && !m_networkReplica) DrawTutorialHint(world, vx, vy, vw, vh, true);
 }
 
 // ================================================================ 升级三选一
@@ -2306,12 +2318,15 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     const bool  portrait = c.h > c.w * 1.15f;
 
     const float panelW = FitPanelWidth(c, portrait ? 760.0f : 900.0f);
-    const float panelH = portrait ? 1160.0f : 660.0f;
+    const float panelH = portrait ? 1160.0f : 720.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
+    const bool tutorialDone = TutorialCompleted();
+    if (tutorialDone) m_startFloor = Clamp(m_startFloor, 1, MaxUnlockedFloor());
     DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "出战准备", "初入江湖",
-                     "先选职业，再进入第 1 层教学关；通关 20 层", true);
+                     tutorialDone ? "选择职业与起始层；通关 20 层" : "先选职业，再进入第 1 层教学关；通关 20 层",
+                     true);
 
     auto selectClass = [&](int cls) {
         if (m_playerClass == cls) return;
@@ -2325,6 +2340,7 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
 
     auto drawCard = [&](int cls, float x, float y, float w, float h, bool rowLayout) {
         const bool selected = (m_playerClass == cls);
+        m_prepareClassHit[cls] = Vec4(c.P(x, y).x, c.P(x, y).y, c.V(w), c.V(h));
         ImGui::SetCursorScreenPos(c.P(x, y));
         const bool pressed = ImGui::InvisibleButton((std::string("##class") + std::to_string(cls)).c_str(),
                                                      c.S(w, h));
@@ -2399,10 +2415,66 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     }
 
     const float infoY = portrait ? panelY + 900.0f : panelY + 506.0f;
-    if (portrait) {
+    if (tutorialDone) {
+        const int maxUnlocked = MaxUnlockedFloor();
+        const int cleared = MaxFloorCleared();
+        if (portrait) {
+            DrawText(draw, m_ui, c, 20.0f, panelX + 30.0f, infoY, kText, "历史最高");
+            char clearedText[64];
+            std::snprintf(clearedText, sizeof(clearedText), "第 %d 层 / %d", cleared, kSurvivorsFloorCount);
+            DrawTextRight(draw, m_ui, c, 20.0f, panelX + panelW - 30.0f, infoY, kTag, clearedText);
+            char floorText[48];
+            std::snprintf(floorText, sizeof(floorText), "起始层：第 %d 层", m_startFloor);
+            DrawTextCentered(draw, m_ui, c, 22.0f, c.w * 0.5f, infoY + 40.0f, kInkGreenDark, floorText);
+            m_prepareFloorPrevHit = Vec4(c.P(panelX + 30.0f, infoY + 34.0f).x,
+                                         c.P(panelX + 30.0f, infoY + 34.0f).y, c.V(92.0f), c.V(38.0f));
+            m_prepareFloorNextHit = Vec4(c.P(panelX + panelW - 122.0f, infoY + 34.0f).x,
+                                         c.P(panelX + panelW - 122.0f, infoY + 34.0f).y, c.V(92.0f), c.V(38.0f));
+            if (DrawButton(draw, m_ui, c, "##floor_prev", "上一", panelX + 30.0f, infoY + 34.0f, 92.0f, 38.0f,
+                           false, m_startFloor <= 1, 16.0f)) {
+                SetStartFloor(m_startFloor - 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (DrawButton(draw, m_ui, c, "##floor_next", "下一", panelX + panelW - 122.0f, infoY + 34.0f, 92.0f,
+                           38.0f, false, m_startFloor >= maxUnlocked, 16.0f)) {
+                SetStartFloor(m_startFloor + 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (m_playerClass < 0) {
+                DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, infoY + 92.0f, kGold,
+                                 "请选择一个职业后开始");
+            }
+        } else {
+            DrawText(draw, m_ui, c, 17.0f, panelX + 30.0f, infoY, kText, "历史最高");
+            char clearedText[64];
+            std::snprintf(clearedText, sizeof(clearedText), "第 %d 层 / %d", cleared, kSurvivorsFloorCount);
+            DrawTextRight(draw, m_ui, c, 17.0f, panelX + panelW - 30.0f, infoY, kTag, clearedText);
+            char floorText[48];
+            std::snprintf(floorText, sizeof(floorText), "起始层：第 %d 层", m_startFloor);
+            DrawTextCentered(draw, m_ui, c, 20.0f, c.w * 0.5f, infoY + 34.0f, kInkGreenDark, floorText);
+            m_prepareFloorPrevHit = Vec4(c.P(panelX + 30.0f, infoY + 30.0f).x,
+                                         c.P(panelX + 30.0f, infoY + 30.0f).y, c.V(92.0f), c.V(34.0f));
+            m_prepareFloorNextHit = Vec4(c.P(panelX + panelW - 122.0f, infoY + 30.0f).x,
+                                         c.P(panelX + panelW - 122.0f, infoY + 30.0f).y, c.V(92.0f), c.V(34.0f));
+            if (DrawButton(draw, m_ui, c, "##floor_prev", "上一", panelX + 30.0f, infoY + 30.0f, 92.0f, 34.0f,
+                           false, m_startFloor <= 1, 15.0f)) {
+                SetStartFloor(m_startFloor - 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (DrawButton(draw, m_ui, c, "##floor_next", "下一", panelX + panelW - 122.0f, infoY + 30.0f, 92.0f,
+                           34.0f, false, m_startFloor >= maxUnlocked, 15.0f)) {
+                SetStartFloor(m_startFloor + 1);
+                PlaySfx("click", 0.55f);
+            }
+            if (m_playerClass < 0) {
+                DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, infoY + 76.0f, kGold,
+                                 "请选择一个职业后开始");
+            }
+        }
+    } else if (portrait) {
         DrawText(draw, m_ui, c, 20.0f, panelX + 30.0f, infoY, kText, "第 1 层 · 教学关");
         DrawWrapped(draw, m_ui, c, 16.0f, panelX + 30.0f, infoY + 34.0f, panelW - 60.0f, kTextDim,
-                    "先学会移动、拾取与武学成长，再挑战 20 层。每层进入时随机抽取通关条件。", 1.38f);
+                    "首次进入先学移动、拾取与武学成长；完成后可从已通关层开始。", 1.38f);
         if (m_playerClass < 0) {
             DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, infoY + 90.0f, kGold,
                              "请选择一个职业后开始教学");
@@ -2410,7 +2482,7 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     } else {
         DrawText(draw, m_ui, c, 17.0f, panelX + 30.0f, infoY, kText, "第 1 层 · 教学关");
         DrawWrapped(draw, m_ui, c, 13.0f, panelX + 190.0f, infoY + 2.0f, panelW - 220.0f, kTextDim,
-                    "先学会移动、拾取与武学成长，再挑战 20 层。每层进入时随机抽取通关条件。", 1.40f);
+                    "首次进入先学移动、拾取与武学成长；完成后可从已通关层开始。", 1.40f);
         if (m_playerClass < 0) {
             DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, infoY + 44.0f, kGold,
                              "请选择一个职业后开始教学");
@@ -2423,12 +2495,27 @@ void SurvivorsDirector::DrawPrepareScreen(World& world, float vx, float vy, floa
     const float total = backW + gap + startW;
     const float buttonY = panelY + panelH - 82.0f;
     const float startX = c.w * 0.5f - total * 0.5f;
+    m_prepareBackHit = Vec4(c.P(startX, buttonY).x, c.P(startX, buttonY).y, c.V(backW), c.V(48.0f));
+    m_prepareStartHit = Vec4(c.P(startX + backW + gap, buttonY).x, c.P(startX + backW + gap, buttonY).y,
+                             c.V(startW), c.V(48.0f));
     if (DrawButton(draw, m_ui, c, "##prepare_back", "返回", startX, buttonY, backW, 48.0f, false, false, 19.0f)) {
         PlaySfx("click", 0.6f);
         m_state = State::Menu;
     }
-    if (DrawButton(draw, m_ui, c, "##prepare_start", "开始教学", startX + backW + gap, buttonY, startW, 48.0f, true,
-                   m_playerClass < 0, 19.0f)) {
+    char startLabel[32];
+    if (tutorialDone) std::snprintf(startLabel, sizeof(startLabel), "进入第 %d 层", m_startFloor);
+    else std::snprintf(startLabel, sizeof(startLabel), "开始教学");
+    const bool startDisabled = m_playerClass < 0;
+    bool       startPressed = DrawButton(draw, m_ui, c, "##prepare_start", startLabel, startX + backW + gap,
+                                         buttonY, startW, 48.0f, true, startDisabled, 19.0f);
+    // 兜底命中：少数情况下 ImGui 窗口裁剪/活动项会让底部按钮收不到点击，直接按屏幕矩形再判一次。
+    if (!startPressed && !startDisabled && Input::IsMousePressed(0)) {
+        const Vec2   mouse = Input::MousePosition();
+        const ImVec2 min = c.P(startX + backW + gap, buttonY);
+        const ImVec2 max = c.P(startX + backW + gap + startW, buttonY + 48.0f);
+        startPressed = mouse.x >= min.x && mouse.x <= max.x && mouse.y >= min.y && mouse.y <= max.y;
+    }
+    if (startPressed) {
         PlaySfx("click", 0.6f);
         Reset(world);
     }

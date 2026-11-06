@@ -160,9 +160,18 @@ def build_widgets():
 
     # heroes for class cards / in-game player（职业立绘：游侠 / 剑士 / 法师）
     # 只用「角色立绘」文件夹的静态立绘；玩家角色不做行走动画，只按朝向翻转。
-    heroes = ['mp_img_taohuagu_guoshediao.png', 'mp_img_huashanpai_linghuxiao.png', 'mp_img_shenmupai_mochoujie.png']
-    for i, name in enumerate(heroes):
-        save(trim(load('角色立绘', name)), f'hero_{i}.png', max_size=360)
+    # 2D 朝向约定：所有角色/怪物贴图统一烘焙成面朝右（右 = +X），运行期只用 FaceMovementX。
+    # 逐张标记源图是否需要镜像：郭蛇雕原画面朝右，令狐啸/莫愁姐原画面朝左。
+    heroes = [
+        ('mp_img_taohuagu_guoshediao.png', False),
+        ('mp_img_huashanpai_linghuxiao.png', False),
+        ('mp_img_shenmupai_mochoujie.png', True),
+    ]
+    for i, (name, mirror) in enumerate(heroes):
+        im = trim(load('角色立绘', name))
+        if mirror:
+            im = im.transpose(Image.FLIP_LEFT_RIGHT)
+        save(im, f'hero_{i}.png', max_size=360)
 
     # scenery props
     props = [
@@ -216,7 +225,9 @@ def frames(group, action):
     items.sort()
     return [load('动画序列', n) for _, n in items]
 
-def pack_sheet(images, out_name):
+def pack_sheet(images, out_name, mirror=False):
+    if mirror:
+        images = [im.transpose(Image.FLIP_LEFT_RIGHT) for im in images]
     boxes = [im.getchannel('A').getbbox() for im in images]
     boxes = [b for b in boxes if b]
     u0 = min(b[0] for b in boxes); v0 = min(b[1] for b in boxes)
@@ -243,7 +254,8 @@ def build_characters():
             fr = frames(group, action)
             if not fr:
                 continue
-            pack_sheet(fr, f'enemy_{i}_{action}.png')
+            # 怪物序列帧原画统一面朝左/正面，烘焙时统一镜像成面朝右。
+            pack_sheet(fr, f'enemy_{i}_{action}.png', mirror=True)
 
 # ---------------------------------------------------------------- effects
 EFFECTS = [

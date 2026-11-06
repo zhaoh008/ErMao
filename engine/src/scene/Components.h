@@ -107,6 +107,16 @@ public:
     bool        flipX = false;
     int         layer = 0;                            // 越小越先画
     float       rotation = 0.0f;                      // 绕中心旋转（弧度，2D）
+
+    // 2D 朝向约定：角色/怪物贴图统一面朝 +X（右）。移动时只调用本函数翻转，
+    // 不要在玩法代码里各自猜素材默认朝向；素材导入阶段负责把所有角色/怪物图镜像成朝右。
+    void FaceMovementX(float movementX) {
+        if (movementX > 1e-4f) {
+            flipX = false;
+        } else if (movementX < -1e-4f) {
+            flipX = true;
+        }
+    }
 };
 
 // 2D 精灵动画：把一张横向排列的序列帧贴图按 fps 播放

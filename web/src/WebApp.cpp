@@ -495,8 +495,23 @@ void WebApp::ProcessEvent(SDL_Event& event) {
             const bool down = event.type == SDL_FINGERDOWN;
             const bool up = event.type == SDL_FINGERUP;
 
+            if (down && m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Prepare) {
+                // Prepare 页的按钮按屏幕矩形直接命中：触屏不依赖 ImGui 的鼠标状态，
+                // 避免“先点职业、再点开始”时第二次点击被 ImGui 吃掉。
+                if (m_survivors->HandlePrepareTap(m_world, x, y)) break;
+            }
             if (down && m_survivors && m_survivors->GetState() == SurvivorsDirector::State::Playing) {
-                // 暂停键是战斗 HUD 里唯一需要点的按钮；其余任意位置都立刻成为摇杆原点。
+                // 教学“跳过”是 Playing 状态下除暂停键外的第二个 HUD 按钮；触屏要单独命中，
+                // 因为 Playing 时触点默认被移动摇杆消费，不会转发给 ImGui。
+                if (m_survivors->HitTutorialSkipButton(x, y)) {
+                    if (m_touchActive) {
+                        m_touchActive = false;
+                        m_touchFinger = -1;
+                        ReleaseTouchKeys();
+                    }
+                    m_survivors->SkipTutorial(m_world);
+                    break;
+                }
                 if (m_survivors->HitPauseButton(x, y)) {
                     if (m_touchActive) {
                         m_touchActive = false;
@@ -588,7 +603,7 @@ void WebApp::Render() {
         Vec2 half(20.0f, 8.0f);
         if (auto* component = player->GetComponent<SurvivorsPlayerComponent>()) half = component->arenaHalf;
         camera2D.position = Vec2(Clamp(position.x, -half.x + 11.0f, half.x - 11.0f),
-                                 Clamp(position.y + 1.5f, -half.y + 6.0f, half.y - 6.0f));
+                                 Clamp(position.y + 0.75f, -half.y + 6.0f, half.y - 6.0f));
     }
     m_scene.camera2D = camera2D;
 

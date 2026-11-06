@@ -63,7 +63,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.5.2";
+constexpr const char* kSurvivorsVersion = "0.6.0";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -76,23 +76,25 @@ constexpr float kSurvivorsSkillDamageGrowth = 1.22f;
 constexpr int kSurvivorsClassCount = 3;
 
 // 职业决定初始基础技能；其余技能只能靠击杀掉落、手动拾取。
-// 玩家角色直接用「角色立绘」静态图，不做行走动画，只按朝向翻转（artFacesRight 标记原画朝向）。
+// 玩家角色直接用「角色立绘」静态图，不做行走动画，只按朝向翻转；
+// 贴图在导入时统一成面朝右，运行期只调用 SpriteRendererComponent::FaceMovementX。
 struct SurvivorsClassDef {
     const char* name;
     const char* desc;   // 卡片副标题：基础武学
     const char* style;  // 一句话玩法定位
     const char* growth; // 教学/选人页展示的成长方向示例
     int         baseSkill;
-    bool        artFacesRight;
 };
 
+// 贴图约定：所有角色/怪物立绘与序列帧在导入时统一镜像成“面朝右”，
+// 运行期只需要 FaceMovementX(facing.x)，不再为每个职业/怪物维护 artFacesRight。
 constexpr SurvivorsClassDef kSurvivorsClasses[kSurvivorsClassCount] = {
     {"游侠", "基础武学：箭矢", "远程射手，箭矢自动索敌；散射越高越接近满屏箭雨",
-     "箭矢：散射 Lv.1→2 向，Lv.3→6 向，Lv.5→12 向；攻速/攻击/范围继续强化", 0, true},
+     "箭矢：散射 Lv.1→2 向，Lv.3→6 向，Lv.5→12 向；攻速/攻击/范围继续强化", 0},
     {"剑士", "基础武学：回旋刃", "近身飞刃环绕，越贴近怪群越致命",
-     "回旋刃：Lv.4→3 刃，Lv.10→5 刃，Lv.20→8 刃；环绕半径随等级扩大", 2, true},
+     "回旋刃：Lv.4→3 刃，Lv.10→5 刃，Lv.20→8 刃；环绕半径随等级扩大", 2},
     {"法师", "基础武学：火球", "追踪火球炸开怪群，爆炸范围随等级膨胀",
-     "火球：Lv.5→2 发，Lv.9→3 发，Lv.17→5 发；爆炸范围随等级扩大", 5, false},
+     "火球：Lv.5→2 发，Lv.9→3 发，Lv.17→5 发；爆炸范围随等级扩大", 5},
 };
 constexpr int kSurvivorsDefaultClass = 0;
 // -1 = 尚未选择职业：小程序启动先选职业，选完才能开始。
@@ -508,6 +510,17 @@ public:
     int   PlayerClass() const { return m_playerClass; }
     void  AddKill() { ++m_kills; }
 
+    // 跨局进度：第一次进入教学；之后按历史最高层选择起始层。
+    bool TutorialCompleted() const;
+    int  MaxFloorCleared() const;
+    int  MaxUnlockedFloor() const;
+    int  StartFloor() const { return m_startFloor; }
+    void SetStartFloor(int floor);
+    void SkipTutorial(World& world);
+    bool HitTutorialSkipButton(float screenX, float screenY) const;
+    // 微信触屏在 Prepare 页不经过 ImGui 的鼠标状态，直接按屏幕矩形命中，避免“选完职业点开始没反应”。
+    bool HandlePrepareTap(World& world, float screenX, float screenY);
+
     // 存档
     bool HasSave() const;
     bool SaveGame(World& world);
@@ -558,7 +571,7 @@ private:
     void DrawPrepareScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawStageClearScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
-    void DrawTutorialHint(float vx, float vy, float vw, float vh, bool mobile);
+    void DrawTutorialHint(World& world, float vx, float vy, float vw, float vh, bool mobile);
     void DrawMobileHudScreen(World& world, float vx, float vy, float vw, float vh, bool interactive);
     void DrawLevelUpScreen(World& world, float vx, float vy, float vw, float vh);
     void DrawPauseScreen(World& world, float vx, float vy, float vw, float vh);
@@ -603,10 +616,18 @@ private:
     bool               m_tutorialGate = false; // 当前步骤未完成，暂停刷怪/计时
     float              m_tutorialFlash = 0.0f; // 步骤完成提示
     bool               m_tutorialFinaleStarted = false;
+    bool               m_tutorialPending = false; // 本局从第 1 层教学开始
     Vec2               m_tutorialStartPos{0.0f, 0.0f};
     int                m_tutorialGemBase = 0;
     int                m_tutorialSkillBase = 0;
     int                m_tutorialSkillLevelBase = 1;
+    int                m_startFloor = 1;
+    Vec4               m_tutorialSkipHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareClassHit[kSurvivorsClassCount] = {};
+    Vec4               m_prepareStartHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareBackHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareFloorPrevHit{0.0f, 0.0f, 0.0f, 0.0f};
+    Vec4               m_prepareFloorNextHit{0.0f, 0.0f, 0.0f, 0.0f};
     bool               m_victory = false;
     std::mt19937       m_stageRng{0x9E3779B9u}; // 微信 iOS 没有 crypto.getRandomValues，不能用 random_device；Reset 时用 Timer 播种
 
