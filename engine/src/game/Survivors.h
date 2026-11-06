@@ -63,7 +63,7 @@ constexpr float kSurvivorsSpawnHalfX = 40.0f * kSurvivorsMapScale;
 constexpr float kSurvivorsSpawnHalfY = 22.0f * kSurvivorsMapScale;
 
 // 开发版/正式版共用的版本号；暂停页会显示，方便真机确认装的是哪一版。
-constexpr const char* kSurvivorsVersion = "0.6.0";
+constexpr const char* kSurvivorsVersion = "0.6.1";
 // 技能等级上限 20；箭矢可分配强化合计 24 级（1 基础 + 攻速 6 + 攻击 8 + 范围 4 + 散射 5），按 20 级封顶。
 constexpr int kSurvivorsMaxSkillLevel = 20;
 constexpr int kSurvivorsMaxArrowSpeedLevel = 6;
@@ -465,6 +465,12 @@ struct SurvivorsLevelUpChoice {
     int sub = 0;   // 箭矢专用：0=散射 1=攻速 2=攻击 3=范围
 };
 
+// 每层通关后的翻牌奖励：unlock=true 表示解锁新武学，否则强化已有武学。
+struct SurvivorsStageReward {
+    SurvivorsLevelUpChoice choice;
+    bool                   unlock = false;
+};
+
 // ---------------------------------------------------------------- 导演（波次/菜单/HUD/存档）
 class SurvivorsDirector {
 public:
@@ -584,6 +590,8 @@ private:
     void OpenLevelUp(const SurvivorsPlayerComponent& player);
     void GenerateLevelUpChoices(const SurvivorsPlayerComponent& player);
     void ApplyLevelUpChoice(World& world, int index);
+    void GenerateStageRewards(const SurvivorsPlayerComponent& player);
+    void ApplyStageReward(World& world, int index);
 
     State       m_state = State::Menu;
     int         m_kills = 0;
@@ -634,6 +642,9 @@ private:
     SurvivorsUIAssets     m_ui;
     bool                  m_uiReady = false;
     SurvivorsLevelUpChoice m_levelChoices[3];
+    SurvivorsStageReward   m_stageRewards[3];
+    int                    m_rewardChosen = -1;
+    float                  m_rewardFlipTime = 0.0f;
     int                   m_selectedSkill = -1;
     std::string           m_pauseNotice;
     bool                  m_confirmExit = false;

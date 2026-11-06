@@ -2753,6 +2753,8 @@ void SurvivorsDirector::Reset(World& world) {
     m_toastTimer = 0.0f;
     m_toastText.clear();
     m_victory = false;
+    m_rewardChosen = -1;
+    m_rewardFlipTime = 0.0f;
     m_stageTime = 0.0f;
     m_tutorialStep = 0;
     m_tutorialGate = false;
@@ -2795,6 +2797,8 @@ void SurvivorsDirector::ShowClassSelect(World& world) {
     m_toastTimer = 0.0f;
     m_toastText.clear();
     m_victory = false;
+    m_rewardChosen = -1;
+    m_rewardFlipTime = 0.0f;
     m_floor = 1;
     m_stageTime = 0.0f;
     ClearChestGacha();
@@ -2956,6 +2960,8 @@ void SurvivorsDirector::BeginStage(World& world, int floor, const SurvivorsStage
     m_tutorialFlash = 0.0f;
     m_tutorialFinaleStarted = false;
     m_tutorialSkipHit = Vec4(0.0f, 0.0f, 0.0f, 0.0f);
+    m_rewardChosen = -1;
+    m_rewardFlipTime = 0.0f;
     m_spawnTimer = (m_floor == 1 && m_tutorialPending) ? 0.9f : 0.6f;
     m_eliteTimer = (m_floor == 1 && m_tutorialPending)
                        ? 1.0e9f
@@ -3134,6 +3140,13 @@ void SurvivorsDirector::CompleteStage(World& world) {
     m_nextStageGoal = RollStageGoal(m_floor + 1, m_stageGoal.type);
     m_state = State::StageClear;
     m_selectedSkill = -1;
+    m_rewardChosen = -1;
+    m_rewardFlipTime = 0.0f;
+    if (GameObject* playerObject = FindPlayer((World&)world)) {
+        if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+            GenerateStageRewards(*player);
+        }
+    }
     PlaySfx("levelup", 0.62f, 1.18f);
     LogInfo("[2D] 第 %d 层通过：%s %.0f；下一层条件 %s %.0f", m_floor, SurvivorsGoalName(m_stageGoal.type),
             m_stageGoal.target, SurvivorsGoalName(m_nextStageGoal.type), m_nextStageGoal.target);
@@ -3761,6 +3774,62 @@ void SurvivorsDirector::ApplyLevelUpChoice(World& world, int index) {
     m_selectedSkill = -1;
 }
 
+void SurvivorsDirector::GenerateStageRewards(const SurvivorsPlayerComponent& player) {
+    std::vector<SurvivorsStageReward> pool;
+    const bool canUnlock = player.SelectedSkillCount() < kSurvivorsMaxLoadout;
+    if (canUnlock) {
+        for (int skill = 1; skill < kSurvivorsSkillCount; ++skill) {
+            if (!player.HasSkill(skill)) pool.push_back({SurvivorsLevelUpChoice{skill, 0}, true});
+        }
+    }
+    for (int skill = 0; skill < kSurvivorsSkillCount; ++skill) {
+        if (player.HasSkill(skill) && !player.SkillMaxed(skill)) {
+            pool.push_back({SurvivorsLevelUpChoice{skill, 0}, false});
+        }
+    }
+    if (player.HasSkill(0)) {
+        if (player.arrowSpreadLevel < kSurvivorsMaxArrowSpreadLevel) pool.push_back({{0, 0}, false});
+        if (player.arrowSpeedLevel < kSurvivorsMaxArrowSpeedLevel) pool.push_back({{0, 1}, false});
+        if (player.arrowDamageLevel < kSurvivorsMaxArrowDamageLevel) pool.push_back({{0, 2}, false});
+        if (player.arrowRangeLevel < kSurvivorsMaxArrowRangeLevel) pool.push_back({{0, 3}, false});
+    }
+    // 补给保底；技能全满时也能翻到生命/上限奖励。
+    pool.push_back({{100, 0}, false});
+    pool.push_back({{100, 1}, false});
+    pool.push_back({{100, 2}, false});
+    std::shuffle(pool.begin(), pool.end(), g_rng);
+
+    bool used[kSurvivorsSkillCount] = {};
+    int  picked = 0;
+    for (const SurvivorsStageReward& reward : pool) {
+        if (picked >= 3) break;
+        if (reward.choice.skill >= 0 && reward.choice.skill < kSurvivorsSkillCount) {
+            if (used[reward.choice.skill]) continue;
+            used[reward.choice.skill] = true;
+        }
+        m_stageRewards[picked++] = reward;
+    }
+    while (picked < 3) m_stageRewards[picked++] = {{100, 2}, false};
+    std::shuffle(m_stageRewards, m_stageRewards + 3, g_rng);
+}
+
+void SurvivorsDirector::ApplyStageReward(World& world, int index) {
+    if (m_state != State::StageClear || m_rewardChosen >= 0 || index < 0 || index > 2) return;
+    GameObject* playerObject = FindPlayer(world);
+    auto*       player = playerObject ? playerObject->GetComponent<SurvivorsPlayerComponent>() : nullptr;
+    if (!player) return;
+
+    const SurvivorsStageReward& reward = m_stageRewards[index];
+    if (reward.unlock) {
+        if (!player->UnlockSkill(reward.choice.skill)) return;
+    } else {
+        player->ApplyLevelUpUpgrade(reward.choice.skill, reward.choice.sub);
+    }
+    m_rewardChosen = index;
+    m_rewardFlipTime = 0.0f;
+    PlaySfx("levelup", 0.7f, 1.25f);
+}
+
 void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& screen) {
     // 仅用于 --ui-preview 截图/走查。正常游戏不会调用。
     if (screen.empty()) return;
@@ -3913,6 +3982,13 @@ void SurvivorsDirector::ApplyPreviewState(World& world, const std::string& scree
                 player->loadoutMask = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 5);
                 player->level = 12;
                 player->RefreshDerivedStats();
+            }
+        }
+        m_rewardChosen = -1;
+        m_rewardFlipTime = 0.0f;
+        if (GameObject* playerObject = FindPlayer(world)) {
+            if (auto* player = playerObject->GetComponent<SurvivorsPlayerComponent>()) {
+                GenerateStageRewards(*player);
             }
         }
         m_state = State::StageClear;

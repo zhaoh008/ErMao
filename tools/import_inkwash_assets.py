@@ -163,7 +163,7 @@ def build_widgets():
     # 2D 朝向约定：所有角色/怪物贴图统一烘焙成面朝右（右 = +X），运行期只用 FaceMovementX。
     # 逐张标记源图是否需要镜像：郭蛇雕原画面朝右，令狐啸/莫愁姐原画面朝左。
     heroes = [
-        ('mp_img_taohuagu_guoshediao.png', False),
+        ('mp_img_taohuagu_guoshediao.png', True),
         ('mp_img_huashanpai_linghuxiao.png', False),
         ('mp_img_shenmupai_mochoujie.png', True),
     ]

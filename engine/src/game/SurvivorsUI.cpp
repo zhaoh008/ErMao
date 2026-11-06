@@ -2142,41 +2142,39 @@ void SurvivorsDirector::DrawSettingsScreen(float vx, float vy, float vw, float v
 void SurvivorsDirector::DrawStageClearScreen(World& world, float vx, float vy, float vw, float vh) {
     Canvas      c = MakeCanvas(vx, vy, vw, vh);
     ImDrawList* draw = ImGui::GetForegroundDrawList();
+    const bool  portrait = c.h > c.w * 1.15f;
 
-    const float panelW = FitPanelWidth(c, 780.0f);
-    const float panelH = 540.0f;
+    const float panelW = FitPanelWidth(c, portrait ? 760.0f : 960.0f);
+    const float panelH = portrait ? 820.0f : 760.0f;
     const float panelX = c.w * 0.5f - panelW * 0.5f;
     const float panelY = c.h * 0.5f - panelH * 0.5f;
     DrawPanel(draw, m_ui, c, panelX, panelY, panelW, panelH);
 
     char tag[64];
     std::snprintf(tag, sizeof(tag), "第 %d / %d 层", m_floor, kSurvivorsFloorCount);
-    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 26.0f, panelW - 60.0f, "层数突破", "通关成功",
+    DrawSectionTitle(draw, m_ui, c, panelX + 30.0f, panelY + 24.0f, panelW - 60.0f, "层数突破", "通关成功",
                      tag, true);
 
     char goalLine[160];
     if (m_stageGoal.type == static_cast<int>(SurvivorsGoalType::Tutorial)) {
-        std::snprintf(goalLine, sizeof(goalLine), "本层条件：完成 %d 秒教学", static_cast<int>(m_stageGoal.target));
+        std::snprintf(goalLine, sizeof(goalLine), "本层条件：完成教学");
     } else {
         std::snprintf(goalLine, sizeof(goalLine), "本层条件：%s", StageGoalProgressText(world).c_str());
     }
-    DrawTextCentered(draw, m_ui, c, 16.0f, c.w * 0.5f, panelY + 128.0f, kText, goalLine);
+    DrawTextCentered(draw, m_ui, c, 15.0f, c.w * 0.5f, panelY + 112.0f, kText, goalLine);
 
     char stats[128];
     std::snprintf(stats, sizeof(stats), "本局总击杀 %d · 总用时 %s", m_kills, FormatClock(m_time).c_str());
-    DrawTextCentered(draw, m_ui, c, 14.0f, c.w * 0.5f, panelY + 162.0f, kTextDim, stats);
-    DrawRule(draw, c, panelX + 40.0f, panelY + 198.0f, panelW - 80.0f);
+    DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, panelY + 138.0f, kTextDim, stats);
 
     const int nextFloor = (std::min)(m_floor + 1, kSurvivorsFloorCount);
-    char      nextTitle[64];
+    char      nextTitle[96];
     std::snprintf(nextTitle, sizeof(nextTitle), "下一层 · 第 %d 层", nextFloor);
-    DrawTextCentered(draw, m_ui, c, 20.0f, c.w * 0.5f, panelY + 224.0f, kGold, nextTitle);
-
+    DrawTextCentered(draw, m_ui, c, 16.0f, c.w * 0.5f, panelY + 162.0f, kInkGreenDark, nextTitle);
     char nextGoal[160];
     switch (static_cast<SurvivorsGoalType>(m_nextStageGoal.type)) {
         case SurvivorsGoalType::SurviveTime:
-            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：存活 %d 秒",
-                          static_cast<int>(m_nextStageGoal.target));
+            std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：存活 %d 秒", static_cast<int>(m_nextStageGoal.target));
             break;
         case SurvivorsGoalType::KillCount:
             std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：击杀 %d 只怪物",
@@ -2196,19 +2194,115 @@ void SurvivorsDirector::DrawStageClearScreen(World& world, float vx, float vy, f
             break;
         default: std::snprintf(nextGoal, sizeof(nextGoal), "随机条件：通关"); break;
     }
-    DrawTextCentered(draw, m_ui, c, 18.0f, c.w * 0.5f, panelY + 262.0f, kGoldBright, nextGoal);
-    DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, panelY + 302.0f, kTextMuted,
-                     "进入下一层时恢复 25% 生命；层数推进后，武学与等级都会保留");
+    DrawTextCentered(draw, m_ui, c, 14.0f, c.w * 0.5f, panelY + 186.0f, kGoldBright, nextGoal);
+
+    DrawRule(draw, c, panelX + 30.0f, panelY + 214.0f, panelW - 60.0f);
+    DrawTextCentered(draw, m_ui, c, 20.0f, c.w * 0.5f, panelY + 230.0f, kInkGreenDark,
+                     "翻牌奖励 · 任选一张");
+    DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, panelY + 260.0f, kTextMuted,
+                     "每次通关都有一次强化；点击背面卡牌翻开");
+
+    auto* player = PlayerOf(world);
+    const float gap = portrait ? 10.0f : 16.0f;
+    const float cardW = (panelW - 60.0f - gap * 2.0f) / 3.0f;
+    const float cardH = portrait ? 214.0f : 236.0f;
+    const float cardY = panelY + 286.0f;
+    const float cardX0 = panelX + 30.0f;
+    if (m_rewardChosen == 0 || m_rewardChosen == 1 || m_rewardChosen == 2) {
+        m_rewardFlipTime = (std::min)(0.45f, m_rewardFlipTime + ImGui::GetIO().DeltaTime);
+    }
+
+    for (int i = 0; i < 3; ++i) {
+        const float x = cardX0 + (cardW + gap) * static_cast<float>(i);
+        const SurvivorsStageReward& reward = m_stageRewards[i];
+        const bool chosen = (m_rewardChosen == i);
+        const bool locked = (m_rewardChosen >= 0 && !chosen);
+        const float alpha = locked ? 0.42f : 1.0f;
+        const float angle = chosen ? (m_rewardFlipTime / 0.45f) * 3.14159265f : 0.0f;
+        const bool  front = chosen && angle >= 1.5707963f;
+        const float scaleX = chosen ? (std::max)(0.06f, std::abs(std::cos(angle))) : 1.0f;
+        const float cx = x + cardW * 0.5f;
+        const float drawW = cardW * scaleX;
+        const float dx = cx - drawW * 0.5f;
+
+        if (m_rewardChosen < 0) {
+            ImGui::SetCursorScreenPos(c.P(x, cardY));
+            if (ImGui::InvisibleButton((std::string("##stage_reward") + std::to_string(i)).c_str(),
+                                       c.S(cardW, cardH))) {
+                ApplyStageReward(world, i);
+            }
+            if (ImGui::IsItemHovered()) {
+                draw->AddRect(c.P(x - 3.0f, cardY - 3.0f), c.P(x + cardW + 3.0f, cardY + cardH + 3.0f), kGoldBright,
+                              c.V(9.0f), 0, c.V(2.0f));
+            }
+        }
+
+        if (!front) {
+            const ImU32 border = chosen ? kGoldBright : kPaperBorder;
+            draw->AddRectFilled(c.P(dx + 2.0f, cardY + 4.0f), c.P(dx + drawW + 2.0f, cardY + cardH + 4.0f),
+                                IM_COL32(20, 28, 22, 60), c.V(9.0f));
+            draw->AddRectFilled(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), kInkGreen, c.V(9.0f));
+            draw->AddRect(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), border, c.V(9.0f), 0, c.V(2.0f));
+            if (drawW > cardW * 0.35f) {
+                const float sealR = (portrait ? 30.0f : 38.0f) * scaleX;
+                draw->AddCircleFilled(c.P(cx, cardY + cardH * 0.42f), c.V(sealR), IM_COL32(156, 57, 49, alpha));
+                DrawTextCentered(draw, m_ui, c, portrait ? 30.0f : 36.0f, cx, cardY + cardH * 0.42f - 18.0f,
+                                 IM_COL32(255, 255, 255, static_cast<int>(255 * alpha)), "翻");
+                DrawTextCentered(draw, m_ui, c, 14.0f, cx, cardY + cardH - 52.0f, IM_COL32(230, 224, 208, static_cast<int>(255 * alpha)),
+                                 "点击翻开");
+            }
+        } else if (player) {
+            LevelCardInfo info;
+            if (reward.unlock) {
+                info.tag = "新武学";
+                info.name = kSkills[Clamp(reward.choice.skill, 0, 9)].name;
+                info.level = "解锁 · Lv.1";
+                info.desc = kSkills[Clamp(reward.choice.skill, 0, 9)].desc;
+                info.effect = "永久加入本局武学";
+            } else {
+                info = MakeLevelCardInfo(*player, reward.choice);
+            }
+            const ImU32 accent = reward.unlock ? kGoldBright : (reward.choice.skill == 100 ? IM_COL32(156, 57, 49, 255) : kInkGreen);
+            draw->AddRectFilled(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), kPaper, c.V(9.0f));
+            draw->AddRect(c.P(dx, cardY), c.P(dx + drawW, cardY + cardH), accent, c.V(9.0f), 0, c.V(2.0f));
+            DrawTextCentered(draw, m_ui, c, portrait ? 12.0f : 13.0f, cx, cardY + 12.0f, accent, info.tag.c_str());
+            Texture* icon = nullptr;
+            if (reward.choice.skill >= 0 && reward.choice.skill < 10) icon = m_ui.icon[reward.choice.skill];
+            if (!icon) icon = m_ui.icon[0];
+            if (icon) {
+                const float iconSize = portrait ? 38.0f : 46.0f;
+                DrawImage(draw, c, icon, cx - iconSize * 0.5f, cardY + 34.0f, iconSize, iconSize);
+            }
+            DrawTextCentered(draw, m_ui, c, portrait ? 18.0f : 21.0f, cx, cardY + 86.0f, kInkGreenDark,
+                             info.name.c_str());
+            DrawTextCentered(draw, m_ui, c, portrait ? 12.0f : 13.0f, cx, cardY + 114.0f, kTag,
+                             info.level.c_str());
+            DrawWrapped(draw, m_ui, c, portrait ? 11.5f : 12.5f, dx + 12.0f, cardY + 138.0f, drawW - 24.0f,
+                        kTextDim, info.desc.c_str(), 1.35f);
+            DrawTextCentered(draw, m_ui, c, portrait ? 11.5f : 12.5f, cx, cardY + cardH - 28.0f, kGoldBright,
+                             info.effect.c_str());
+            if (chosen) {
+                DrawTextCentered(draw, m_ui, c, 12.0f, cx, cardY + cardH - 12.0f, kTextMuted, "已获得");
+            }
+        }
+    }
+
+    if (m_rewardChosen < 0) {
+        DrawTextCentered(draw, m_ui, c, 13.0f, c.w * 0.5f, cardY + cardH + 14.0f, kTextMuted,
+                         "翻牌后即可进入下一层");
+    }
 
     const float buttonW = 240.0f;
-    const float buttonY = panelY + panelH - 82.0f;
+    const float buttonY = panelY + panelH - 78.0f;
     if (DrawButton(draw, m_ui, c, "##stage_menu", "回到主菜单", c.w * 0.5f - buttonW - 8.0f, buttonY, buttonW,
-                   48.0f, false, false, 19.0f)) {
+                   46.0f, false, false, 18.0f)) {
         PlaySfx("click", 0.6f);
         ReturnToMenu();
     }
-    if (DrawButton(draw, m_ui, c, "##stage_next", "进入下一层", c.w * 0.5f + 8.0f, buttonY, buttonW, 48.0f, true,
-                   false, 19.0f)) {
+    char nextLabel[48];
+    std::snprintf(nextLabel, sizeof(nextLabel), "进入第 %d 层", nextFloor);
+    if (DrawButton(draw, m_ui, c, "##stage_next", nextLabel, c.w * 0.5f + 8.0f, buttonY, buttonW, 46.0f, true,
+                   m_rewardChosen < 0, 18.0f)) {
         PlaySfx("click", 0.6f);
         AdvanceStage(world);
     }
