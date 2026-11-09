@@ -445,6 +445,7 @@ public:
     State GetState() const { return m_state; }
     void  ReturnToMenu() {
         m_state = State::Menu;
+        m_networkReplica = false;
         m_showSettings = false;
         m_selectedSkill = -1;
         m_pauseNotice.clear();

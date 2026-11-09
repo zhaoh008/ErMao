@@ -495,6 +495,7 @@ void Survivors3DDirector::Reset(World& world) {
 
     g3dRng = 0.7f;
     g3dFxRng = 0.314159f;
+    m_networkReplica = false;
     m_state = State::Playing;
     m_kills = 0;
     g3dKills = 0;

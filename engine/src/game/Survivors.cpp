@@ -2560,6 +2560,8 @@ void SurvivorsDirector::SpawnElite(World& world) {
 
 // ================================================================ 导演：生命周期
 void SurvivorsDirector::Reset(World& world) {
+    // 新局按本地玩法推进，联机副本标志不能带入下一局。
+    m_networkReplica = false;
     // 清掉上一局生成的敌人/箭/宝石/强化道具
     std::vector<GameObject*> toDestroy;
     for (GameObject* root : world.RootObjects()) {
