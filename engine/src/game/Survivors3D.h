@@ -138,7 +138,10 @@ public:
                             float viewportWidth, float viewportHeight);
 
     State GetState() const { return m_state; }
-    void  ReturnToMenu() { m_state = State::Menu; }
+    void  ReturnToMenu() {
+        m_state = State::Menu;
+        m_networkReplica = false;
+    }
     bool  WantsQuit() const { return m_wantsQuit; }
 
     int   Kills() const { return m_kills; }

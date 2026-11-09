@@ -906,6 +906,21 @@ void Engine::MainLoop() {
         const float dt = (std::min)(Timer::Delta(), 0.1f);
         m_time += dt;
 
+        // 联机客户端回到主菜单即结束网络会话：SurvivorsDirector::Reset 会销毁快照实体，
+        // 而 ReplicationClient 仍保留这些裸指针；先 Stop 才能在下一帧插值前清空映射。
+        if (m_net.IsClientReplica()) {
+            const bool survivorsAtMenu =
+                m_survivorsLevel && m_survivors.GetState() == SurvivorsDirector::State::Menu;
+            const bool survivors3DAtMenu =
+                m_survivors3dLevel && m_survivors3d.GetState() == Survivors3DDirector::State::Menu;
+            if (survivorsAtMenu || survivors3DAtMenu) {
+                m_net.Stop(&m_world);
+                if (m_survivorsLevel) m_survivors.ReturnToMenu();
+                if (m_survivors3dLevel) m_survivors3d.ReturnToMenu();
+                LogInfo("[网络] 客户端已回到主菜单，结束网络会话并清理快照实体");
+            }
+        }
+
         // 网络：先收包/应用输入（服务端）或预测（客户端），世界更新后再广播快照。
         m_net.PreFrame(m_world, dt, BuildNetInput());
 
